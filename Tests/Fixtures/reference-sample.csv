@@ -1,0 +1,4 @@
+product_ref;pse_id;pse_ref;ean_code;mpn;manufacturer_ref;brand_title;attribute_combination;size_label;color_label;feature_values;currency_code;target_price;price_vat_included;monitored;competitor_domains;locale;notes
+CR-BLOUSON-TRACKER;;CR-BLOUSON-TRACKER-L-NOIR;3660600123454;IXON-100101045-1023-L;100101045;Ixon;Taille:L|Coloris:Noir;L;Noir;Homologation:CE EN 17092-4|Matiere:Cuir de vachette;EUR;349.000000;1;1;dafy-moto.com|motoblouz.com;fr_FR;
+CR-BLOUSON-TRACKER;;CR-BLOUSON-TRACKER-XL-NOIR;3660600123461;IXON-100101045-1023-XL;100101045;Ixon;Taille:XL|Coloris:Noir;XL;Noir;Homologation:CE EN 17092-4|Matiere:Cuir de vachette;EUR;349.000000;1;1;;fr_FR;
+CR-CASQUE-JET-BELL;4821;CR-CASQUE-BELL-CUSTOM500-57;;BELL-7138563;7138563;Bell;Taille:57 (M)|Coloris:Blanc brillant;57;Blanc;Homologation:ECE 22.06|Calotte:Fibre composite;EUR;419.000000;1;1;;fr_FR;"EAN absent chez le fournisseur - appariement par MPN + marque"
