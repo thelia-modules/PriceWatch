@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lives in the module so the project's phpunit.xml.dist stays untouched.
+     Run from the project root:
+       ddev exec vendor/bin/phpunit -c local/modules/PriceWatch/phpunit.xml -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="../../../vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="../../../vendor/autoload.php"
+         colors="true"
+         failOnWarning="true"
+         failOnRisky="true">
+    <testsuites>
+        <testsuite name="PriceWatch unit">
+            <directory>Tests/Unit</directory>
+        </testsuite>
+        <testsuite name="PriceWatch integration">
+            <directory>Tests/Integration</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
