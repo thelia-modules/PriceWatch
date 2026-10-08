@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Intentionally empty.
+
+    In Thelia 3 this file is only needed for <exports>, <imports>, <parameters>
+    and short loop aliases. Services come from PriceWatch::configureServices(),
+    routes from #[Route] attributes, hooks from BaseHook subclasses, and console
+    commands from #[AsCommand] - all auto-discovered.
+-->
+<config xmlns="http://thelia.net/schema/dic/config"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://thelia.net/schema/dic/config http://thelia.net/schema/dic/config/thelia-1_0.xsd">
+</config>

@@ -1,0 +1,18 @@
+{
+    "name": "classicride/price-watch",
+    "description": "Competitor price monitoring for Thelia 3, with typed Jev judgments for product and variant identity checks.",
+    "type": "thelia-module",
+    "license": "LGPL-3.0-or-later",
+    "require": {
+        "php": ">=8.3",
+        "thelia/installer": "~1.1"
+    },
+    "extra": {
+        "installer-name": "PriceWatch"
+    },
+    "autoload": {
+        "psr-4": {
+            "PriceWatch\\": ""
+        }
+    }
+}

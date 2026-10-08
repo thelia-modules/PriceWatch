@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module xmlns="http://thelia.net/schema/dic/module"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://thelia.net/schema/dic/module http://thelia.net/schema/dic/module/module-2_2.xsd">
+    <fullnamespace>PriceWatch\PriceWatch</fullnamespace>
+    <descriptive locale="en_US">
+        <title>Price Watch</title>
+        <description>Competitor price monitoring. Collects competitor offers from Google Shopping and targeted scraping, matches them to catalogue variants by GTIN, and reports price gaps in the back-office. Semantic checks run on typed Jev judgments.</description>
+    </descriptive>
+    <descriptive locale="fr_FR">
+        <title>Veille tarifaire</title>
+        <description>Veille des prix concurrents. Relève les offres concurrentes depuis Google Shopping et par collecte ciblée, les rapproche des déclinaisons du catalogue par GTIN, et expose les écarts de prix dans le back-office. Les contrôles sémantiques reposent sur des jugements typés Jev.</description>
+    </descriptive>
+    <languages>
+        <language>en_US</language>
+        <language>fr_FR</language>
+    </languages>
+    <version>0.1.0</version>
+    <authors>
+        <author>
+            <name>Emmanuel Nurit</name>
+            <email>emmanuel.nurit@gmail.com</email>
+        </author>
+    </authors>
+    <type>classic</type>
+    <thelia>3.0.0</thelia>
+    <stability>alpha</stability>
+    <mandatory>0</mandatory>
+    <hidden>0</hidden>
+</module>

@@ -1,0 +1,453 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<database defaultIdMethod="native" name="TheliaMain"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="../../../vendor/thelia/propel/resources/xsd/database.xsd">
+
+    <!--
+        Naming: every column default uses defaultValue, never default.
+        `default` is not a Propel attribute and is silently ignored (seen in
+        vendor/thelia/modules/SEOne/Config/schema.xml).
+
+        Types: TINYINT columns get ?int setters under strict_types, so callers
+        pass 0/1 and never true/false. DECIMAL columns get ?string setters, so
+        callers pass '319.90' and never a float.
+
+        `condition` is a reserved MySQL word, hence condition_code.
+    -->
+
+    <!-- Normalised product identifiers, per sale element. The core has only
+         product_sale_elements.ean_code: nullable, unindexed, unvalidated. This
+         table is also the monitoring scope, so there is no separate watchlist. -->
+    <table name="pw_product_identity" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="product_sale_elements_id" required="true" type="INTEGER"/>
+        <column name="product_id" required="true" type="INTEGER"/>
+
+        <column name="gtin_raw" size="255" type="VARCHAR"/>
+        <column name="gtin" size="14" type="VARCHAR"/>
+        <column defaultValue="0" name="gtin_valid" size="4" type="TINYINT"/>
+        <column defaultValue="0" name="gtin_shared" size="4" type="TINYINT"/>
+        <column name="gtin_source" size="20" type="VARCHAR"/>
+
+        <column name="mpn_raw" size="255" type="VARCHAR"/>
+        <column name="mpn_normalized" size="64" type="VARCHAR"/>
+        <column name="manufacturer_ref" size="64" type="VARCHAR"/>
+
+        <column name="brand_label" size="128" type="VARCHAR"/>
+        <column name="brand_normalized" size="128" type="VARCHAR"/>
+
+        <column name="size_label" size="32" type="VARCHAR"/>
+        <column name="size_normalized" size="32" type="VARCHAR"/>
+        <column name="color_label" size="48" type="VARCHAR"/>
+        <column name="color_normalized" size="48" type="VARCHAR"/>
+        <column name="variant_axis_json" type="LONGVARCHAR"/>
+        <column name="feature_digest" type="LONGVARCHAR"/>
+
+        <column name="target_price" scale="6" size="16" type="DECIMAL"/>
+        <column defaultValue="EUR" name="currency_code" size="3" type="VARCHAR"/>
+        <column defaultValue="1" name="price_vat_included" size="4" type="TINYINT"/>
+
+        <column defaultValue="1" name="monitored" size="4" type="TINYINT"/>
+        <column defaultValue="fr_FR" name="locale" size="5" type="VARCHAR"/>
+        <column name="notes" size="512" type="VARCHAR"/>
+        <column name="source_checksum" size="40" type="VARCHAR"/>
+        <column name="import_batch_id" type="INTEGER"/>
+
+        <foreign-key foreignTable="product_sale_elements" name="fk_pw_identity_pse" onDelete="CASCADE" onUpdate="RESTRICT">
+            <reference foreign="id" local="product_sale_elements_id"/>
+        </foreign-key>
+
+        <unique name="uq_pw_identity_pse">
+            <unique-column name="product_sale_elements_id"/>
+        </unique>
+        <index name="idx_pw_identity_gtin">
+            <index-column name="gtin"/>
+        </index>
+        <index name="idx_pw_identity_mpn_brand">
+            <index-column name="mpn_normalized"/>
+            <index-column name="brand_normalized"/>
+        </index>
+        <index name="idx_pw_identity_monitored">
+            <index-column name="monitored"/>
+            <index-column name="product_id"/>
+        </index>
+
+        <behavior name="timestampable"/>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- A competitor. Nothing reaches the gap screen before status = watched. -->
+    <table name="pw_competitor" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="domain" required="true" size="190" type="VARCHAR"/>
+        <column name="display_name" size="190" type="VARCHAR"/>
+        <column defaultValue="proposed" name="status" required="true" size="20" type="VARCHAR"/>
+
+        <column name="discovery_source" size="20" type="VARCHAR"/>
+        <column name="discovery_evidence_json" type="LONGVARCHAR"/>
+        <column name="products_covered" defaultValue="0" type="INTEGER"/>
+        <column name="median_rank" scale="3" size="8" type="DECIMAL"/>
+        <column name="eur_share" scale="3" size="5" type="DECIMAL"/>
+
+        <column name="merchant_type" size="32" type="VARCHAR"/>
+        <column name="merchant_relevance" scale="3" size="5" type="DECIMAL"/>
+        <column name="merchant_judged_at" type="TIMESTAMP"/>
+
+        <column name="robots_allowed" size="4" type="TINYINT"/>
+        <column name="robots_checked_at" type="TIMESTAMP"/>
+        <column defaultValue="2000" name="crawl_delay_ms" type="INTEGER"/>
+        <column defaultValue="200" name="max_pages_per_pass" type="INTEGER"/>
+        <column name="blocked_until" type="TIMESTAMP"/>
+
+        <column defaultValue="EUR" name="currency_code" size="3" type="VARCHAR"/>
+        <column defaultValue="1" name="price_vat_included" size="4" type="TINYINT"/>
+
+        <column name="url_pattern" size="255" type="VARCHAR"/>
+        <column name="scrape_profile_json" type="LONGVARCHAR"/>
+        <column name="expected_method" size="20" type="VARCHAR"/>
+        <column defaultValue="0" name="extraction_broken_streak" type="INTEGER"/>
+
+        <column name="validated_by" size="100" type="VARCHAR"/>
+        <column name="validated_at" type="TIMESTAMP"/>
+
+        <unique name="uq_pw_competitor_domain">
+            <unique-column name="domain"/>
+        </unique>
+        <index name="idx_pw_competitor_status">
+            <index-column name="status"/>
+        </index>
+
+        <behavior name="timestampable"/>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- The durable link competitor x sale element x remote variant, and its
+         matching verdict. Expensive to produce (a Jev judgment, sometimes a
+         human decision), mutable, long-lived. Kept apart from the quotes. -->
+    <table name="pw_competitor_offer" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="competitor_id" required="true" type="INTEGER"/>
+        <column name="product_sale_elements_id" required="true" type="INTEGER"/>
+        <column name="offer_key" required="true" size="190" type="VARCHAR"/>
+        <column name="url" type="LONGVARCHAR"/>
+
+        <column name="remote_title" size="255" type="VARCHAR"/>
+        <column name="remote_brand" size="128" type="VARCHAR"/>
+        <column name="remote_brand_normalized" size="128" type="VARCHAR"/>
+        <column name="remote_gtin" size="14" type="VARCHAR"/>
+        <column defaultValue="0" name="remote_gtin_valid" size="4" type="TINYINT"/>
+        <column name="remote_mpn_normalized" size="64" type="VARCHAR"/>
+        <column name="remote_variant_label" size="190" type="VARCHAR"/>
+        <column name="remote_condition" size="20" type="VARCHAR"/>
+
+        <column defaultValue="candidate" name="match_state" required="true" size="20" type="VARCHAR"/>
+        <column name="match_method" size="20" type="VARCHAR"/>
+        <column name="match_reason" size="40" type="VARCHAR"/>
+        <column name="identity_fingerprint" size="40" type="VARCHAR"/>
+        <column name="judged_fingerprint" size="40" type="VARCHAR"/>
+
+        <column name="last_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="last_total_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="last_currency_code" size="3" type="VARCHAR"/>
+        <column name="last_our_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="last_delta" scale="6" size="16" type="DECIMAL"/>
+        <column name="last_delta_pct" scale="3" size="8" type="DECIMAL"/>
+        <column defaultValue="0" name="last_comparable" size="4" type="TINYINT"/>
+        <column name="exclusion_reason" size="40" type="VARCHAR"/>
+
+        <column name="first_seen_at" type="TIMESTAMP"/>
+        <column name="last_seen_at" type="TIMESTAMP"/>
+        <column defaultValue="1" name="active" size="4" type="TINYINT"/>
+
+        <column name="reviewed_by" size="100" type="VARCHAR"/>
+        <column name="reviewed_at" type="TIMESTAMP"/>
+
+        <foreign-key foreignTable="pw_competitor" name="fk_pw_offer_competitor" onDelete="CASCADE" onUpdate="RESTRICT">
+            <reference foreign="id" local="competitor_id"/>
+        </foreign-key>
+        <foreign-key foreignTable="product_sale_elements" name="fk_pw_offer_pse" onDelete="CASCADE" onUpdate="RESTRICT">
+            <reference foreign="id" local="product_sale_elements_id"/>
+        </foreign-key>
+
+        <unique name="uq_pw_offer_competitor_key">
+            <unique-column name="competitor_id"/>
+            <unique-column name="offer_key"/>
+        </unique>
+        <!-- The gap screen: equalities first, the sort column third, so the
+             range scan AND the ORDER BY are both served by this index. -->
+        <index name="idx_pw_offer_screen">
+            <index-column name="active"/>
+            <index-column name="last_comparable"/>
+            <index-column name="last_delta_pct"/>
+        </index>
+        <index name="idx_pw_offer_competitor_state">
+            <index-column name="competitor_id"/>
+            <index-column name="match_state"/>
+        </index>
+        <index name="idx_pw_offer_pse">
+            <index-column name="product_sale_elements_id"/>
+            <index-column name="match_state"/>
+        </index>
+        <index name="idx_pw_offer_state">
+            <index-column name="match_state"/>
+            <index-column name="last_seen_at"/>
+        </index>
+
+        <behavior name="timestampable"/>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- One timestamped reading. Immutable, free to produce, about 1M rows a
+         year. The gap screen never reads this table: it reads the offer's
+         denormalised last_* columns instead. -->
+    <table name="pw_price_quote" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="offer_id" required="true" type="INTEGER"/>
+        <column name="collected_day" required="true" type="DATE"/>
+        <column name="source" required="true" size="20" type="VARCHAR"/>
+        <column name="collected_at" required="true" type="TIMESTAMP"/>
+
+        <column name="price" scale="6" size="16" type="DECIMAL"/>
+        <column name="list_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="shipping_price" scale="6" size="16" type="DECIMAL"/>
+        <column defaultValue="0" name="shipping_included" size="4" type="TINYINT"/>
+        <column name="total_price" scale="6" size="16" type="DECIMAL"/>
+        <column defaultValue="EUR" name="currency_code" size="3" type="VARCHAR"/>
+        <column defaultValue="1" name="price_vat_included" size="4" type="TINYINT"/>
+        <column name="availability" size="32" type="VARCHAR"/>
+        <column name="condition_code" size="20" type="VARCHAR"/>
+
+        <column name="our_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="delta" scale="6" size="16" type="DECIMAL"/>
+        <column name="delta_pct" scale="3" size="8" type="DECIMAL"/>
+        <column defaultValue="0" name="comparable" size="4" type="TINYINT"/>
+        <column name="exclusion_reason" size="40" type="VARCHAR"/>
+
+        <column name="extraction_method" size="20" type="VARCHAR"/>
+        <column name="extraction_confidence" scale="3" size="4" type="DECIMAL"/>
+        <column name="raw_payload_json" type="LONGVARCHAR"/>
+        <column name="evidence_excerpt" type="LONGVARCHAR"/>
+        <column name="collect_run_id" type="INTEGER"/>
+
+        <foreign-key foreignTable="pw_competitor_offer" name="fk_pw_quote_offer" onDelete="CASCADE" onUpdate="RESTRICT">
+            <reference foreign="id" local="offer_id"/>
+        </foreign-key>
+
+        <!-- Daily idempotence: a second pass on the same day cannot duplicate. -->
+        <unique name="uq_pw_quote_offer_day_source">
+            <unique-column name="offer_id"/>
+            <unique-column name="collected_day"/>
+            <unique-column name="source"/>
+        </unique>
+        <index name="idx_pw_quote_day">
+            <index-column name="collected_day"/>
+        </index>
+
+        <behavior name="timestampable">
+            <parameter name="disable_updated_at" value="true"/>
+        </behavior>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- Daily rollup kept after the fine-grained quotes are purged. -->
+    <table name="pw_price_daily" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="offer_id" required="true" type="INTEGER"/>
+        <column name="collected_day" required="true" type="DATE"/>
+        <column name="min_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="max_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="avg_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="close_price" scale="6" size="16" type="DECIMAL"/>
+        <column defaultValue="0" name="samples" type="INTEGER"/>
+
+        <foreign-key foreignTable="pw_competitor_offer" name="fk_pw_daily_offer" onDelete="CASCADE" onUpdate="RESTRICT">
+            <reference foreign="id" local="offer_id"/>
+        </foreign-key>
+
+        <unique name="uq_pw_daily_offer_day">
+            <unique-column name="offer_id"/>
+            <unique-column name="collected_day"/>
+        </unique>
+
+        <behavior name="timestampable">
+            <parameter name="disable_updated_at" value="true"/>
+        </behavior>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- Jev judgment cache. Same state plus same question version gives the
+         same verdict, so it is never paid for nor replayed twice. Also the
+         audit trail of every verdict that was paid for. -->
+    <table name="pw_jev_judgment" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="state_hash" required="true" size="40" type="VARCHAR"/>
+        <column name="question_id" required="true" size="40" type="VARCHAR"/>
+        <column name="question_version" required="true" type="INTEGER"/>
+
+        <column name="answer_type" size="10" type="VARCHAR"/>
+        <column name="value_num" scale="6" size="10" type="DECIMAL"/>
+        <column name="value_text" size="40" type="VARCHAR"/>
+        <column name="band" size="10" type="VARCHAR"/>
+        <column name="confidence" scale="5" size="6" type="DECIMAL"/>
+        <column name="probabilities_json" type="LONGVARCHAR"/>
+
+        <column name="model_returned" size="40" type="VARCHAR"/>
+        <column defaultValue="0" name="input_tokens" type="INTEGER"/>
+        <column name="cost_usd" scale="8" size="12" type="DECIMAL"/>
+        <column name="expires_at" type="TIMESTAMP"/>
+
+        <unique name="uq_pw_judgment_state_question">
+            <unique-column name="state_hash"/>
+            <unique-column name="question_id"/>
+            <unique-column name="question_version"/>
+        </unique>
+
+        <behavior name="timestampable"/>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- Execution trace and cost ledger. Without it a partial collection is
+         invisible and resuming is impossible. -->
+    <table name="pw_collect_run" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="pass_name" required="true" size="30" type="VARCHAR"/>
+        <column defaultValue="started" name="status" required="true" size="20" type="VARCHAR"/>
+        <column name="started_at" type="TIMESTAMP"/>
+        <column name="finished_at" type="TIMESTAMP"/>
+
+        <column defaultValue="0" name="targets_planned" type="INTEGER"/>
+        <column defaultValue="0" name="offers_seen" type="INTEGER"/>
+        <column defaultValue="0" name="quotes_written" type="INTEGER"/>
+        <column defaultValue="0" name="offers_matched" type="INTEGER"/>
+        <column defaultValue="0" name="offers_review" type="INTEGER"/>
+        <column defaultValue="0" name="offers_rejected" type="INTEGER"/>
+
+        <column defaultValue="0" name="jev_requests" type="INTEGER"/>
+        <column defaultValue="0" name="jev_cache_hits" type="INTEGER"/>
+        <column defaultValue="0" name="jev_failed" type="INTEGER"/>
+        <column defaultValue="0" name="jev_input_tokens" type="INTEGER"/>
+        <column name="jev_cost_usd" scale="8" size="12" type="DECIMAL"/>
+
+        <column defaultValue="0" name="dataforseo_tasks" type="INTEGER"/>
+        <column name="dataforseo_cost_usd" scale="8" size="12" type="DECIMAL"/>
+        <column defaultValue="0" name="http_errors" type="INTEGER"/>
+        <column defaultValue="0" name="pages_fetched" type="INTEGER"/>
+
+        <column name="last_target_key" size="190" type="VARCHAR"/>
+        <column name="errors_json" type="LONGVARCHAR"/>
+        <column defaultValue="0" name="dry_run" size="4" type="TINYINT"/>
+
+        <index name="idx_pw_run_pass_started">
+            <index-column name="pass_name"/>
+            <index-column name="started_at"/>
+        </index>
+
+        <behavior name="timestampable"/>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- Import trace: checksum of the file and the created/updated/unchanged/
+         rejected counters. Proves idempotence and backs the dry run. -->
+    <table name="pw_import_batch" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="filename" size="255" type="VARCHAR"/>
+        <column name="source_checksum" size="40" type="VARCHAR"/>
+        <column defaultValue="fr_FR" name="locale" size="5" type="VARCHAR"/>
+        <column defaultValue="0" name="dry_run" size="4" type="TINYINT"/>
+        <column defaultValue="started" name="status" required="true" size="20" type="VARCHAR"/>
+
+        <column defaultValue="0" name="lines_total" type="INTEGER"/>
+        <column defaultValue="0" name="lines_created" type="INTEGER"/>
+        <column defaultValue="0" name="lines_updated" type="INTEGER"/>
+        <column defaultValue="0" name="lines_unchanged" type="INTEGER"/>
+        <column defaultValue="0" name="lines_rejected" type="INTEGER"/>
+        <column defaultValue="0" name="competitors_seeded" type="INTEGER"/>
+
+        <column name="started_at" type="TIMESTAMP"/>
+        <column name="finished_at" type="TIMESTAMP"/>
+
+        <behavior name="timestampable"/>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- A rejected import line is never lost and never stops the import. -->
+    <table name="pw_import_reject" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="batch_id" required="true" type="INTEGER"/>
+        <column name="line_number" required="true" type="INTEGER"/>
+        <column name="error_code" required="true" size="40" type="VARCHAR"/>
+        <column name="message" size="255" type="VARCHAR"/>
+        <column name="raw_line" type="LONGVARCHAR"/>
+
+        <foreign-key foreignTable="pw_import_batch" name="fk_pw_reject_batch" onDelete="CASCADE" onUpdate="RESTRICT">
+            <reference foreign="id" local="batch_id"/>
+        </foreign-key>
+
+        <index name="idx_pw_reject_batch">
+            <index-column name="batch_id"/>
+        </index>
+
+        <behavior name="timestampable">
+            <parameter name="disable_updated_at" value="true"/>
+        </behavior>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
+    <!-- Required as soon as a foreign key points at a core table
+         (product_sale_elements here). -->
+    <external-schema filename="local/config/schema.xml" referenceOnly="true"/>
+</database>

@@ -1,0 +1,7 @@
+/vendor/
+/Model/Base/
+/Model/Map/
+/Model/Event/
+*.log
+.DS_Store
+.phpunit.result.cache
