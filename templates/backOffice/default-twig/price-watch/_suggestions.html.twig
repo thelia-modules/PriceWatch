@@ -1,0 +1,122 @@
+{# Products worth collecting now, each with why. Ticking them and clicking
+   starts one pass on them; the cost shown is the worst case, enforced. #}
+<p class="small text-muted mb-2">{{ 'Products to collect now: they sell, we were dearer last time, or what a competitor showed is over %stale% days old. The ones with the most reasons first.'|trans({'%stale%': staleDays}, 'pricewatch') }}</p>
+
+{% if suggestions is empty %}
+    <div class="alert alert-light border" data-testid="pw-suggestions-empty">{{ 'No suggestion for now: no recent sale, no gap against us, nothing collected too long ago.'|trans({}, 'pricewatch') }}</div>
+{% else %}
+    {% set badges = {
+        sales: 'bg-success-subtle text-success-emphasis border-success-subtle',
+        dearer: 'bg-danger-subtle text-danger-emphasis border-danger-subtle',
+        stale: 'bg-body-secondary text-body border'
+    } %}
+    {% set icons = {sales: 'bi-graph-up-arrow', dearer: 'bi-arrow-down-right', stale: 'bi-clock-history'} %}
+    <form method="post" action="{{ path('pricewatch_suggestions_run') }}" data-testid="pw-suggestions"
+          data-max="{{ max }}" data-cost-per-variant="{{ costPerVariant }}"
+          data-summary="{{ '%products% product(s), %variants% variant(s), at most %cost%'|trans({}, 'pricewatch') }}"
+          data-none="{{ 'Tick the products to collect.'|trans({}, 'pricewatch') }}">
+        <input type="hidden" name="_token" value="{{ csrfToken }}">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th scope="col" style="width: 2.5rem"><span class="visually-hidden">{{ 'Select'|trans({}, 'pricewatch') }}</span></th>
+                        <th scope="col">{{ 'Product'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'Why collect it now'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Variants'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'At most'|trans({}, 'pricewatch') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in suggestions %}
+                    <tr data-testid="pw-suggestion-{{ row.id }}">
+                        <td>
+                            <input class="form-check-input" type="checkbox" name="products[]" value="{{ row.id }}" id="pw-suggest-{{ row.id }}" data-variants="{{ row.variants }}" {% if row.variants == 0 %}disabled{% endif %} aria-label="{{ 'Select %product%'|trans({'%product%': row.title}, 'pricewatch') }}">
+                        </td>
+                        <td style="width: 40%; max-width: 0; min-width: 15rem">
+                            <label class="d-flex align-items-center gap-2 mb-0" for="pw-suggest-{{ row.id }}" style="cursor: pointer">
+                                {% if row.image %}
+                                    <img src="{{ row.image }}" alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" class="rounded border flex-shrink-0 bg-white" style="object-fit: contain">
+                                {% else %}
+                                    <span class="d-inline-flex align-items-center justify-content-center rounded border flex-shrink-0 bg-body-tertiary text-secondary" style="width: 40px; height: 40px" aria-hidden="true"><i class="bi bi-image"></i></span>
+                                {% endif %}
+                                <span style="min-width: 0">
+                                    <span class="fw-semibold d-block text-truncate" title="{{ row.title }}">{{ row.title }}</span>
+                                    <span class="small text-muted d-block text-truncate">
+                                        {{ row.ref }}
+                                        {% if row.variants == 0 %} · <span class="text-warning-emphasis">{{ 'no variant with a valid EAN code of its own'|trans({}, 'pricewatch') }}</span>
+                                        {% elseif not row.watched %} · <span class="text-primary-emphasis">{{ 'not watched yet, added when collected'|trans({}, 'pricewatch') }}</span>{% endif %}
+                                    </span>
+                                </span>
+                            </label>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for reason in row.reasons %}
+                                    <span class="badge rounded-pill border {{ badges[reason.key] }}" data-reason="{{ reason.key }}"
+                                        {% if reason.key == 'sales' %}data-bs-toggle="tooltip" title="{{ 'Revenue excluding tax: %revenue%'|trans({'%revenue%': reason.revenue}, 'pricewatch') }}"{% endif %}
+                                        {% if reason.key == 'dearer' %}data-bs-toggle="tooltip" title="{{ 'at %count% competitor(s), last collected'|trans({'%count%': reason.competitors}, 'pricewatch') }}"{% endif %}>
+                                        <i class="bi {{ icons[reason.key] }} me-1" aria-hidden="true"></i>
+                                        {%- if reason.key == 'sales' -%}{{ '%count% sold in %days% days'|trans({'%count%': reason.quantity, '%days%': salesDays}, 'pricewatch') }}
+                                        {%- elseif reason.key == 'dearer' -%}{{ 'We are dearer by %gap%'|trans({'%gap%': reason.gap}, 'pricewatch') }}
+                                        {%- else -%}{{ 'Collected %days% days ago'|trans({'%days%': reason.days}, 'pricewatch') }}{%- endif -%}
+                                    </span>
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td class="text-end">{{ row.variants ?: '–' }}</td>
+                        <td class="text-end text-nowrap text-muted">{{ row.variants ? row.cost : '–' }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-3 position-sticky bottom-0 bg-body border-top py-2 mt-0" style="z-index: 2">
+            <button type="submit" class="btn btn-sm btn-primary" data-testid="pw-suggestions-run" disabled>
+                <i class="bi bi-play-fill me-1" aria-hidden="true"></i>{{ 'Collect the selection'|trans({}, 'pricewatch') }}
+            </button>
+            <span class="small fw-semibold" data-pw-selection data-testid="pw-suggestions-selection">{{ 'Tick the products to collect.'|trans({}, 'pricewatch') }}</span>
+            <span class="small text-muted">{{ '%max% products at most per pass. Products not watched yet are added to the watch.'|trans({'%max%': max}, 'pricewatch') }}</span>
+            {% if running %}<span class="small text-warning-emphasis">{{ 'A pass is running: wait until it ends.'|trans({}, 'pricewatch') }}</span>{% endif %}
+        </div>
+    </form>
+    <script>
+        (function () {
+            const form = document.querySelector('[data-testid="pw-suggestions"]');
+
+            if (!form) {
+                return;
+            }
+
+            const running = {{ running ? 'true' : 'false' }};
+            const max = Number(form.dataset.max);
+            const perVariant = Number(form.dataset.costPerVariant);
+            const button = form.querySelector('[data-testid="pw-suggestions-run"]');
+            const summary = form.querySelector('[data-pw-selection]');
+            const usd = new Intl.NumberFormat(document.documentElement.lang || undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 3 });
+            const boxes = Array.from(form.querySelectorAll('input[name="products[]"]'));
+
+            function update() {
+                const ticked = boxes.filter((box) => box.checked);
+                const variants = ticked.reduce((sum, box) => sum + Number(box.dataset.variants), 0);
+
+                summary.textContent = ticked.length === 0
+                    ? form.dataset.none
+                    : form.dataset.summary
+                        .replace('%products%', String(ticked.length))
+                        .replace('%variants%', String(variants))
+                        .replace('%cost%', usd.format(variants * perVariant));
+                button.disabled = running || ticked.length === 0;
+                // One pass covers at most max products: the others wait.
+                boxes.forEach((box) => {
+                    if (!box.checked) {
+                        box.disabled = Number(box.dataset.variants) === 0 || ticked.length >= max;
+                    }
+                });
+            }
+
+            boxes.forEach((box) => box.addEventListener('change', update));
+            update();
+        })();
+    </script>
+{% endif %}

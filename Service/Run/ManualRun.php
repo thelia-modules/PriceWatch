@@ -79,12 +79,12 @@ final readonly class ManualRun
     }
 
     /**
-     * @param ?string $productRef only this product's variants; otherwise the
-     *                            ones collected longest ago
+     * @param list<string> $productRefs only these products' variants;
+     *                                  otherwise the ones collected longest ago
      *
      * @throws \RuntimeException when a pass is already running
      */
-    public function start(int $variants, ?string $productRef = null): void
+    public function start(int $variants, array $productRefs = []): void
     {
         if ($this->isRunning()) {
             throw new \RuntimeException('A price watch pass is already running.');
@@ -106,7 +106,7 @@ final readonly class ManualRun
             '--no-ansi',
         ];
 
-        if ($productRef !== null) {
+        foreach ($productRefs as $productRef) {
             $collect[] = '--product='.$productRef;
         }
 

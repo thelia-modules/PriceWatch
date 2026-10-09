@@ -44,7 +44,7 @@ final class ManualRunTest extends TestCase
 
     public function testAProductPassCollectsItsVariantsThenJudges(): void
     {
-        $this->manualRun()->start(4, '1520190076NN');
+        $this->manualRun()->start(4, ['1520190076NN']);
 
         self::assertCount(1, $this->started);
         [$collect, $judge] = $this->started[0]['commands'];
@@ -56,6 +56,16 @@ final class ManualRunTest extends TestCase
         self::assertContains('--budget-usd=0.024', $collect, 'the cap is the worst case announced on the button');
         self::assertSame('pricewatch:judge', $judge[2], 'judged right after, so the comparator fills up');
         self::assertSame('/var/www/html/var/log/pricewatch-manual.log', $this->started[0]['log']);
+    }
+
+    public function testAPassCanTargetSeveralProducts(): void
+    {
+        $this->manualRun()->start(6, ['1520190076NN', '1SAA340']);
+
+        $collect = $this->started[0]['commands'][0];
+        self::assertContains('--product=1520190076NN', $collect);
+        self::assertContains('--product=1SAA340', $collect, 'one option per product, each passed as its own argument');
+        self::assertContains('--limit=6', $collect);
     }
 
     public function testAPassWithoutProductTakesTheVariantsCollectedLongestAgo(): void

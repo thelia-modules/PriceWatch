@@ -11,6 +11,7 @@ use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Comparator\OfferReview;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\RunStatus;
+use PriceWatch\Service\Suggestion\SuggestionPresenter;
 use PriceWatch\Service\Usage\UsagePresenter;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -38,6 +39,7 @@ final readonly class ComparatorController
         private UrlGeneratorInterface $urlGenerator,
         private TranslatorInterface $translator,
         private Environment $twig,
+        private SuggestionPresenter $suggestions,
     ) {
     }
 
@@ -48,8 +50,24 @@ final readonly class ComparatorController
             return $denied;
         }
 
+        // Suggestions are products, not offers: a tab of the screen, not a
+        // ComparatorView, whose tabs hold every offer exactly once.
+        $suggesting = ($request->query->all()['view'] ?? null) === SuggestionPresenter::VIEW;
+        $screen = $this->presenter->present(ComparatorFilters::fromRequest($request), $request->getLocale(), !$suggesting);
+        $suggestions = $suggesting ? $this->suggestions->present($request->getLocale()) : null;
+
+        if ($suggesting) {
+            $screen['view'] = SuggestionPresenter::VIEW;
+            $screen['tabs'] = array_map(static fn (array $tab): array => ['active' => false] + $tab, $screen['tabs']);
+        }
+
         return new Response($this->twig->render('@PriceWatchModule/backOffice/default-twig/price-watch/comparator.html.twig', [
-            ...$this->presenter->present(ComparatorFilters::fromRequest($request), $request->getLocale()),
+            ...$screen,
+            'suggestions' => $suggestions,
+            'suggestionCount' => $suggestions === null ? $this->suggestions->count() : \count($suggestions),
+            'suggestionMax' => SuggestionPresenter::MAX_SELECTED,
+            'suggestionDays' => ['sales' => SuggestionPresenter::SALES_DAYS, 'stale' => SuggestionPresenter::STALE_DAYS],
+            'costPerVariant' => ManualRun::worstCaseUsd(1),
             'usage' => $this->usage->present($request->getLocale()),
             'run' => $this->runStatus->present(),
             'batches' => array_map(static fn (int $size): array => [

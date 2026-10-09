@@ -161,6 +161,7 @@
     {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_run.html.twig' with {run: run, batches: batches, csrfToken: csrfToken} only %}
     {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_usage.html.twig' with {usage: usage} only %}
 
+    {% if view != 'suggestions' %}
     <form method="get" action="{{ path('pricewatch_comparator') }}" class="row g-2 align-items-end mb-3" data-testid="pw-filters">
         <input type="hidden" name="view" value="{{ view }}">
         {% if filters.sort %}<input type="hidden" name="sort" value="{{ filters.sort }}">{% endif %}
@@ -188,6 +189,7 @@
             <a class="btn btn-sm btn-outline-secondary" href="{{ path('pricewatch_comparator', {view: view}) }}">{{ 'Reset'|trans({}, 'pricewatch') }}</a>
         </div>
     </form>
+    {% endif %}
 
     <ul class="nav nav-tabs mb-2" data-testid="pw-tabs">
         {% for tab in tabs %}
@@ -198,8 +200,21 @@
                 </a>
             </li>
         {% endfor %}
+        {# Products to collect, not offers: set apart from the offer tabs. #}
+        <li class="nav-item ms-auto">
+            <a class="nav-link {{ view == 'suggestions' ? 'active' : '' }}" {% if view == 'suggestions' %}aria-current="page"{% endif %} href="{{ path('pricewatch_comparator', {view: 'suggestions'}) }}" data-testid="pw-tab-suggestions">
+                <i class="bi bi-lightbulb me-1" aria-hidden="true"></i>{{ 'Suggestions'|trans({}, 'pricewatch') }}
+                <span class="badge text-bg-light border ms-1">{{ suggestionCount }}</span>
+            </a>
+        </li>
     </ul>
 
+    {% if view == 'suggestions' %}
+        {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_suggestions.html.twig' with {
+            suggestions: suggestions, max: suggestionMax, costPerVariant: costPerVariant, csrfToken: csrfToken,
+            running: run.running, salesDays: suggestionDays.sales, staleDays: suggestionDays.stale
+        } only %}
+    {% else %}
     <p class="small text-muted mb-2">{{ ('view.' ~ view ~ '.help')|trans({}, 'pricewatch') }}</p>
 
     {% if rows is empty %}
@@ -367,6 +382,7 @@
                 </div>
             </nav>
         {% endif %}
+    {% endif %}
     {% endif %}
 </div>
 {% endblock %}

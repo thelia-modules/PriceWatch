@@ -26,9 +26,10 @@ final readonly class ComparatorPresenter
     /**
      * @return array<string, mixed>
      */
-    public function present(ComparatorFilters $filters, string $locale): array
+    public function present(ComparatorFilters $filters, string $locale, bool $withRows = true): array
     {
-        $offers = $this->repository->page($filters);
+        // Another tab of the screen shows: the counts are needed, the rows not.
+        $offers = $withRows ? $this->repository->page($filters) : [];
         $counts = $this->repository->counts($filters);
         $total = $counts[$filters->view->value];
         $money = new \NumberFormatter($locale, \NumberFormatter::CURRENCY);

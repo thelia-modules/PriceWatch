@@ -79,7 +79,7 @@ final readonly class RunController
             return $this->redirect($request, $back, 'danger', 'Choose how many variants to collect.');
         }
 
-        return $this->start($request, $back, $variants, null);
+        return $this->start($request, $back, $variants, []);
     }
 
     #[Route('/admin/module/pricewatch/product/{productId}/collect', name: 'pricewatch_product_collect', requirements: ['productId' => '\d+'], methods: ['POST'])]
@@ -98,17 +98,20 @@ final readonly class RunController
             return $this->redirect($request, $back, 'warning', 'No variant of this product can be collected: watch it first, with a valid EAN code of its own.');
         }
 
-        return $this->start($request, $back, $variants, $ref);
+        return $this->start($request, $back, $variants, [$ref]);
     }
 
-    private function start(Request $request, string $back, int $variants, ?string $productRef): RedirectResponse
+    /**
+     * @param list<string> $productRefs
+     */
+    private function start(Request $request, string $back, int $variants, array $productRefs): RedirectResponse
     {
         if ($this->comparator->competitors() === []) {
             return $this->redirect($request, $back, 'warning', 'No competitor is whitelisted: there would be nothing to compare.');
         }
 
         try {
-            $this->manualRun->start($variants, $productRef);
+            $this->manualRun->start($variants, $productRefs);
         } catch (\RuntimeException) {
             return $this->redirect($request, $back, 'warning', 'A pass is already running: wait until it ends, then reload the page.');
         }
