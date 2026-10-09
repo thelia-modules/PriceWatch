@@ -34,6 +34,17 @@ final class CollectOffersCommand extends Command
         parent::__construct();
     }
 
+    /**
+     * Compared to the micro-dollar: 3 x 3 x 0.002 is 0.018000000000000002 in
+     * floating point, which exceeded the "0.018" the back office announces
+     * and passes (seen live on 2026-10-09: every manual pass on 3 variants
+     * refused to start, without a word on the screen).
+     */
+    public static function exceedsBudget(float $worstCaseUsd, string $budgetUsd): bool
+    {
+        return (int) round($worstCaseUsd * 1_000_000) > (int) round((float) $budgetUsd * 1_000_000);
+    }
+
     protected function configure(): void
     {
         $this
@@ -57,7 +68,7 @@ final class CollectOffersCommand extends Command
         // when the GTIN leads nowhere, one sellers lookup.
         $worstCase = $sandbox ? 0.0 : $limit * 3 * self::COST_PER_TASK[$priority];
 
-        if ($worstCase > (float) $input->getOption('budget-usd')) {
+        if (self::exceedsBudget($worstCase, (string) $input->getOption('budget-usd'))) {
             $io->error(\sprintf('Worst case %.3f USD exceeds the budget. Lower --limit or raise --budget-usd.', $worstCase));
 
             return self::INVALID;
