@@ -57,7 +57,8 @@ final readonly class RunController
             return $denied;
         }
 
-        $back = $this->urlGenerator->generate('admin.products.update', ['product_id' => $productId, 'current_tab' => 'modules']);
+        $back = WatchedController::returnUrl($request, $this->urlGenerator)
+            ?? $this->urlGenerator->generate('admin.products.update', ['product_id' => $productId, 'current_tab' => 'modules']);
         $ref = $this->catalog->productRef($productId);
         $variants = $this->catalog->collectableVariantCount($productId);
 

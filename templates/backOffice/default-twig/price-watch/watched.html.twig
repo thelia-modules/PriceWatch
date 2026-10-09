@@ -1,0 +1,141 @@
+{% extends '@BackOfficeDefaultTwig/base.html.twig' %}
+
+{% block title %}{{ 'Watched products'|trans({}, 'pricewatch') }}{% endblock %}
+{% block body_testid %}pricewatch-watched{% endblock %}
+
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('admin.home') }}">{{ 'Home'|trans({}, 'pricewatch') }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ path('pricewatch_comparator') }}">{{ 'Price watch'|trans({}, 'pricewatch') }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ 'Watched products'|trans({}, 'pricewatch') }}</li>
+        </ol>
+    </nav>
+{% endblock %}
+
+{% macro action(route, params, label, style, csrfToken, returnQuery, testid) %}
+    <form method="post" action="{{ path(route, params) }}" class="d-inline">
+        <input type="hidden" name="_token" value="{{ csrfToken }}">
+        <input type="hidden" name="back" value="watched">
+        <input type="hidden" name="return" value="{{ returnQuery }}">
+        <button type="submit" class="btn btn-sm {{ style }}" data-testid="{{ testid }}">{{ label }}</button>
+    </form>
+{% endmacro %}
+
+{% block content %}
+<div class="container-fluid" data-testid="pricewatch-watched-page">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h1 class="h3 mb-1">{{ 'Watched products'|trans({}, 'pricewatch') }}</h1>
+            <p class="text-muted mb-0">{{ 'Every product of the price watch, collected or not. Add a product from its own page, Modules tab.'|trans({}, 'pricewatch') }}</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary" href="{{ path('pricewatch_comparator') }}">{{ 'Price comparator'|trans({}, 'pricewatch') }}</a>
+            <a class="btn btn-outline-secondary" href="{{ path('pricewatch_competitors') }}">{{ 'Competitors'|trans({}, 'pricewatch') }}</a>
+        </div>
+    </div>
+
+    <form method="get" action="{{ path('pricewatch_watched') }}" class="row g-2 align-items-end mb-3" data-testid="pw-watched-search">
+        {% if view != 'all' %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
+        <div class="col-12 col-md-5">
+            <label class="form-label small fw-semibold" for="pw-watched-q">{{ 'Product'|trans({}, 'pricewatch') }}</label>
+            <input type="search" class="form-control form-control-sm" id="pw-watched-q" name="q" value="{{ filters.search }}" placeholder="{{ 'Name or reference'|trans({}, 'pricewatch') }}">
+        </div>
+        <div class="col-12 col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary flex-grow-1">{{ 'Filter'|trans({}, 'pricewatch') }}</button>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ path('pricewatch_watched') }}">{{ 'Reset'|trans({}, 'pricewatch') }}</a>
+        </div>
+        <div class="col-12 col-md-5 text-md-end small">
+            <span class="text-muted me-1">{{ 'Sort:'|trans({}, 'pricewatch') }}</span>
+            {% for sort in sorts %}
+                <a href="{{ sort.url }}" class="{{ sort.active ? 'fw-semibold text-body' : '' }} me-2" {% if sort.active %}aria-current="true"{% endif %}>{{ ('watched.sort.' ~ sort.sort)|trans({}, 'pricewatch') }}</a>
+            {% endfor %}
+        </div>
+    </form>
+
+    <ul class="nav nav-tabs mb-3" data-testid="pw-watched-tabs">
+        {% for tab in tabs %}
+            <li class="nav-item">
+                <a class="nav-link {{ tab.active ? 'active' : '' }}" {% if tab.active %}aria-current="page"{% endif %} href="{{ tab.url }}" data-testid="pw-watched-tab-{{ tab.view }}">
+                    {{ ('watched.view.' ~ tab.view)|trans({}, 'pricewatch') }}
+                    <span class="badge text-bg-light border ms-1">{{ tab.count }}</span>
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+
+    {% if run.running %}
+        <div class="alert alert-warning py-2 small">{{ 'A pass is running'|trans({}, 'pricewatch') }} · {{ 'Reload the page in a minute or two.'|trans({}, 'pricewatch') }}</div>
+    {% endif %}
+
+    {% if rows is empty %}
+        <div class="alert alert-light border" data-testid="pw-watched-empty">{{ ('watched.view.' ~ view ~ '.empty')|trans({}, 'pricewatch') }}</div>
+    {% else %}
+        {% set statuses = {
+            collected: 'bg-success-subtle text-success-emphasis border-success-subtle',
+            never: 'bg-body-secondary text-body',
+            not_collectable: 'bg-warning-subtle text-warning-emphasis border-warning-subtle',
+            paused: 'bg-body-tertiary text-muted'
+        } %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle" data-testid="pw-watched-table">
+                <thead>
+                    <tr>
+                        <th scope="col">{{ 'Product'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Variants watched'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'Last collect'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Offers compared'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'Best gap'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'To review'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Actions'|trans({}, 'pricewatch') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in rows %}
+                    <tr data-testid="pw-watched-{{ row.productId }}">
+                        <td class="text-break" style="white-space: normal; min-width: 14rem">
+                            <a href="{{ row.productUrl }}" class="fw-semibold">{{ row.title }}</a>
+                            <div class="small text-muted">{{ row.ref }}</div>
+                        </td>
+                        <td class="text-end">
+                            {{ row.monitored }} / {{ row.variants }}
+                            {% if row.monitored > 0 and row.collectable < row.monitored %}
+                                <div class="small text-warning-emphasis">{{ '%count% without GTIN'|trans({'%count%': row.monitored - row.collectable}, 'pricewatch') }}</div>
+                            {% endif %}
+                        </td>
+                        <td style="white-space: normal">
+                            <span class="badge border {{ statuses[row.status] }}" data-testid="pw-watched-status-{{ row.productId }}">{{ ('watched.status.' ~ row.status)|trans({}, 'pricewatch') }}</span>
+                            {% if row.lastCollected %}<div class="small text-muted">{{ row.lastCollected }}</div>{% endif %}
+                        </td>
+                        <td class="text-end">{{ row.compared ?: '–' }}</td>
+                        <td>{% include '@PriceWatchModule/backOffice/default-twig/price-watch/_gap.html.twig' with {position: row.position, pct: row.gap} only %}</td>
+                        <td class="text-end">{% if row.review > 0 %}<a href="{{ row.comparatorUrl }}&view=review">{{ row.review }}</a>{% else %}–{% endif %}</td>
+                        <td class="text-end text-nowrap">
+                            {% if row.collectCost and not run.running %}
+                                {{ _self.action('pricewatch_product_collect', {productId: row.productId}, 'Collect (at most %cost%)'|trans({'%cost%': row.collectCost}, 'pricewatch'), 'btn-outline-primary', csrfToken, returnQuery, 'pw-watched-collect-' ~ row.productId) }}
+                            {% endif %}
+                            {% if row.monitored > 0 %}
+                                {{ _self.action('pricewatch_product_monitoring', {productId: row.productId, action: 'pause'}, 'Pause'|trans({}, 'pricewatch'), 'btn-link', csrfToken, returnQuery, 'pw-watched-pause-' ~ row.productId) }}
+                            {% else %}
+                                {{ _self.action('pricewatch_product_monitoring', {productId: row.productId, action: 'resume'}, 'Resume'|trans({}, 'pricewatch'), 'btn-link', csrfToken, returnQuery, 'pw-watched-resume-' ~ row.productId) }}
+                            {% endif %}
+                            {% if row.compared > 0 %}<a class="btn btn-sm btn-link" href="{{ row.comparatorUrl }}">{{ 'Offers'|trans({}, 'pricewatch') }}</a>{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if pagination.pages > 1 %}
+            <nav class="d-flex justify-content-between align-items-center" aria-label="{{ 'Pages'|trans({}, 'pricewatch') }}">
+                <span class="small text-muted">{{ 'Page %page% of %pages%'|trans({'%page%': pagination.page, '%pages%': pagination.pages}, 'pricewatch') }}</span>
+                <div class="d-flex gap-2">
+                    {% if pagination.previous %}<a class="btn btn-sm btn-outline-secondary" href="{{ pagination.previous }}">{{ 'Previous'|trans({}, 'pricewatch') }}</a>{% endif %}
+                    {% if pagination.next %}<a class="btn btn-sm btn-outline-secondary" href="{{ pagination.next }}">{{ 'Next'|trans({}, 'pricewatch') }}</a>{% endif %}
+                </div>
+            </nav>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

@@ -80,6 +80,7 @@
             <p class="text-muted mb-0">{{ 'Our prices against whitelisted competitors, for the same product in the same size. Prices include tax, shipping excluded.'|trans({}, 'pricewatch') }}</p>
         </div>
         <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary" href="{{ path('pricewatch_watched') }}">{{ 'Watched products'|trans({}, 'pricewatch') }}</a>
             <a class="btn btn-outline-secondary" href="{{ path('pricewatch_competitors') }}">{{ 'Competitors'|trans({}, 'pricewatch') }}</a>
             <a class="btn btn-outline-secondary" href="{{ path('admin.module.configure', {module_code: 'PriceWatch'}) }}">{{ 'Settings'|trans({}, 'pricewatch') }}</a>
         </div>

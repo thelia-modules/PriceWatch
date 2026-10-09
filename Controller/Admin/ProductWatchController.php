@@ -83,7 +83,10 @@ final readonly class ProductWatchController
     {
         $request->getSession()->getFlashBag()->add($type, $this->trans($message, $parameters));
 
-        return new RedirectResponse($this->urlGenerator->generate('admin.products.update', ['product_id' => $productId, 'current_tab' => 'modules']));
+        return new RedirectResponse(
+            WatchedController::returnUrl($request, $this->urlGenerator)
+            ?? $this->urlGenerator->generate('admin.products.update', ['product_id' => $productId, 'current_tab' => 'modules']),
+        );
     }
 
     /**
