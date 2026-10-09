@@ -38,6 +38,8 @@ abstract class PriceWatchIntegrationTestCase extends TestCase
 
     private ?ConnectionInterface $connection = null;
 
+    private int $sentinelId = 0;
+
     protected function setUp(): void
     {
         if (self::$kernel === null) {
@@ -48,6 +50,10 @@ abstract class PriceWatchIntegrationTestCase extends TestCase
 
         $this->connection = Propel::getConnection('TheliaMain');
         $this->connection->beginTransaction();
+        // A row that only this transaction knows: if it is still there after
+        // the rollback, the transaction was committed behind Propel's back.
+        $this->connection->exec("INSERT INTO pw_collect_run (pass_name, status, started_at, created_at, updated_at) VALUES ('test-sentinel', 'started', NOW(), NOW(), NOW())");
+        $this->sentinelId = (int) $this->connection->lastInsertId();
 
         // Propel pools ActiveRecord instances per class. Across tests that
         // pool outlives the rollback and serves rows that no longer exist.
@@ -56,16 +62,41 @@ abstract class PriceWatchIntegrationTestCase extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->connection instanceof ConnectionInterface && $this->connection->inTransaction()) {
+        // Propel's inTransaction() only counts its own calls. A statement
+        // that commits implicitly (ANALYZE, any DDL) ends the real
+        // transaction without telling it, and everything the test wrote
+        // stays in the development database. Seen on 2026-10-09: 2,000 test
+        // offers and a demoted whitelist, committed by an ANALYZE TABLE.
+        if ($this->connection instanceof ConnectionWrapper && $this->connection->isInTransaction()) {
+            // After an implicit commit PDO knows the transaction is over, but
+            // Propel's counter does not: left as is, the next test's
+            // beginTransaction() would only count and that test would write
+            // for real. An empty transaction gives the rollback something to
+            // end, and resets the counter.
+            if (!$this->connection->inTransaction()) {
+                $this->connection->getWrappedConnection()->beginTransaction();
+            }
+
             // A plain rollBack() would only decrement the nesting counter if
             // application code left a nested transaction open, keeping the real
             // transaction and its metadata locks alive for the rest of the run.
-            $this->connection instanceof ConnectionWrapper
-                ? $this->connection->forceRollBack()
-                : $this->connection->rollBack();
+            $this->connection->forceRollBack();
+        } elseif ($this->connection instanceof ConnectionInterface && $this->connection->inTransaction()) {
+            $this->connection->rollBack();
+        }
+
+        $committed = $this->connection instanceof ConnectionInterface
+            && (int) $this->connection->query('SELECT COUNT(*) FROM pw_collect_run WHERE id = '.$this->sentinelId)->fetchColumn() > 0;
+
+        if ($committed) {
+            $this->connection?->exec('DELETE FROM pw_collect_run WHERE id = '.$this->sentinelId);
         }
 
         $this->connection = null;
+
+        if ($committed) {
+            self::fail('This test committed its transaction (implicit commit?): what it wrote is now in the development database and must be cleaned up by hand.');
+        }
     }
 
     /**
