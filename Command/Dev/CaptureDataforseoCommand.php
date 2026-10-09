@@ -110,6 +110,21 @@ final class CaptureDataforseoCommand extends Command
             }
         };
 
+        // Free on both APIs: tells whether the account itself is usable before
+        // anything is posted. Only the status is printed, never the account
+        // details.
+        $account = $this->httpClient->request('GET', self::LIVE.'/appendix/user_data', $auth);
+        $accountPayload = json_decode($account->getContent(false), true);
+        $money = $accountPayload['tasks'][0]['result'][0]['money'] ?? null;
+        $io->writeln(\sprintf(
+            '%-28s HTTP %d  status_code %s  %s  balance %s USD',
+            'account (live user_data)',
+            $account->getStatusCode(),
+            (string) ($accountPayload['status_code'] ?? '?'),
+            (string) ($accountPayload['status_message'] ?? ''),
+            \is_array($money) && isset($money['balance']) ? (string) $money['balance'] : 'unknown',
+        ));
+
         $posted = $call('POST', '/merchant/google/products/task_post', [[
             'keyword' => (string) $input->getArgument('keyword'),
             'location_name' => 'France',
