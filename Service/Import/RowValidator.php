@@ -162,8 +162,6 @@ final readonly class RowValidator
 
         $checksum = $this->checksum(
             $productRef,
-            $pseId,
-            $pseRef,
             // An unusable GTIN still takes part in the checksum through its
             // folded raw form, so correcting a typo counts as a change.
             $gtin->value ?? $this->textNormalizer->normalize($this->value($row, 'ean_code')),
@@ -178,7 +176,6 @@ final readonly class RowValidator
             $targetPrice,
             $priceVatIncluded,
             $monitored,
-            $competitorDomains,
             $locale,
             $notes,
         );
@@ -296,14 +293,20 @@ final readonly class RowValidator
     }
 
     /**
+     * Identifies the CONTENT of the identity, not how the line reached it.
+     *
+     * pse_id and pse_ref are addressing keys and competitor_domains is a
+     * seeding instruction: none of them is an attribute of the monitored
+     * variant. Keeping them out means two files that designate the same
+     * variant through different keys, with the same data, count as unchanged -
+     * which is what makes the export/import round trip verifiable - and that
+     * editing the competitor list does not mark every identity as modified.
+     *
      * @param array<string, string> $attributePairs
      * @param array<string, string> $featurePairs
-     * @param list<string>          $competitorDomains
      */
     private function checksum(
         string $productRef,
-        ?int $pseId,
-        ?string $pseRef,
         ?string $gtin,
         ?string $mpn,
         ?string $manufacturerRef,
@@ -316,14 +319,11 @@ final readonly class RowValidator
         ?string $targetPrice,
         int $priceVatIncluded,
         int $monitored,
-        array $competitorDomains,
         string $locale,
         ?string $notes,
     ): string {
         $parts = [
             $productRef,
-            (string) $pseId,
-            (string) $pseRef,
             (string) $gtin,
             (string) $mpn,
             (string) $manufacturerRef,
@@ -336,7 +336,6 @@ final readonly class RowValidator
             (string) $targetPrice,
             (string) $priceVatIncluded,
             (string) $monitored,
-            implode(',', $competitorDomains),
             $locale,
             (string) $notes,
         ];

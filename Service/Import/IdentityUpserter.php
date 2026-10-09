@@ -71,7 +71,10 @@ final readonly class IdentityUpserter
             ->setVariantAxisJson($this->encode($row->attributePairs))
             ->setFeatureDigest($this->encode($row->featurePairs))
             ->setTargetPrice($row->targetPrice)
-            ->setCurrencyCode($row->currencyCode ?? 'EUR')
+            // Left null when the file gave none: defaulting it to EUR would
+            // invent a currency the merchant never stated, and the export
+            // would then write it back and report the line as modified.
+            ->setCurrencyCode($row->currencyCode)
             ->setPriceVatIncluded($row->priceVatIncluded)
             ->setMonitored($row->monitored)
             ->setLocale($row->locale)
