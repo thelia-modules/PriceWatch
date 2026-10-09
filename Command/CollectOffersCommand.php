@@ -40,7 +40,8 @@ final class CollectOffersCommand extends Command
             ->addOption('priority', null, InputOption::VALUE_NONE, 'Priority queue: results in about a minute, twice the price')
             ->addOption('max-wait', null, InputOption::VALUE_REQUIRED, 'Seconds to wait for each batch of tasks', '600')
             ->addOption('budget-usd', null, InputOption::VALUE_REQUIRED, 'Refuse to start if the worst case exceeds this', '1.00')
-            ->addOption('sandbox', null, InputOption::VALUE_NONE, 'Free DataForSEO sandbox: made-up data, same structure');
+            ->addOption('sandbox', null, InputOption::VALUE_NONE, 'Free DataForSEO sandbox: made-up data, same structure')
+            ->addOption('one-per-product', null, InputOption::VALUE_NONE, 'One variant per product: samples the catalogue instead of all sizes of the first products');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -74,6 +75,7 @@ final class CollectOffersCommand extends Command
                 max(10, (int) $input->getOption('max-wait')),
                 array_values(array_filter((array) $input->getOption('product'), 'is_string')),
                 $sandbox,
+                (bool) $input->getOption('one-per-product'),
             );
         } catch (DataForSeoException $error) {
             $io->error($error->getMessage());

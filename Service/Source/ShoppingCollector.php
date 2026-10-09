@@ -60,20 +60,21 @@ final readonly class ShoppingCollector
     }
 
     /**
-     * @param list<string> $productRefs restrict to these products
+     * @param list<string> $productRefs   restrict to these products
+     * @param bool         $onePerProduct one variant per product, to sample a catalogue
      *
      * @return array{run: PwCollectRun, unknownSellers: array<string, int>, noPlausibleCard: int}
      *
      * @throws DataForSeoException
      */
-    public function collect(int $limit, int $priority, int $maxWaitSeconds, array $productRefs = [], bool $sandbox = false): array
+    public function collect(int $limit, int $priority, int $maxWaitSeconds, array $productRefs = [], bool $sandbox = false, bool $onePerProduct = false): array
     {
         $run = (new PwCollectRun())->setPassName(self::PASS)->setStatus('started')->setStartedAt(new \DateTime());
         $run->save();
 
         $watched = $this->watchedCompetitors();
         $sellers = new SellerMatcher($watched, $this->domains, $this->text);
-        $identities = $this->identities($limit, $productRefs);
+        $identities = $this->identities($limit, $productRefs, $onePerProduct);
         $errors = [];
         $unknownSellers = [];
         $counts = ['tasks' => 0, 'seen' => 0, 'written' => 0, 'noCard' => 0, 'targets' => \count($identities)];
@@ -275,23 +276,36 @@ final readonly class ShoppingCollector
      *
      * @return array<int, PwProductIdentity> keyed by identity id
      */
-    private function identities(int $limit, array $productRefs): array
+    private function identities(int $limit, array $productRefs, bool $onePerProduct): array
     {
         $query = PwProductIdentityQuery::create()
             ->filterByMonitored(1)
             ->filterByGtinValid(1)
             ->filterByGtinShared(0)
-            ->orderById()
-            ->limit($limit);
+            ->orderById();
+
+        if (!$onePerProduct) {
+            $query->limit($limit);
+        }
 
         if ($productRefs !== []) {
             $query->useProductSaleElementsQuery()->useProductQuery()->filterByRef($productRefs, Criteria::IN)->endUse()->endUse();
         }
 
         $identities = [];
+        $products = [];
 
         foreach ($query->find() as $identity) {
+            if ($onePerProduct && isset($products[(int) $identity->getProductId()])) {
+                continue;
+            }
+
+            $products[(int) $identity->getProductId()] = true;
             $identities[(int) $identity->getId()] = $identity;
+
+            if (\count($identities) >= $limit) {
+                break;
+            }
         }
 
         return $identities;

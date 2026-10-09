@@ -147,6 +147,18 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($large->getProductSaleElementsId())->count(), 'the card\'s sellers reach every variant led to it');
     }
 
+    public function testSamplingTakesOneVariantPerProduct(): void
+    {
+        $first = $this->identity('3660600123454');
+        $this->addVariant($first, '3660600123461');
+        $other = $this->identity('3660600123478');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(2, 1, 60, [], true, onePerProduct: true);
+
+        self::assertSame(2, $result['run']->getTargetsPlanned());
+        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($other->getProductSaleElementsId())->count(), 'the second product is reached despite the limit');
+    }
+
     public function testWithoutWhitelistNothingIsPaidFor(): void
     {
         \PriceWatch\Model\PwCompetitorQuery::create()->filterByDomain($this->watched)->update(['Status' => CompetitorStatus::Proposed->value]);
@@ -199,6 +211,25 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $identity->save();
 
         return $identity;
+    }
+
+    private function addVariant(PwProductIdentity $of, string $gtin): void
+    {
+        $saleElement = (new \Thelia\Model\ProductSaleElements())
+            ->setProductId($of->getProductId())
+            ->setRef('PW-VARIANT-'.bin2hex(random_bytes(4)))
+            ->setQuantity(1)
+            ->setIsDefault(false);
+        $saleElement->save();
+
+        (new PwProductIdentity())
+            ->setProductSaleElementsId($saleElement->getId())
+            ->setProductId($of->getProductId())
+            ->setGtin(str_pad($gtin, 14, '0', \STR_PAD_LEFT))
+            ->setGtinValid(1)
+            ->setGtinShared(0)
+            ->setMonitored(1)
+            ->save();
     }
 
     /**
