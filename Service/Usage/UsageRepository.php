@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Service\Usage;
 
 use PriceWatch\Model\Map\PwCollectRunTableMap;
+use PriceWatch\Model\PwCollectRun;
 use PriceWatch\Model\PwCollectRunQuery;
 use Propel\Runtime\ActiveQuery\Criteria;
 
@@ -26,6 +27,16 @@ final readonly class UsageRepository
         'llmCompletionTokens' => PwCollectRunTableMap::COL_LLM_COMPLETION_TOKENS,
         'llmCostUsd' => PwCollectRunTableMap::COL_LLM_COST_USD,
     ];
+
+    public function latestRun(string $pass): ?PwCollectRun
+    {
+        return PwCollectRunQuery::create()
+            ->filterByPassName($pass)
+            ->filterByDryRun(0)
+            ->orderByStartedAt(Criteria::DESC)
+            ->orderById(Criteria::DESC)
+            ->findOne();
+    }
 
     /**
      * @return array<string, float> each sum of SUMS, plus llmCalls

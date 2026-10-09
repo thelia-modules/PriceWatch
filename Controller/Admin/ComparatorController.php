@@ -9,6 +9,8 @@ use PriceWatch\Service\Comparator\ComparatorFilters;
 use PriceWatch\Service\Comparator\ComparatorPresenter;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Comparator\OfferReview;
+use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Usage\UsagePresenter;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -30,6 +32,7 @@ final readonly class ComparatorController
         private AdminRequestGuard $guard,
         private ComparatorPresenter $presenter,
         private UsagePresenter $usage,
+        private RunStatus $runStatus,
         private ComparatorRepository $repository,
         private OfferReview $review,
         private UrlGeneratorInterface $urlGenerator,
@@ -48,6 +51,11 @@ final readonly class ComparatorController
         return new Response($this->twig->render('@PriceWatchModule/backOffice/default-twig/price-watch/comparator.html.twig', [
             ...$this->presenter->present(ComparatorFilters::fromRequest($request), $request->getLocale()),
             'usage' => $this->usage->present($request->getLocale()),
+            'run' => $this->runStatus->present(),
+            'batches' => array_map(static fn (int $size): array => [
+                'size' => $size,
+                'cost' => RunController::usd(ManualRun::worstCaseUsd($size), $request->getLocale()),
+            ], RunController::BATCH_SIZES),
             'csrfToken' => $this->guard->token(),
         ]));
     }

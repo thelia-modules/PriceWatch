@@ -1,0 +1,36 @@
+{# Where the price watch stands, and the button that starts a pass by hand. #}
+<div class="card mb-3" data-testid="pw-run">
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <span class="fw-semibold"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>{{ 'Price watch passes'|trans({}, 'pricewatch') }}</span>
+            {% if run.running %}
+                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" data-testid="pw-run-running">{{ 'A pass is running'|trans({}, 'pricewatch') }}</span>
+                <span class="small text-muted">{{ 'Reload the page in a minute or two.'|trans({}, 'pricewatch') }}</span>
+            {% else %}
+                <span class="small text-muted" data-testid="pw-run-last">
+                    {% if run.collect %}
+                        {{ 'Last collect: %at%, %targets% variant(s) searched, %seen% offer(s) seen.'|trans({'%at%': run.collect.at, '%targets%': run.collect.targets, '%seen%': run.collect.seen}, 'pricewatch') }}
+                    {% else %}
+                        {{ 'No collect pass yet.'|trans({}, 'pricewatch') }}
+                    {% endif %}
+                    {% if run.judge %}
+                        {{ 'Last judgment: %at%, %matched% matched, %review% to review, %rejected% excluded.'|trans({'%at%': run.judge.at, '%matched%': run.judge.matched, '%review%': run.judge.review, '%rejected%': run.judge.rejected}, 'pricewatch') }}
+                    {% endif %}
+                </span>
+            {% endif %}
+            <form method="post" action="{{ path('pricewatch_run') }}" class="d-flex gap-2 ms-auto" data-testid="pw-run-form">
+                <input type="hidden" name="_token" value="{{ csrfToken }}">
+                <label class="visually-hidden" for="pw-run-variants">{{ 'Variants to collect'|trans({}, 'pricewatch') }}</label>
+                <select class="form-select form-select-sm w-auto" id="pw-run-variants" name="variants" {% if run.running %}disabled{% endif %}>
+                    {% for batch in batches %}
+                        <option value="{{ batch.size }}">{{ '%count% variants, at most %cost%'|trans({'%count%': batch.size, '%cost%': batch.cost}, 'pricewatch') }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm btn-primary text-nowrap" data-testid="pw-run-start" {% if run.running %}disabled{% endif %}>
+                    <i class="bi bi-play-fill me-1" aria-hidden="true"></i>{{ 'Start a pass'|trans({}, 'pricewatch') }}
+                </button>
+            </form>
+        </div>
+        <div class="small text-muted mt-1">{{ 'The variants collected longest ago go first. Google Shopping priority queue, then Jev checks the offers found.'|trans({}, 'pricewatch') }}</div>
+    </div>
+</div>

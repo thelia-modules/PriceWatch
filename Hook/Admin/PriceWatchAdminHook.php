@@ -10,6 +10,9 @@ use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\ReasoningEffort;
 use PriceWatch\Service\Settings\SecretName;
+use PriceWatch\Controller\Admin\RunController;
+use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Usage\UsagePresenter;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -36,6 +39,7 @@ class PriceWatchAdminHook extends BaseHook
         private readonly AdminRequestGuard $guard,
         private readonly ProductCardPresenter $productCard,
         private readonly UsagePresenter $usage,
+        private readonly RunStatus $runStatus,
         private readonly RequestStack $requestStack,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly Environment $twig,
@@ -88,10 +92,14 @@ class PriceWatchAdminHook extends BaseHook
 
         $locale = $this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR';
 
+        $card = $this->productCard->present($productId, $locale);
+
         $event->add($this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/product-card.html.twig', [
-            ...$this->productCard->present($productId, $locale),
+            ...$card,
             'csrfToken' => $this->guard->token(),
             'canChange' => $this->securityContext->isGranted(['ADMIN'], [], [AdminRequestGuard::MODULE_CODE], [AccessManager::UPDATE]),
+            'run' => $this->runStatus->present(),
+            'collectCost' => RunController::usd(ManualRun::worstCaseUsd($card['watch']['collectable']), $locale),
         ]));
     }
 

@@ -21,6 +21,13 @@
                         inReferential ? ('Add the %count% missing variant(s)'|trans({'%count%': watch.missing}, 'pricewatch')) : ('Add to the price watch'|trans({}, 'pricewatch')),
                         'btn-primary', csrfToken, 'pw-card-enrol', 'bi-plus-circle') }}
                 {% endif %}
+                {% if inReferential and watch.collectable > 0 %}
+                    {% if run.running %}
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle align-self-center" data-testid="pw-card-running">{{ 'A pass is running'|trans({}, 'pricewatch') }}</span>
+                    {% else %}
+                        {{ _self.watch_form('pricewatch_product_collect', {productId: productId}, 'Collect now (at most %cost%)'|trans({'%cost%': collectCost}, 'pricewatch'), 'btn-primary', csrfToken, 'pw-card-collect', 'bi-arrow-repeat') }}
+                    {% endif %}
+                {% endif %}
                 {% if inReferential and watch.paused > 0 %}
                     {{ _self.watch_form('pricewatch_product_monitoring', {productId: productId, action: 'resume'}, 'Resume the watch'|trans({}, 'pricewatch'), 'btn-outline-success', csrfToken, 'pw-card-resume', 'bi-play-circle') }}
                 {% endif %}

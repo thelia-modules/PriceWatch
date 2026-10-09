@@ -89,6 +89,7 @@ final readonly class ProductCardPresenter
                 'paused' => \count($variants) - $monitored,
                 'missing' => max(0, $this->catalog->variantCount($productId) - \count($variants)),
                 'notCollectable' => \count(array_filter($variants, static fn (array $variant): bool => $variant['monitored'] && !$variant['collectable'])),
+                'collectable' => \count(array_filter($variants, static fn (array $variant): bool => $variant['monitored'] && $variant['collectable'])),
             ],
             'variants' => $variants,
             'totals' => $totals,

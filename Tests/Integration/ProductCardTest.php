@@ -67,7 +67,7 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         self::assertSame('dearer', $card['variants'][0]['best']['position'], 'the competitor is 8 % cheaper: we are dearer, in red');
         self::assertStringContainsString('8,0', $card['variants'][0]['best']['gap']);
         self::assertNull($card['variants'][1]['best']);
-        self::assertSame(['monitored' => 2, 'paused' => 0, 'missing' => 0, 'notCollectable' => 1], $card['watch'], 'the size without a GTIN is watched but never collected, and says so');
+        self::assertSame(['monitored' => 2, 'paused' => 0, 'missing' => 0, 'notCollectable' => 1, 'collectable' => 1], $card['watch'], 'the size without a GTIN is watched but never collected, and says so');
         self::assertFalse($card['variants'][1]['collectable']);
         self::assertStringContainsString('q='.urlencode((string) $product->getRef()), $card['comparatorUrl'], 'the comparator opens on this product');
     }

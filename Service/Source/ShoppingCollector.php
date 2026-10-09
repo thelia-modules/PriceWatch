@@ -100,6 +100,12 @@ final readonly class ShoppingCollector
             }
 
             $byGtin = $this->searchCards($gtins, $ourTitles, 'identity', $priority, $maxWaitSeconds, $sandbox);
+
+            // Paid at the post, whatever comes back: these go to the back of
+            // the queue for the next pass.
+            PwProductIdentityQuery::create()
+                ->filterById(array_keys($identities), Criteria::IN)
+                ->update(['LastCollectedAt' => new \DateTime()]);
             $cards = $byGtin['cards'];
             $searchedBy = array_fill_keys(array_keys($cards), 'gtin');
 
@@ -358,10 +364,14 @@ final readonly class ShoppingCollector
      */
     private function identities(int $limit, array $productRefs, bool $onePerProduct): array
     {
+        // Oldest first, never searched before all: successive passes rotate
+        // through the whole referential instead of taking its first rows
+        // every time (MySQL sorts NULL first in ascending order).
         $query = PwProductIdentityQuery::create()
             ->filterByMonitored(1)
             ->filterByGtinValid(1)
             ->filterByGtinShared(0)
+            ->orderByLastCollectedAt(Criteria::ASC)
             ->orderById();
 
         if (!$onePerProduct) {

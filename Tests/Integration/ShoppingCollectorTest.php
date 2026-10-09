@@ -256,6 +256,20 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame('https://www.'.$this->watched.'/casque-123.html', $offer->getUrl());
     }
 
+    public function testSuccessivePassesRotateThroughTheReferential(): void
+    {
+        $first = $this->identity('3660600123454');
+        $second = $this->identity('3660600123478');
+
+        $this->collector($this->answers([$this->watched, null, null]))->collect(1, 1, 60, [], true);
+        $this->collector($this->answers([$this->watched, null, null]))->collect(1, 1, 60, [], true);
+
+        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($first->getProductSaleElementsId())->count());
+        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($second->getProductSaleElementsId())->count(), 'the second pass takes the variant the first one left');
+        $first->reload();
+        self::assertNotNull($first->getLastCollectedAt(), 'searched: to the back of the queue');
+    }
+
     public function testSamplingTakesOneVariantPerProduct(): void
     {
         $first = $this->identity('3660600123454');

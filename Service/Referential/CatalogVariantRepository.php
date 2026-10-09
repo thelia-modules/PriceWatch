@@ -62,6 +62,25 @@ final readonly class CatalogVariantRepository
         return ProductQuery::create()->filterById($productId)->count() > 0;
     }
 
+    /**
+     * Variants a collect pass would actually search: watched, with a valid
+     * GTIN no other variant shares.
+     */
+    public function collectableVariantCount(int $productId): int
+    {
+        return PwProductIdentityQuery::create()
+            ->filterByProductId($productId)
+            ->filterByMonitored(1)
+            ->filterByGtinValid(1)
+            ->filterByGtinShared(0)
+            ->count();
+    }
+
+    public function productRef(int $productId): ?string
+    {
+        return ProductQuery::create()->findPk($productId)?->getRef();
+    }
+
     public function variantCount(int $productId): int
     {
         return ProductSaleElementsQuery::create()->filterByProductId($productId)->count();

@@ -52,6 +52,8 @@
         <column name="notes" size="512" type="VARCHAR"/>
         <column name="source_checksum" size="40" type="VARCHAR"/>
         <column name="import_batch_id" type="INTEGER"/>
+        <!-- When the variant was last searched: collection goes oldest first, so passes rotate through the referential. -->
+        <column name="last_collected_at" type="TIMESTAMP"/>
 
         <foreign-key foreignTable="product_sale_elements" name="fk_pw_identity_pse" onDelete="CASCADE" onUpdate="RESTRICT">
             <reference foreign="id" local="product_sale_elements_id"/>
@@ -60,6 +62,10 @@
         <unique name="uq_pw_identity_pse">
             <unique-column name="product_sale_elements_id"/>
         </unique>
+        <index name="idx_pw_identity_rotation">
+            <index-column name="monitored"/>
+            <index-column name="last_collected_at"/>
+        </index>
         <index name="idx_pw_identity_gtin">
             <index-column name="gtin"/>
         </index>

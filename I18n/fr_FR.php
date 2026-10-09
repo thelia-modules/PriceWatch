@@ -286,4 +286,22 @@ return [
     '%added% variant(s) added to the price watch, %resumed% resumed, %already% already watched. Prices are collected at the next pass.' => '%added% déclinaison(s) ajoutée(s) à la veille, %resumed% reprise(s), %already% déjà surveillée(s). Les prix seront relevés à la prochaine collecte.',
     '%count% variant(s) watched again.' => '%count% déclinaison(s) de nouveau surveillée(s).',
     '%count% variant(s) paused: no longer collected, their history is kept.' => '%count% déclinaison(s) suspendue(s) : plus relevée(s), leur historique est conservé.',
+
+    // Manual passes
+    'Price watch passes' => 'Surveillance',
+    'A pass is running' => 'Passe en cours',
+    'Reload the page in a minute or two.' => 'Rechargez la page dans une à deux minutes.',
+    'Last collect: %at%, %targets% variant(s) searched, %seen% offer(s) seen.' => 'Dernière collecte : %at%, %targets% déclinaison(s) cherchée(s), %seen% offre(s) vue(s).',
+    'No collect pass yet.' => 'Aucune collecte pour l\'instant.',
+    'Last judgment: %at%, %matched% matched, %review% to review, %rejected% excluded.' => 'Dernier jugement : %at%, %matched% appariée(s), %review% à vérifier, %rejected% écartée(s).',
+    'Variants to collect' => 'Déclinaisons à relever',
+    '%count% variants, at most %cost%' => '%count% déclinaisons, au plus %cost%',
+    'Start a pass' => 'Lancer la surveillance',
+    'The variants collected longest ago go first. Google Shopping priority queue, then Jev checks the offers found.' => 'Les déclinaisons relevées il y a le plus longtemps passent en premier. File prioritaire de Google Shopping, puis contrôle Jev des offres trouvées.',
+    'Collect now (at most %cost%)' => 'Relever maintenant (au plus %cost%)',
+    'Choose how many variants to collect.' => 'Choisissez le nombre de déclinaisons à relever.',
+    'No variant of this product can be collected: watch it first, with a valid EAN code of its own.' => 'Aucune déclinaison de ce produit ne peut être relevée : ajoutez-le d\'abord à la veille, avec un code EAN valide propre à chaque déclinaison.',
+    'No competitor is whitelisted: there would be nothing to compare.' => 'Aucun concurrent en liste blanche : il n\'y aurait rien à comparer.',
+    'A pass is already running: wait until it ends, then reload the page.' => 'Une passe est déjà en cours : attendez qu\'elle se termine, puis rechargez la page.',
+    'Price watch started on %count% variant(s), at most %cost%. Results come in within a few minutes: reload the page.' => 'Surveillance lancée sur %count% déclinaison(s), au plus %cost%. Les résultats arrivent d\'ici quelques minutes : rechargez la page.',
 ];
