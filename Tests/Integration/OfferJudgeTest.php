@@ -47,6 +47,11 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, $run->getOffersMatched());
         self::assertSame(1, $run->getJevRequests());
         self::assertSame(1, $this->calls);
+
+        $judgment = json_decode((string) $offer->getJudgmentJson(), true);
+        self::assertEqualsWithDelta(0.94, $judgment[OfferQuestions::SAME_PRODUCT]['value'], 1e-9, 'the answers stay on the offer as proof');
+        self::assertSame('yes', $judgment[OfferQuestions::SAME_VARIANT]['band']);
+        self::assertSame('comparable', $judgment[OfferQuestions::PRICE_COMPARABILITY]['value']);
     }
 
     public function testClearancePriceKeepsTheMatchButStaysOutOfTheGap(): void
@@ -85,6 +90,7 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         self::assertSame('PRICE_GAP_IMPLAUSIBLE', $offer->getMatchReason());
         self::assertSame(0, $this->calls, 'code saw it: nothing paid');
         self::assertSame(0, $run->getJevRequests());
+        self::assertNull($offer->getJudgmentJson(), 'no Jev answer to show when code decided alone');
     }
 
     public function testSameFactsAreNeverPaidTwice(): void

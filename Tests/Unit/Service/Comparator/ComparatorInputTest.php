@@ -1,0 +1,53 @@
+<?php
+
+declare(strict_types=1);
+
+namespace PriceWatch\Tests\Unit\Service\Comparator;
+
+use PHPUnit\Framework\TestCase;
+use PriceWatch\Service\Comparator\ComparatorFilters;
+use PriceWatch\Service\Comparator\ComparatorPresenter;
+use PriceWatch\Service\Comparator\ComparatorView;
+use Symfony\Component\HttpFoundation\Request;
+
+/**
+ * What reaches the comparator screen from outside: query strings, and the
+ * competitor URLs that end up in an href.
+ */
+final class ComparatorInputTest extends TestCase
+{
+    public function testOnlyWebLinksReachAnHref(): void
+    {
+        self::assertSame('https://www.motoblouz.com/casque-123.html', ComparatorPresenter::safeUrl(' https://www.motoblouz.com/casque-123.html '));
+        self::assertNull(ComparatorPresenter::safeUrl('file:///goto%3Furl=CAEScwHrOzAVeFKs'), 'the Google Shopping redirect seen live');
+        self::assertNull(ComparatorPresenter::safeUrl('javascript:alert(1)'));
+        self::assertNull(ComparatorPresenter::safeUrl('https://shop.example/"onmouseover="alert(1)'));
+        self::assertNull(ComparatorPresenter::safeUrl(null));
+    }
+
+    public function testUnknownOrHostileQueryValuesFallBackToTheDefaults(): void
+    {
+        $filters = ComparatorFilters::fromRequest(new Request([
+            'view' => 'everything',
+            'competitor' => '-3',
+            'page' => '-1',
+            'q' => str_repeat('x', 500),
+        ]));
+
+        self::assertSame(ComparatorView::Gaps, $filters->view);
+        self::assertNull($filters->competitorId);
+        self::assertSame(1, $filters->page);
+        self::assertSame(80, mb_strlen($filters->search));
+    }
+
+    public function testFiltersSurviveTheRoundTripThroughLinks(): void
+    {
+        $filters = new ComparatorFilters(ComparatorView::Review, 7, 'Helstons', true, 3);
+
+        $again = ComparatorFilters::fromRequest(new Request($filters->toQueryParams()));
+
+        self::assertEquals($filters, $again);
+        self::assertSame(['view' => 'gaps'], (new ComparatorFilters())->toQueryParams(), 'defaults stay out of the URL');
+        self::assertSame(1, $filters->withView(ComparatorView::Gaps)->page, 'changing tab starts at the first page');
+    }
+}

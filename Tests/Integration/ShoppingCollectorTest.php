@@ -182,6 +182,40 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame('gtin', json_decode((string) $quote?->getRawPayloadJson(), true)['searched_by'] ?? null);
     }
 
+    public function testAHumanMatchThatChangesGoesBackToAHumanNotToTheMachine(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
+        self::assertNotNull($offer);
+        $offer->setMatchState('matched_manual')->setJudgedFingerprint(sha1('what the human saw'))->setLastComparable(1)->save();
+
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        $offer->reload();
+        self::assertSame('needs_review', $offer->getMatchState());
+        self::assertSame('IDENTITY_DRIFT', $offer->getMatchReason());
+        self::assertSame(0, $offer->getLastComparable());
+    }
+
+    public function testAnUnchangedMatchKeepsCountingInTheGap(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
+        self::assertNotNull($offer);
+        $offer->setMatchState('matched_judged')->setJudgedFingerprint($offer->getIdentityFingerprint())->setLastComparable(1)->save();
+        // Yesterday's reading, as far as the daily uniqueness is concerned.
+        PwPriceQuoteQuery::create()->filterByOfferId($offer->getId())->update(['CollectedDay' => new \DateTime('yesterday')]);
+
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        $offer->reload();
+        self::assertSame('matched_judged', $offer->getMatchState());
+        $today = PwPriceQuoteQuery::create()->filterByOfferId($offer->getId())->filterByCollectedDay(new \DateTime('today'))->findOne();
+        self::assertSame(1, $today?->getComparable(), 'today\'s reading counts as yesterday\'s did');
+    }
+
     public function testSamplingTakesOneVariantPerProduct(): void
     {
         $first = $this->identity('3660600123454');

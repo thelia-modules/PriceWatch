@@ -155,6 +155,8 @@
         <column defaultValue="candidate" name="match_state" required="true" size="20" type="VARCHAR"/>
         <column name="match_method" size="20" type="VARCHAR"/>
         <column name="match_reason" size="40" type="VARCHAR"/>
+        <!-- Jev answers behind the verdict, kept as proof for the screen: the cache is keyed by state, not by offer. -->
+        <column name="judgment_json" type="LONGVARCHAR"/>
         <column name="identity_fingerprint" size="40" type="VARCHAR"/>
         <column name="judged_fingerprint" size="40" type="VARCHAR"/>
 

@@ -54,6 +54,13 @@ class PriceWatchAdminHook extends BaseHook
         }
 
         $event->add([
+            'id' => 'pricewatch-comparator',
+            'class' => '',
+            'url' => $this->urlGenerator->generate('pricewatch_comparator'),
+            'title' => $this->trans('Price watch: comparator', [], AdminRequestGuard::MODULE_CODE),
+        ]);
+
+        $event->add([
             'id' => 'pricewatch-competitors',
             'class' => '',
             'url' => $this->urlGenerator->generate('pricewatch_competitors'),

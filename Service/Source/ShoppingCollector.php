@@ -38,6 +38,8 @@ final readonly class ShoppingCollector
     public const SOURCE = 'dataforseo';
     private const POLL_SECONDS = 10;
     private const LOCALE = 'fr_FR';
+    private const HUMAN_MATCH = 'matched_manual';
+    private const MATCHED_STATES = ['matched_exact', 'matched_judged', 'matched_manual'];
 
     /** @var \Closure(int): void */
     private \Closure $sleep;
@@ -399,10 +401,21 @@ final readonly class ShoppingCollector
         $fingerprint = $this->fingerprint->forRemoteOffer($card->title, null, null, $offer->details);
 
         // A previously judged offer whose remote identity changed must be
-        // judged again: its verdict was about something else.
-        if ($model->getJudgedFingerprint() !== null && $model->getJudgedFingerprint() !== $fingerprint) {
-            $model->setMatchState('candidate');
+        // judged again: its verdict was about something else. A match a
+        // human confirmed goes back to a human, never to the machine.
+        $drifted = $model->getJudgedFingerprint() !== null && $model->getJudgedFingerprint() !== $fingerprint;
+
+        if ($drifted) {
+            $humanMatch = $model->getMatchState() === self::HUMAN_MATCH;
+            $model
+                ->setMatchState($humanMatch ? 'needs_review' : 'candidate')
+                ->setMatchReason($humanMatch ? 'IDENTITY_DRIFT' : $model->getMatchReason())
+                ->setLastComparable(0);
         }
+
+        // An unchanged matched offer keeps its verdict: today's reading counts
+        // in the gap as yesterday's did.
+        $comparable = !$drifted && \in_array($model->getMatchState(), self::MATCHED_STATES, true) && (int) $model->getLastComparable() === 1;
 
         $price = $offer->priceExcludingShipping();
         $delta = $price !== null && $ourPrice !== null ? (float) $price - (float) $ourPrice : null;
@@ -447,7 +460,8 @@ final readonly class ShoppingCollector
             ->setOurPrice($ourPrice)
             ->setDelta($delta === null ? null : number_format($delta, 6, '.', ''))
             ->setDeltaPct($delta === null || (float) $ourPrice === 0.0 ? null : number_format($delta / (float) $ourPrice * 100, 3, '.', ''))
-            ->setComparable(0)
+            ->setComparable($comparable ? 1 : 0)
+            ->setExclusionReason($comparable ? null : $model->getExclusionReason())
             ->setExtractionMethod('dataforseo_sellers')
             ->setRawPayloadJson(json_encode(['searched_by' => $searchedBy, 'card' => (array) $card, 'offer' => (array) $offer],\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
             ->setCollectRunId($runId)

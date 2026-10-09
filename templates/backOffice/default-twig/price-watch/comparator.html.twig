@@ -1,0 +1,225 @@
+{% extends '@BackOfficeDefaultTwig/base.html.twig' %}
+
+{% block title %}{{ 'Price comparator'|trans({}, 'pricewatch') }}{% endblock %}
+{% block body_testid %}pricewatch-comparator{% endblock %}
+
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ path('admin.home') }}">{{ 'Home'|trans({}, 'pricewatch') }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ path('admin.module.configure', {module_code: 'PriceWatch'}) }}">{{ 'Price watch'|trans({}, 'pricewatch') }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ 'Price comparator'|trans({}, 'pricewatch') }}</li>
+        </ol>
+    </nav>
+{% endblock %}
+
+{% macro state_badge(row) %}
+    {% set styles = {
+        matched_exact: 'text-bg-success', matched_judged: 'text-bg-success', matched_manual: 'text-bg-success',
+        needs_review: 'text-bg-warning', candidate: 'text-bg-light border', rejected: 'text-bg-secondary'
+    } %}
+    <span class="badge {{ styles[row.state] ?? 'text-bg-light border' }}" data-testid="pw-state-{{ row.id }}">{{ ('state.' ~ row.state)|trans({}, 'pricewatch') }}</span>
+    {% if row.method == 'human' and row.reviewedBy %}
+        <div class="small text-muted mt-1">{{ row.reviewedBy }}, {{ row.reviewedAt }}</div>
+    {% elseif row.reason %}
+        <div class="small text-muted mt-1">{{ ('reason.' ~ row.reason)|trans({}, 'pricewatch') }}</div>
+    {% endif %}
+    {% if row.exclusion and row.state != 'rejected' %}<div class="small text-muted">{{ ('exclusion.' ~ row.exclusion)|trans({}, 'pricewatch') }}</div>{% endif %}
+{% endmacro %}
+
+{% macro review_form(row, action, label, style, csrfToken, returnQuery) %}
+    <form method="post" action="{{ path('pricewatch_comparator_review', {id: row.id, action: action}) }}" class="d-inline">
+        <input type="hidden" name="_token" value="{{ csrfToken }}">
+        <input type="hidden" name="return" value="{{ returnQuery }}">
+        <button type="submit" class="btn btn-sm {{ style }}" data-testid="pw-{{ action }}-{{ row.id }}">{{ label }}</button>
+    </form>
+{% endmacro %}
+
+{% block content %}
+<div class="container-fluid" data-testid="pricewatch-comparator-page">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h1 class="h3 mb-1">{{ 'Price comparator'|trans({}, 'pricewatch') }}</h1>
+            <p class="text-muted mb-0">{{ 'Our prices against whitelisted competitors, for the same product in the same size. Prices include tax, shipping excluded.'|trans({}, 'pricewatch') }}</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary" href="{{ path('pricewatch_competitors') }}">{{ 'Competitors'|trans({}, 'pricewatch') }}</a>
+            <a class="btn btn-outline-secondary" href="{{ path('admin.module.configure', {module_code: 'PriceWatch'}) }}">{{ 'Settings'|trans({}, 'pricewatch') }}</a>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3" data-testid="pw-summary">
+        <div class="col-6 col-lg">
+            <div class="card h-100"><div class="card-body py-2">
+                <div class="small text-muted">{{ 'Offers compared'|trans({}, 'pricewatch') }}</div>
+                <div class="fs-4 fw-semibold">{{ summary.compared }}</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-lg">
+            <div class="card h-100"><div class="card-body py-2">
+                <div class="small text-muted">{{ 'Competitor cheaper'|trans({}, 'pricewatch') }}</div>
+                <div class="fs-4 fw-semibold text-danger" data-testid="pw-summary-cheaper">{{ summary.cheaper }}</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-lg">
+            <div class="card h-100"><div class="card-body py-2">
+                <div class="small text-muted">{{ 'Competitor dearer'|trans({}, 'pricewatch') }}</div>
+                <div class="fs-4 fw-semibold text-success">{{ summary.dearer }}</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-lg">
+            <div class="card h-100"><div class="card-body py-2">
+                <div class="small text-muted">{{ 'Average gap'|trans({}, 'pricewatch') }}</div>
+                <div class="fs-4 fw-semibold">{{ summary.averagePct ?? '–' }}</div>
+            </div></div>
+        </div>
+        <div class="col-12 col-lg">
+            <a class="card h-100 text-decoration-none {{ counts.review > 0 ? 'border-warning' : '' }}" href="{{ tabs[1].url }}" data-testid="pw-summary-review">
+                <div class="card-body py-2">
+                    <div class="small text-muted">{{ 'Waiting for your review'|trans({}, 'pricewatch') }}</div>
+                    <div class="fs-4 fw-semibold text-body">{{ counts.review }}</div>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    <form method="get" action="{{ path('pricewatch_comparator') }}" class="row g-2 align-items-end mb-3" data-testid="pw-filters">
+        <input type="hidden" name="view" value="{{ view }}">
+        <div class="col-12 col-md-4">
+            <label class="form-label small fw-semibold" for="pw-q">{{ 'Product'|trans({}, 'pricewatch') }}</label>
+            <input type="search" class="form-control form-control-sm" id="pw-q" name="q" value="{{ filters.search }}" placeholder="{{ 'Name or reference'|trans({}, 'pricewatch') }}">
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+            <label class="form-label small fw-semibold" for="pw-competitor">{{ 'Competitor'|trans({}, 'pricewatch') }}</label>
+            <select class="form-select form-select-sm" id="pw-competitor" name="competitor">
+                <option value="">{{ 'All whitelisted competitors'|trans({}, 'pricewatch') }}</option>
+                {% for id, domain in competitors %}
+                    <option value="{{ id }}" {% if filters.competitorId == id %}selected{% endif %}>{{ domain }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+            <div class="form-check mb-1">
+                <input class="form-check-input" type="checkbox" id="pw-cheaper" name="cheaper" value="1" {% if filters.cheaperOnly %}checked{% endif %}>
+                <label class="form-check-label small" for="pw-cheaper">{{ 'Only where the competitor is cheaper'|trans({}, 'pricewatch') }}</label>
+            </div>
+        </div>
+        <div class="col-12 col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary flex-grow-1">{{ 'Filter'|trans({}, 'pricewatch') }}</button>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ path('pricewatch_comparator', {view: view}) }}">{{ 'Reset'|trans({}, 'pricewatch') }}</a>
+        </div>
+    </form>
+
+    <ul class="nav nav-tabs mb-3" data-testid="pw-tabs">
+        {% for tab in tabs %}
+            <li class="nav-item">
+                <a class="nav-link {{ tab.active ? 'active' : '' }}" {% if tab.active %}aria-current="page"{% endif %} href="{{ tab.url }}" data-testid="pw-tab-{{ tab.view }}">
+                    {{ ('view.' ~ tab.view)|trans({}, 'pricewatch') }}
+                    <span class="badge {{ tab.view == 'review' and tab.count > 0 ? 'text-bg-warning' : 'text-bg-light border' }} ms-1">{{ tab.count }}</span>
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <p class="small text-muted">{{ ('view.' ~ view ~ '.help')|trans({}, 'pricewatch') }}</p>
+
+    {% if rows is empty %}
+        <div class="alert alert-light border" data-testid="pw-empty">
+            {% if competitors is empty %}
+                {{ 'No competitor is whitelisted: nothing is compared yet.'|trans({}, 'pricewatch') }}
+                <a href="{{ path('pricewatch_competitors') }}">{{ 'Manage competitors'|trans({}, 'pricewatch') }}</a>
+            {% else %}
+                {{ ('view.' ~ view ~ '.empty')|trans({}, 'pricewatch') }}
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle" data-testid="pw-offers">
+                <thead>
+                    <tr>
+                        <th scope="col">{{ 'Product'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'Competitor offer'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Their price'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Our price'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Gap'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'Check'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Decision'|trans({}, 'pricewatch') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in rows %}
+                    <tr data-testid="pw-offer-{{ row.id }}">
+                        <td class="text-break" style="min-width: 11rem; max-width: 16rem; white-space: normal">
+                            {% if row.product.editUrl %}<a href="{{ row.product.editUrl }}" class="fw-semibold">{{ row.product.title }}</a>{% else %}<span class="fw-semibold">{{ row.product.title }}</span>{% endif %}
+                            <div class="small text-muted">
+                                {{ row.product.ref }}
+                                {% if row.product.size %} · {{ 'Size'|trans({}, 'pricewatch') }} <strong>{{ row.product.size }}</strong>{% endif %}
+                            </div>
+                        </td>
+                        <td class="text-break" style="min-width: 14rem">
+                            <div class="fw-semibold">{{ row.competitor }}</div>
+                            <div class="small">{{ row.remoteVariant ?: row.remoteTitle }}</div>
+                            <details class="small mt-1" data-testid="pw-proof-{{ row.id }}">
+                                <summary class="text-primary">{{ 'Proof'|trans({}, 'pricewatch') }}</summary>
+                                <dl class="row mb-0 mt-1">
+                                    <dt class="col-5 fw-normal text-muted">{{ 'Google card'|trans({}, 'pricewatch') }}</dt>
+                                    <dd class="col-7 mb-1">{{ row.remoteTitle }}</dd>
+                                    <dt class="col-5 fw-normal text-muted">{{ 'Seller listing'|trans({}, 'pricewatch') }}</dt>
+                                    <dd class="col-7 mb-1">{{ row.remoteVariant ?: '–' }}</dd>
+                                    <dt class="col-5 fw-normal text-muted">{{ 'Link'|trans({}, 'pricewatch') }}</dt>
+                                    <dd class="col-7 mb-1">
+                                        {% if row.url %}<a href="{{ row.url }}" target="_blank" rel="noopener noreferrer nofollow">{{ 'Open the page'|trans({}, 'pricewatch') }}</a>
+                                        {% else %}<span class="text-muted">{{ 'Not provided by Google Shopping'|trans({}, 'pricewatch') }}</span>{% endif %}
+                                    </dd>
+                                    <dt class="col-5 fw-normal text-muted">{{ 'Found by'|trans({}, 'pricewatch') }}</dt>
+                                    <dd class="col-7 mb-1">{{ row.searchedBy ? ('searched_by.' ~ row.searchedBy)|trans({}, 'pricewatch') : '–' }}</dd>
+                                    {% for line in row.jev %}
+                                        <dt class="col-5 fw-normal text-muted">{{ ('jev.' ~ line.question)|trans({}, 'pricewatch') }}</dt>
+                                        <dd class="col-7 mb-1">{% if line.choice %}{{ ('price.' ~ line.choice)|trans({}, 'pricewatch') }}, {% endif %}{{ line.probability }} <span class="text-muted">({{ ('band.' ~ line.band)|trans({}, 'pricewatch') }})</span></dd>
+                                    {% endfor %}
+                                    {% if row.reviewedBy %}
+                                        <dt class="col-5 fw-normal text-muted">{{ 'Decided by'|trans({}, 'pricewatch') }}</dt>
+                                        <dd class="col-7 mb-1">{{ row.reviewedBy }}, {{ row.reviewedAt }}</dd>
+                                    {% endif %}
+                                    <dt class="col-5 fw-normal text-muted">{{ 'Last seen'|trans({}, 'pricewatch') }}</dt>
+                                    <dd class="col-7 mb-0">{{ row.seenAt }}</dd>
+                                </dl>
+                            </details>
+                        </td>
+                        <td class="text-end text-nowrap">
+                            {{ row.theirs ?? '–' }}
+                            {% if row.shipping %}<div class="small text-muted">+ {{ row.shipping }} {{ 'shipping'|trans({}, 'pricewatch') }}</div>{% endif %}
+                        </td>
+                        <td class="text-end text-nowrap">{{ row.ours ?? '–' }}</td>
+                        <td class="text-end text-nowrap" data-testid="pw-gap-{{ row.id }}">
+                            {% if row.deltaPct %}
+                                <span class="fw-semibold {{ row.trend == 'cheaper' ? 'text-danger' : (row.trend == 'dearer' ? 'text-success' : '') }}">{{ row.deltaPct }}</span>
+                                <div class="small text-muted">{{ row.delta }}</div>
+                            {% else %}–{% endif %}
+                        </td>
+                        <td style="min-width: 9rem; max-width: 13rem">{{ _self.state_badge(row) }}</td>
+                        <td>
+                            <div class="d-flex flex-column align-items-end gap-1">
+                            {% if row.actions.confirm %}{{ _self.review_form(row, 'confirm', 'Confirm'|trans({}, 'pricewatch'), 'btn-success', csrfToken, returnQuery) }}{% endif %}
+                            {% if row.actions.reject %}{{ _self.review_form(row, 'reject', 'Exclude'|trans({}, 'pricewatch'), 'btn-outline-danger', csrfToken, returnQuery) }}{% endif %}
+                            {% if row.actions.reopen and row.state != 'candidate' %}{{ _self.review_form(row, 'reopen', 'To review'|trans({}, 'pricewatch'), 'btn-link p-0', csrfToken, returnQuery) }}{% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if pagination.pages > 1 %}
+            <nav class="d-flex justify-content-between align-items-center" aria-label="{{ 'Pages'|trans({}, 'pricewatch') }}">
+                <span class="small text-muted">{{ 'Page %page% of %pages%'|trans({'%page%': pagination.page, '%pages%': pagination.pages}, 'pricewatch') }}</span>
+                <div class="d-flex gap-2">
+                    {% if pagination.previous %}<a class="btn btn-sm btn-outline-secondary" href="{{ pagination.previous }}">{{ 'Previous'|trans({}, 'pricewatch') }}</a>{% endif %}
+                    {% if pagination.next %}<a class="btn btn-sm btn-outline-secondary" href="{{ pagination.next }}">{{ 'Next'|trans({}, 'pricewatch') }}</a>{% endif %}
+                </div>
+            </nav>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

@@ -116,6 +116,7 @@ CREATE TABLE `pw_competitor_offer`
     `match_state` VARCHAR(20) DEFAULT 'candidate' NOT NULL,
     `match_method` VARCHAR(20),
     `match_reason` VARCHAR(40),
+    `judgment_json` TEXT,
     `identity_fingerprint` VARCHAR(40),
     `judged_fingerprint` VARCHAR(40),
     `last_price` DECIMAL(16,6),

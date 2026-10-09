@@ -1,0 +1,96 @@
+<?php
+
+declare(strict_types=1);
+
+namespace PriceWatch\Controller\Admin;
+
+use PriceWatch\Service\Admin\AdminRequestGuard;
+use PriceWatch\Service\Comparator\ComparatorFilters;
+use PriceWatch\Service\Comparator\ComparatorPresenter;
+use PriceWatch\Service\Comparator\ComparatorRepository;
+use PriceWatch\Service\Comparator\OfferReview;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
+use Twig\Environment;
+
+/**
+ * The comparator: price gaps against whitelisted competitors, and the queue
+ * of offers a human has to decide on.
+ */
+final readonly class ComparatorController
+{
+    private const ACTIONS = ['confirm', 'reject', 'reopen'];
+
+    public function __construct(
+        private AdminRequestGuard $guard,
+        private ComparatorPresenter $presenter,
+        private ComparatorRepository $repository,
+        private OfferReview $review,
+        private UrlGeneratorInterface $urlGenerator,
+        private TranslatorInterface $translator,
+        private Environment $twig,
+    ) {
+    }
+
+    #[Route('/admin/module/pricewatch/comparator', name: 'pricewatch_comparator', methods: ['GET'])]
+    public function page(Request $request): Response
+    {
+        if ($denied = $this->guard->denyView()) {
+            return $denied;
+        }
+
+        return new Response($this->twig->render('@PriceWatchModule/backOffice/default-twig/price-watch/comparator.html.twig', [
+            ...$this->presenter->present(ComparatorFilters::fromRequest($request), $request->getLocale()),
+            'csrfToken' => $this->guard->token(),
+        ]));
+    }
+
+    #[Route(
+        '/admin/module/pricewatch/comparator/{id}/{action}',
+        name: 'pricewatch_comparator_review',
+        requirements: ['id' => '\d+', 'action' => 'confirm|reject|reopen'],
+        methods: ['POST'],
+    )]
+    public function review(Request $request, int $id, string $action): Response
+    {
+        if ($denied = $this->guard->denyChange($request)) {
+            return $denied;
+        }
+
+        $offer = $this->repository->find($id);
+
+        if ($offer === null || !\in_array($action, self::ACTIONS, true)) {
+            return $this->back($request, 'danger', 'This offer no longer exists.');
+        }
+
+        $reviewer = $this->guard->adminLogin();
+
+        match ($action) {
+            'confirm' => $this->review->confirm($offer, $reviewer),
+            'reject' => $this->review->reject($offer, $reviewer),
+            'reopen' => $this->review->reopen($offer, $reviewer),
+        };
+
+        return $this->back($request, 'success', match ($action) {
+            'confirm' => 'Offer confirmed: same product, same size. It will not be judged again.',
+            'reject' => 'Offer excluded: it will not count in the gap.',
+            'reopen' => 'Offer sent back to review.',
+        });
+    }
+
+    private function back(Request $request, string $type, string $message): RedirectResponse
+    {
+        $request->getSession()->getFlashBag()->add($type, $this->translator->trans($message, [], AdminRequestGuard::MODULE_CODE));
+
+        // The return address is rebuilt from the screen's own filters, never
+        // taken as given: no open redirect through this form.
+        parse_str((string) $request->request->get('return', ''), $query);
+        $filters = ComparatorFilters::fromRequest(new Request(\is_array($query) ? $query : []));
+
+        return new RedirectResponse($this->urlGenerator->generate('pricewatch_comparator', $filters->toQueryParams()));
+    }
+}

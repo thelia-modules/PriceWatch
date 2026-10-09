@@ -13,6 +13,7 @@ use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Jev\CachedJev;
+use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\JevException;
 use PriceWatch\Service\Jev\OfferQuestions;
 use PriceWatch\Service\Jev\OfferState;
@@ -69,6 +70,7 @@ final readonly class OfferJudge
             }
 
             $verdict = $this->decision->prefilter((string) $quote->getOurPrice(), $quote->getPrice(), $quote->getCurrencyCode(), $quote->getConditionCode());
+            $answers = [];
 
             if ($verdict === null) {
                 if ($dryRun) {
@@ -89,14 +91,15 @@ final readonly class OfferJudge
                 $counts['requests'] += $asked['requests'];
                 $counts['hits'] += $asked['cacheHits'];
                 $counts['tokens'] += $asked['inputTokens'];
-                $verdict = $this->decision->decide($asked['answers']);
+                $answers = $asked['answers'];
+                $verdict = $this->decision->decide($answers);
             }
 
             if ($dryRun) {
                 continue;
             }
 
-            $this->apply($offer, $quote, $verdict);
+            $this->apply($offer, $quote, $verdict, $answers);
 
             match ($verdict->state) {
                 MatchVerdict::MATCHED => ++$counts['matched'],
@@ -189,12 +192,25 @@ final readonly class OfferJudge
         );
     }
 
-    private function apply(PwCompetitorOffer $offer, PwPriceQuote $quote, MatchVerdict $verdict): void
+    /**
+     * @param array<string, JevAnswer> $answers empty when code decided alone
+     */
+    private function apply(PwCompetitorOffer $offer, PwPriceQuote $quote, MatchVerdict $verdict, array $answers): void
     {
+        // Kept on the offer as proof for the screen: the judgment cache is
+        // keyed by state, so it cannot be found again from the offer alone.
+        $judgment = array_map(static fn (JevAnswer $answer): array => [
+            'band' => $answer->band,
+            'value' => $answer->value,
+            'confidence' => $answer->confidence,
+            'probabilities' => $answer->probabilities,
+        ], $answers);
+
         $offer
             ->setMatchState($verdict->state)
             ->setMatchMethod($verdict->judgedByJev ? 'jev' : 'code')
             ->setMatchReason($verdict->reason)
+            ->setJudgmentJson($judgment === [] ? null : json_encode($judgment, \JSON_UNESCAPED_UNICODE))
             ->setJudgedFingerprint($offer->getIdentityFingerprint())
             ->setLastComparable($verdict->comparable ? 1 : 0)
             ->setExclusionReason($verdict->exclusionReason)
