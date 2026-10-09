@@ -11,6 +11,7 @@ use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Comparator\ProductCardPresenter;
+use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use Symfony\Component\Routing\Generator\UrlGenerator;
@@ -66,6 +67,8 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         self::assertSame('dearer', $card['variants'][0]['best']['position'], 'the competitor is 8 % cheaper: we are dearer, in red');
         self::assertStringContainsString('8,0', $card['variants'][0]['best']['gap']);
         self::assertNull($card['variants'][1]['best']);
+        self::assertSame(['monitored' => 2, 'paused' => 0, 'missing' => 0, 'notCollectable' => 1], $card['watch'], 'the size without a GTIN is watched but never collected, and says so');
+        self::assertFalse($card['variants'][1]['collectable']);
         self::assertStringContainsString('q='.urlencode((string) $product->getRef()), $card['comparatorUrl'], 'the comparator opens on this product');
     }
 
@@ -75,6 +78,7 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
 
         self::assertFalse($card['inReferential']);
         self::assertSame([], $card['variants']);
+        self::assertSame(1, $card['watch']['missing'], 'its catalogue variant can be added');
     }
 
     // ------------------------------------------------------------------
@@ -84,7 +88,7 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         $routes = new RouteCollection();
         $routes->add('pricewatch_comparator', new Route('/admin/module/pricewatch/comparator'));
 
-        return new ProductCardPresenter(new ComparatorRepository(), new UrlGenerator($routes, new RequestContext()));
+        return new ProductCardPresenter(new ComparatorRepository(), new CatalogVariantRepository(), new UrlGenerator($routes, new RequestContext()));
     }
 
     private function product(): Product

@@ -1,10 +1,46 @@
+{% macro watch_form(route, params, label, style, csrfToken, testid, icon) %}
+    <form method="post" action="{{ path(route, params) }}" class="d-inline">
+        <input type="hidden" name="_token" value="{{ csrfToken }}">
+        <button type="submit" class="btn btn-sm {{ style }}" data-testid="{{ testid }}">{% if icon %}<i class="bi {{ icon }} me-1" aria-hidden="true"></i>{% endif %}{{ label }}</button>
+    </form>
+{% endmacro %}
+
 <div data-testid="pricewatch-product-card">
-    <h3 class="h6 mb-2">{{ 'Price watch'|trans({}, 'pricewatch') }}</h3>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h3 class="h6 mb-0">
+            {{ 'Price watch'|trans({}, 'pricewatch') }}
+            {% if inReferential %}
+                {% if watch.monitored > 0 %}<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle ms-1" data-testid="pw-card-status">{{ 'Watched'|trans({}, 'pricewatch') }}</span>
+                {% else %}<span class="badge bg-body-secondary text-body border ms-1" data-testid="pw-card-status">{{ 'Paused'|trans({}, 'pricewatch') }}</span>{% endif %}
+            {% endif %}
+        </h3>
+        {% if canChange %}
+            <div class="d-flex flex-wrap gap-1">
+                {% if not inReferential or watch.missing > 0 %}
+                    {{ _self.watch_form('pricewatch_product_enrol', {productId: productId},
+                        inReferential ? ('Add the %count% missing variant(s)'|trans({'%count%': watch.missing}, 'pricewatch')) : ('Add to the price watch'|trans({}, 'pricewatch')),
+                        'btn-primary', csrfToken, 'pw-card-enrol', 'bi-plus-circle') }}
+                {% endif %}
+                {% if inReferential and watch.paused > 0 %}
+                    {{ _self.watch_form('pricewatch_product_monitoring', {productId: productId, action: 'resume'}, 'Resume the watch'|trans({}, 'pricewatch'), 'btn-outline-success', csrfToken, 'pw-card-resume', 'bi-play-circle') }}
+                {% endif %}
+                {% if inReferential and watch.monitored > 0 %}
+                    {{ _self.watch_form('pricewatch_product_monitoring', {productId: productId, action: 'pause'}, 'Pause the watch'|trans({}, 'pricewatch'), 'btn-outline-secondary', csrfToken, 'pw-card-pause', 'bi-pause-circle') }}
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
     {% if not inReferential %}
         <p class="text-muted mb-0" data-testid="pw-card-empty">
             {{ 'This product is not in the price watch referential: no competitor price is collected for it.'|trans({}, 'pricewatch') }}
+            {% if canChange %}{{ 'Adding it reads its variants, EAN codes and sizes from the catalogue; prices are collected at the next pass.'|trans({}, 'pricewatch') }}{% endif %}
         </p>
     {% else %}
+        {% if watch.notCollectable > 0 %}
+            <div class="alert alert-warning py-2 small" data-testid="pw-card-not-collectable">
+                {{ '%count% watched variant(s) have no valid GTIN of their own: Google Shopping is searched by GTIN, so they are not collected. Fill in their EAN code in the catalogue, then add the product again.'|trans({'%count%': watch.notCollectable}, 'pricewatch') }}
+            </div>
+        {% endif %}
         <p class="mb-2">
             {{ '%compared% offer(s) compared, %dearer% where we are dearer, %review% waiting for your review.'|trans({'%compared%': totals.compared, '%dearer%': totals.weAreDearer, '%review%': totals.review}, 'pricewatch') }}
             <a href="{{ comparatorUrl }}" class="ms-1">{{ 'Open in the comparator'|trans({}, 'pricewatch') }}</a>
@@ -19,6 +55,7 @@
                         <th scope="col" class="text-end">{{ 'Offers compared'|trans({}, 'pricewatch') }}</th>
                         <th scope="col">{{ 'Best gap'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'To review'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Watch'|trans({}, 'pricewatch') }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -26,7 +63,7 @@
                     <tr>
                         <td>
                             {{ variant.size ?: '–' }}{% if variant.color %} · {{ variant.color }}{% endif %}
-                            <div class="small text-muted">{{ variant.ref }}{% if not variant.monitored %} · {{ 'not monitored'|trans({}, 'pricewatch') }}{% endif %}</div>
+                            <div class="small text-muted">{{ variant.ref }}{% if variant.monitored and not variant.collectable %} · <span class="text-warning-emphasis">{{ 'not collected: no GTIN of its own'|trans({}, 'pricewatch') }}</span>{% endif %}</div>
                         </td>
                         <td class="text-nowrap">
                             {% if variant.gtin %}
@@ -43,6 +80,15 @@
                             {% else %}<span class="text-muted">–</span>{% endif %}
                         </td>
                         <td class="text-end">{{ variant.review ?: '' }}</td>
+                        <td class="text-end text-nowrap">
+                            {% if variant.monitored %}
+                                <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">{{ 'Watched'|trans({}, 'pricewatch') }}</span>
+                                {% if canChange %}{{ _self.watch_form('pricewatch_product_monitoring', {productId: productId, action: 'pause', saleElementId: variant.saleElementId}, 'Pause'|trans({}, 'pricewatch'), 'btn-link py-0', csrfToken, 'pw-variant-pause-' ~ variant.saleElementId, null) }}{% endif %}
+                            {% else %}
+                                <span class="badge bg-body-secondary text-body border">{{ 'Paused'|trans({}, 'pricewatch') }}</span>
+                                {% if canChange %}{{ _self.watch_form('pricewatch_product_monitoring', {productId: productId, action: 'resume', saleElementId: variant.saleElementId}, 'Resume'|trans({}, 'pricewatch'), 'btn-link py-0', csrfToken, 'pw-variant-resume-' ~ variant.saleElementId, null) }}{% endif %}
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
                 </tbody>

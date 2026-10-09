@@ -88,7 +88,11 @@ class PriceWatchAdminHook extends BaseHook
 
         $locale = $this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR';
 
-        $event->add($this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/product-card.html.twig', $this->productCard->present($productId, $locale)));
+        $event->add($this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/product-card.html.twig', [
+            ...$this->productCard->present($productId, $locale),
+            'csrfToken' => $this->guard->token(),
+            'canChange' => $this->securityContext->isGranted(['ADMIN'], [], [AdminRequestGuard::MODULE_CODE], [AccessManager::UPDATE]),
+        ]));
     }
 
     public function onModuleConfiguration(HookRenderEvent $event): void

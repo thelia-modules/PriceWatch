@@ -23,6 +23,7 @@ final readonly class IdentityUpserter
     public const CREATED = 'created';
     public const UPDATED = 'updated';
     public const UNCHANGED = 'unchanged';
+    public const SOURCE_CATALOG = 'catalog';
 
     private const SIZE_LABEL_LENGTH = 32;
     private const COLOR_LABEL_LENGTH = 48;
@@ -33,7 +34,11 @@ final readonly class IdentityUpserter
     ) {
     }
 
-    public function upsert(ReferenceRow $row, SaleElementResolution $resolution, ?int $batchId): string
+    /**
+     * @param string $lineSource where the line's GTIN came from: a reference
+     *                           file ("import") or the catalogue itself ("catalog")
+     */
+    public function upsert(ReferenceRow $row, SaleElementResolution $resolution, ?int $batchId, string $lineSource = 'import'): string
     {
         $saleElementId = $resolution->saleElementId;
         $productId = $resolution->productId;
@@ -51,7 +56,7 @@ final readonly class IdentityUpserter
         }
 
         $identity = $existing ?? new PwProductIdentity();
-        [$gtin, $gtinSource] = $this->resolveGtin($row, $saleElementId);
+        [$gtin, $gtinSource] = $this->resolveGtin($row, $saleElementId, $lineSource);
 
         $identity
             ->setProductSaleElementsId($saleElementId)
@@ -94,22 +99,22 @@ final readonly class IdentityUpserter
      *
      * @return array{0: ?\PriceWatch\Service\Normalizer\NormalizedGtin, 1: ?string}
      */
-    private function resolveGtin(ReferenceRow $row, int $saleElementId): array
+    private function resolveGtin(ReferenceRow $row, int $saleElementId, string $lineSource): array
     {
         if ($row->gtin->isUsable()) {
-            return [$row->gtin, 'import'];
+            return [$row->gtin, $lineSource];
         }
 
         $saleElement = ProductSaleElementsQuery::create()->findPk($saleElementId);
         $fromCatalogue = $this->gtinNormalizer->normalize($saleElement?->getEanCode());
 
         if ($fromCatalogue->isUsable()) {
-            return [$fromCatalogue, 'catalog'];
+            return [$fromCatalogue, self::SOURCE_CATALOG];
         }
 
         // Keep whatever the file said, flagged invalid, so the back-office can
         // show the merchant a GTIN to fix rather than an empty cell.
-        return [$row->gtin->value !== null ? $row->gtin : null, $row->gtin->value !== null ? 'import' : null];
+        return [$row->gtin->value !== null ? $row->gtin : null, $row->gtin->value !== null ? $lineSource : null];
     }
 
     /**

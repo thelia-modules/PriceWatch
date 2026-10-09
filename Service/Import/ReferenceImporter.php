@@ -31,6 +31,7 @@ final readonly class ReferenceImporter
         private SaleElementResolver $resolver,
         private IdentityUpserter $upserter,
         private CompetitorSeeder $competitorSeeder,
+        private SharedGtinFlags $sharedGtinFlags,
     ) {
     }
 
@@ -79,7 +80,7 @@ final readonly class ReferenceImporter
                     $report->deactivated = $this->deactivateMissing($seenSaleElements);
                 }
 
-                $this->refreshSharedGtinFlags();
+                $this->sharedGtinFlags->refresh();
             }
 
             $this->closeBatch($batch, $report);
@@ -233,25 +234,5 @@ final readonly class ReferenceImporter
             ->filterByMonitored(1)
             ->filterByProductSaleElementsId(array_values(array_unique($seenSaleElements)), Criteria::NOT_IN)
             ->update(['Monitored' => 0]);
-    }
-
-    /**
-     * A GTIN carried by more than one variant can never designate one, so it
-     * is flagged here once per import rather than recomputed at every lookup.
-     */
-    private function refreshSharedGtinFlags(): void
-    {
-        $connection = Propel::getConnection('TheliaMain');
-
-        $connection->exec('UPDATE pw_product_identity SET gtin_shared = 0 WHERE gtin_shared <> 0');
-        $connection->exec(
-            'UPDATE pw_product_identity i
-             JOIN (
-                 SELECT gtin FROM pw_product_identity
-                 WHERE gtin IS NOT NULL AND gtin <> \'\'
-                 GROUP BY gtin HAVING COUNT(*) > 1
-             ) shared ON shared.gtin = i.gtin
-             SET i.gtin_shared = 1',
-        );
     }
 }

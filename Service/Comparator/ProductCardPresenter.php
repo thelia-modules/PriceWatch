@@ -6,6 +6,7 @@ namespace PriceWatch\Service\Comparator;
 
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwProductIdentity;
+use PriceWatch\Service\Referential\CatalogVariantRepository;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
@@ -16,6 +17,7 @@ final readonly class ProductCardPresenter
 {
     public function __construct(
         private ComparatorRepository $repository,
+        private CatalogVariantRepository $catalog,
         private UrlGeneratorInterface $urlGenerator,
     ) {
     }
@@ -54,6 +56,10 @@ final readonly class ProductCardPresenter
             $totals['weAreDearer'] += \count(array_filter($compared, static fn (PwCompetitorOffer $offer): bool => PricePosition::fromGapPct($offer->getLastDeltaPct()) === PricePosition::WeAreDearer));
 
             $variants[] = [
+                'saleElementId' => (int) $identity->getProductSaleElementsId(),
+                // The collector only searches valid GTINs that no other
+                // variant shares: anything else is never collected.
+                'collectable' => (int) $identity->getGtinValid() === 1 && (int) $identity->getGtinShared() === 0,
                 'ref' => $identity->getProductSaleElements()?->getRef(),
                 'size' => $identity->getSizeLabel(),
                 'color' => $identity->getColorLabel(),
@@ -73,8 +79,17 @@ final readonly class ProductCardPresenter
 
         $ref = $this->repository->productRef($productId) ?? '';
 
+        $monitored = \count(array_filter($variants, static fn (array $variant): bool => $variant['monitored']));
+
         return [
+            'productId' => $productId,
             'inReferential' => $identities !== [],
+            'watch' => [
+                'monitored' => $monitored,
+                'paused' => \count($variants) - $monitored,
+                'missing' => max(0, $this->catalog->variantCount($productId) - \count($variants)),
+                'notCollectable' => \count(array_filter($variants, static fn (array $variant): bool => $variant['monitored'] && !$variant['collectable'])),
+            ],
             'variants' => $variants,
             'totals' => $totals,
             'comparatorUrl' => $this->urlGenerator->generate('pricewatch_comparator', $ref === '' ? [] : ['q' => $ref]),

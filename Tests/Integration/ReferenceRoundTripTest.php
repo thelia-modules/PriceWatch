@@ -13,6 +13,7 @@ use PriceWatch\Service\Import\PairListParser;
 use PriceWatch\Service\Import\ReferenceExporter;
 use PriceWatch\Service\Import\ReferenceFileFormat;
 use PriceWatch\Service\Import\ReferenceImporter;
+use PriceWatch\Service\Import\SharedGtinFlags;
 use PriceWatch\Service\Import\RowValidator;
 use PriceWatch\Service\Import\SaleElementResolver;
 use PriceWatch\Service\Normalizer\BrandNormalizer;
@@ -62,6 +63,7 @@ final class ReferenceRoundTripTest extends PriceWatchIntegrationTestCase
             new SaleElementResolver($gtin, $text),
             new IdentityUpserter($gtin, $text),
             new CompetitorSeeder(),
+            new SharedGtinFlags(),
         );
         $this->exporter = new ReferenceExporter();
 
