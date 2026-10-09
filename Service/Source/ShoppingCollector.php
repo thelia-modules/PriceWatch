@@ -63,7 +63,7 @@ final readonly class ShoppingCollector
      * @param list<string> $productRefs   restrict to these products
      * @param bool         $onePerProduct one variant per product, to sample a catalogue
      *
-     * @return array{run: PwCollectRun, unknownSellers: array<string, int>, noPlausibleCard: int}
+     * @return array{run: PwCollectRun, unknownSellers: array<string, int>, noPlausibleCard: array<string, list<string>>} our title => first card titles
      *
      * @throws DataForSeoException
      */
@@ -77,7 +77,8 @@ final readonly class ShoppingCollector
         $identities = $this->identities($limit, $productRefs, $onePerProduct);
         $errors = [];
         $unknownSellers = [];
-        $counts = ['tasks' => 0, 'seen' => 0, 'written' => 0, 'noCard' => 0, 'targets' => \count($identities)];
+        $counts = ['tasks' => 0, 'seen' => 0, 'written' => 0, 'targets' => \count($identities)];
+        $noCard = [];
         $cost = 0.0;
 
         if ($watched === []) {
@@ -118,7 +119,9 @@ final readonly class ShoppingCollector
                 }
 
                 if (!isset($cards[$tag])) {
-                    ++$counts['noCard'];
+                    // Kept for the report: a human tells a strict gate from
+                    // a GTIN Google does not know at a glance.
+                    $noCard[$ourTitle] = array_map(static fn (ShoppingCard $card): string => $card->title, \array_slice($result['cards'], 0, 3));
                 }
             }
 
@@ -179,7 +182,7 @@ final readonly class ShoppingCollector
             ->setErrorsJson($errors === [] ? null : json_encode($errors, \JSON_UNESCAPED_UNICODE))
             ->save();
 
-        return ['run' => $run, 'unknownSellers' => $unknownSellers, 'noPlausibleCard' => $counts['noCard']];
+        return ['run' => $run, 'unknownSellers' => $unknownSellers, 'noPlausibleCard' => $noCard];
     }
 
     /**

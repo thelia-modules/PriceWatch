@@ -88,13 +88,22 @@ final class CollectOffersCommand extends Command
         $run = $result['run'];
         $io->table(['', ''], [
             ['Variants searched', $run->getTargetsPlanned()],
-            ['Searches without a plausible card', $result['noPlausibleCard']],
+            ['Searches without a plausible card', \count($result['noPlausibleCard'])],
             ['Offers seen', $run->getOffersSeen()],
             ['Whitelisted offers recorded', $run->getQuotesWritten()],
             ['DataForSEO tasks', $run->getDataforseoTasks()],
             ['DataForSEO cost (USD)', $run->getDataforseoCostUsd()],
             ['Worst case announced (USD)', number_format($worstCase, 3)],
         ]);
+
+        if ($result['noPlausibleCard'] !== []) {
+            $io->section('Searches without a plausible card (ours => first cards Google returned)');
+            $io->listing(array_map(
+                static fn (string $ours, array $cards): string => $ours.' => '.($cards === [] ? '(no card)' : implode(' | ', $cards)),
+                array_keys($result['noPlausibleCard']),
+                $result['noPlausibleCard'],
+            ));
+        }
 
         if ($result['unknownSellers'] !== []) {
             $io->section('Sellers seen outside the whitelist (candidates for the competitor list)');

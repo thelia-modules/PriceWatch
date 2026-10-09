@@ -130,7 +130,8 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
 
         $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
 
-        self::assertSame(1, $result['noPlausibleCard']);
+        self::assertSame(['Casque Bell Custom 500 Gloss Black'], array_keys($result['noPlausibleCard']));
+        self::assertContains('Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], 'what Google returned is shown');
         self::assertSame(1, $result['run']->getDataforseoTasks(), 'the search is paid, the sellers lookup is not');
         self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
     }
