@@ -9,6 +9,9 @@ use PHPUnit\Framework\TestCase;
 use Propel\Runtime\Connection\ConnectionInterface;
 use Propel\Runtime\Connection\ConnectionWrapper;
 use Propel\Runtime\Propel;
+use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
+use Thelia\Core\HttpFoundation\Request;
+use Thelia\Core\HttpFoundation\Session\Session;
 use Thelia\Test\FixtureFactory;
 
 /**
@@ -40,6 +43,7 @@ abstract class PriceWatchIntegrationTestCase extends TestCase
         if (self::$kernel === null) {
             self::$kernel = new Kernel('dev', true);
             self::$kernel->boot();
+            $this->initialiseSingletons();
         }
 
         $this->connection = Propel::getConnection('TheliaMain');
@@ -62,6 +66,36 @@ abstract class PriceWatchIntegrationTestCase extends TestCase
         }
 
         $this->connection = null;
+    }
+
+    /**
+     * Saving a title builds a rewritten URL through the URL and Translator
+     * singletons, and some model listeners read the request's session
+     * unconditionally. Same preparation as Thelia\Test\IntegrationTestCase.
+     */
+    private function initialiseSingletons(): void
+    {
+        $container = self::$kernel?->getContainer();
+
+        if ($container === null) {
+            return;
+        }
+
+        foreach (['thelia.translator', 'thelia.url.manager'] as $id) {
+            if ($container->has($id)) {
+                $container->get($id);
+            }
+        }
+
+        if ($container->has('request_stack')) {
+            $stack = $container->get('request_stack');
+
+            if ($stack->getCurrentRequest() === null) {
+                $request = Request::create('http://localhost');
+                $request->setSession(new Session(new MockArraySessionStorage()));
+                $stack->push($request);
+            }
+        }
     }
 
     protected function createFixtureFactory(): FixtureFactory
