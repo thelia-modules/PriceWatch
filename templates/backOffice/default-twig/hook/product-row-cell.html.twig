@@ -15,7 +15,7 @@
         <span class="badge bg-body-secondary text-body border">{{ 'Paused'|trans({}, 'pricewatch') }}</span>
         {% if canChange %}{{ _self.action('pricewatch_product_monitoring', {productId: productId, action: 'resume'}, 'Resume'|trans({}, 'pricewatch'), 'btn-link py-0', csrfToken, returnQuery, 'pw-row-resume-' ~ productId, null) }}{% endif %}
     {% elseif canChange %}
-        {{ _self.action('pricewatch_product_enrol', {productId: productId}, 'Watch'|trans({}, 'pricewatch'), 'btn-outline-primary py-0', csrfToken, returnQuery, 'pw-row-enrol-' ~ productId, 'bi-plus-circle') }}
+        {{ _self.action('pricewatch_product_enrol', {productId: productId}, 'Start watching'|trans({}, 'pricewatch'), 'btn-outline-primary py-0', csrfToken, returnQuery, 'pw-row-enrol-' ~ productId, 'bi-plus-circle') }}
     {% else %}
         <span class="text-muted">–</span>
     {% endif %}

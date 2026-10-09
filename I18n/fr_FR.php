@@ -346,4 +346,5 @@ return [
     'watched.status.paused' => 'En pause',
     'Collect (at most %cost%)' => 'Relever (au plus %cost%)',
     'Offers' => 'Offres',
+    'Start watching' => 'Surveiller',
 ];
