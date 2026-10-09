@@ -287,6 +287,7 @@ CREATE TABLE `pw_collect_run`
     `progress_step` VARCHAR(30),
     `progress_done` INTEGER DEFAULT 0,
     `progress_total` INTEGER DEFAULT 0,
+    `progress_items` TEXT,
     `errors_json` TEXT,
     `dry_run` TINYINT(4) DEFAULT 0,
     `created_at` TIMESTAMP NULL,

@@ -1,7 +1,7 @@
 {# Progress bar of the running pass, refreshed every few seconds until the
    pass ends. Included only while a pass runs. #}
-<div class="{{ class|default('') }}" data-pw-progress="{{ path('pricewatch_run_progress') }}" data-testid="pw-progress">
-    {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress_body.html.twig' with {progress: progress} only %}
+<div class="{{ class|default('') }}" data-pw-progress="{{ path('pricewatch_run_progress', withItems|default(false) ? {items: 1} : {}) }}" data-testid="pw-progress">
+    {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress_body.html.twig' with {progress: progress, withItems: withItems|default(false)} only %}
 </div>
 <script>
     (function () {
@@ -29,32 +29,36 @@
         }
 
         async function poll() {
-            const first = boxes()[0];
+            // One request per kind of bar: with or without the product list.
+            const urls = [...new Set(Array.from(boxes(), (box) => box.dataset.pwProgress))];
 
-            if (!first) {
+            if (urls.length === 0) {
                 return;
             }
 
             try {
-                const response = await fetch(first.dataset.pwProgress, {
-                    headers: { Accept: 'application/json' },
-                    credentials: 'same-origin',
-                    cache: 'no-store',
-                });
+                const answers = await Promise.all(urls.map(async (url) => {
+                    const response = await fetch(url, {
+                        headers: { Accept: 'application/json' },
+                        credentials: 'same-origin',
+                        cache: 'no-store',
+                    });
 
-                if (!response.ok) {
-                    throw new Error(String(response.status));
-                }
+                    if (!response.ok) {
+                        throw new Error(String(response.status));
+                    }
 
-                const data = await response.json();
+                    return response.json();
+                }));
+                const running = answers.some((data) => data.running);
                 failures = 0;
                 // Between the collect pass and the judge pass, no lock is held
                 // for an instant: two idle answers in a row mean the run is over.
-                idle = data.running ? 0 : idle + 1;
+                idle = running ? 0 : idle + 1;
 
-                if (data.running || idle >= 2) {
+                if (running || idle >= 2) {
                     boxes().forEach((box) => {
-                        box.innerHTML = data.html;
+                        box.innerHTML = answers[urls.indexOf(box.dataset.pwProgress)].html;
                     });
                     tick();
                 }

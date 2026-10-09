@@ -16,6 +16,7 @@ use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
 use PriceWatch\Service\Normalizer\TextNormalizer;
+use PriceWatch\Service\Run\PassItems;
 use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Run\PriceWatchLog;
 use Propel\Runtime\ActiveQuery\Criteria;
@@ -169,11 +170,16 @@ final readonly class ShoppingCollector
             $titles = $this->productTitles($identities);
             $gtins = [];
             $ourTitles = [];
+            $items = new PassItems();
 
             foreach ($identities as $id => $identity) {
                 $gtins[(string) $id] = self::searchableGtin((string) $identity->getGtin());
                 $ourTitles[(string) $id] = $titles[(int) $identity->getProductId()] ?? '';
+                $items->add((int) $identity->getProductId(), $titles[(int) $identity->getProductId()] ?? '', $identity->getSizeLabel());
             }
+
+            $items->set(PassItems::GTIN);
+            $items->save($run);
 
             $byGtin = $this->searchCards($run, PassStep::GtinSearch, $gtins, $ourTitles, 'identity', $priority, $maxWaitSeconds, $sandbox);
 
@@ -197,6 +203,9 @@ final readonly class ShoppingCollector
                 }
             }
 
+            $items->set(PassItems::SELLERS);
+            $items->set(PassItems::TITLE, array_keys($missedByProduct));
+            $items->save($run);
             $titleKeywords = [];
 
             foreach (array_keys($missedByProduct) as $productId) {
@@ -211,6 +220,11 @@ final readonly class ShoppingCollector
                 $card = $byTitle['cards']['p'.$productId] ?? null;
 
                 if ($card === null) {
+                    // A search that failed is not a product Google does not know.
+                    $failed = \in_array('p'.$productId, $byTitle['failed'], true)
+                        || (!isset($titleKeywords['p'.$productId]) && array_intersect($tags, $byGtin['failed']) !== []);
+                    $items->set($failed ? PassItems::ERROR : PassItems::NO_CARD, [$productId]);
+
                     // Kept for the report: a human tells a strict gate from
                     // a product Google does not know at a glance.
                     $tally->noCard[$titles[$productId] ?? '#'.$productId] = array_merge(
@@ -220,11 +234,15 @@ final readonly class ShoppingCollector
                     continue;
                 }
 
+                $items->set(PassItems::SELLERS, [$productId]);
+
                 foreach ($tags as $tag) {
                     $cards[$tag] = $card;
                     $searchedBy[$tag] = 'title';
                 }
             }
+
+            $items->save($run);
 
             foreach ([$byGtin, $byTitle] as $search) {
                 $tally->costUsd += $search['costUsd'];
@@ -253,6 +271,8 @@ final readonly class ShoppingCollector
 
                 foreach ($ready as $productId => $taskId) {
                     PassStep::Recording->record($run, $read++, \count($ready));
+                    // Our products behind this Google card.
+                    $ours = array_values(array_unique(array_map(static fn (string $tag): int => (int) $identities[(int) $tag]->getProductId(), $tagsByProductId[$productId] ?? [])));
 
                     try {
                         $listing = $this->client->sellerOffers($taskId, $sandbox);
@@ -260,8 +280,14 @@ final readonly class ShoppingCollector
                     } catch (DataForSeoException $error) {
                         $tally->errors[] = \sprintf('sellers of card %s: %s', $productId, $error->getMessage());
                         $this->log->warning('Collect: sellers of card {card} not read: {error}', ['card' => $productId, 'error' => $error->getMessage(), 'task' => $taskId]);
+                        $items->set(PassItems::ERROR, $ours);
+                        $items->save($run);
                         continue;
                     }
+
+                    // Another card of the same product may have failed: an
+                    // error stays visible.
+                    $items->set(PassItems::DONE, array_values(array_filter($ours, static fn (int $ourId): bool => $items->status($ourId) !== PassItems::ERROR)));
 
                     foreach ($tagsByProductId[$productId] ?? [] as $tag) {
                         $identity = $identities[(int) $tag];
@@ -277,6 +303,7 @@ final readonly class ShoppingCollector
                                 continue;
                             }
 
+                            $items->offerRecorded((int) $identity->getProductId());
                             $links = [
                                 'merchant' => $this->merchantUrl($listing['pageUrl'], $domainsById[$competitorId] ?? null),
                                 'google' => $listing['googleUrl'] ?? $cards[$tag]->googleUrl,
@@ -287,10 +314,21 @@ final readonly class ShoppingCollector
                             }
                         }
                     }
+
+                    $items->save($run);
                 }
 
                 PassStep::Recording->record($run, \count($ready), \count($ready));
             }
+
+            // A card whose sellers lookup was never created: not read.
+            foreach ($identities as $identity) {
+                if ($items->status((int) $identity->getProductId()) === PassItems::SELLERS) {
+                    $items->set(PassItems::ERROR, [(int) $identity->getProductId()]);
+                }
+            }
+
+            $items->save($run);
         }
     }
 
@@ -301,13 +339,13 @@ final readonly class ShoppingCollector
      * @param array<string, string> $keywordsByTag
      * @param array<string, string> $ourTitleByTag
      *
-     * @return array{cards: array<string, ShoppingCard>, missed: array<string, list<string>>, costUsd: float, tasks: int, errors: list<string>}
+     * @return array{cards: array<string, ShoppingCard>, missed: array<string, list<string>>, costUsd: float, tasks: int, errors: list<string>, failed: list<string>} failed: tags whose search ended in error
      *
      * @throws DataForSeoException
      */
     private function searchCards(PwCollectRun $run, PassStep $step, array $keywordsByTag, array $ourTitleByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
     {
-        $found = ['cards' => [], 'missed' => [], 'costUsd' => 0.0, 'tasks' => 0, 'errors' => []];
+        $found = ['cards' => [], 'missed' => [], 'costUsd' => 0.0, 'tasks' => 0, 'errors' => [], 'failed' => []];
 
         if ($keywordsByTag === []) {
             return $found;
@@ -329,6 +367,7 @@ final readonly class ShoppingCollector
                 // Observed live: a task can end in 40101 "Internal SE Server
                 // Error". One failed search must not sink the pass.
                 $found['errors'][] = \sprintf('search for %s %s: %s', $subject, $tag, $error->getMessage());
+                $found['failed'][] = (string) $tag;
                 $this->log->warning('Collect: search for {subject} {tag} failed: {error}', ['subject' => $subject, 'tag' => $tag, 'error' => $error->getMessage(), 'task' => $taskId]);
                 continue;
             }

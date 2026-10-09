@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace PriceWatch\Tests\Integration;
 
+use PriceWatch\Model\PwCollectRun;
 use PriceWatch\Model\PwCollectRunQuery;
 use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Model\PwPriceQuoteQuery;
@@ -15,6 +16,7 @@ use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
 use PriceWatch\Service\Normalizer\TextNormalizer;
+use PriceWatch\Service\Run\PassItems;
 use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
@@ -112,12 +114,13 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
 
     public function testAFinishedPassHasRecordedEveryCardItRead(): void
     {
-        $this->identity('3660600123454');
+        $identity = $this->identity('3660600123454');
 
         $run = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true)['run'];
 
         self::assertSame(PassStep::Recording->value, $run->getProgressStep(), 'the last step of a collect pass');
         self::assertSame([1, 1], [$run->getProgressDone(), $run->getProgressTotal()]);
+        self::assertSame([PassItems::DONE, 1], $this->item($run, (int) $identity->getProductId()), 'listed as done, with its one whitelisted offer');
     }
 
     /**
@@ -127,7 +130,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
      */
     public function testASearchThatFailedIsNotWaitedForUntilTheDeadline(): void
     {
-        $this->identity('3660600123454');
+        $identity = $this->identity('3660600123454');
         $clock = 1_000_000;
         $seen = [];
         $failed = $this->fixture('products-task_get_advanced');
@@ -141,11 +144,11 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
                 'products/tasks_ready' => ['status_code' => 20000, 'tasks' => [['status_code' => 20000, 'result' => []]]],
                 'products/task_get' => $failed,
             ],
-            function (int $seconds) use (&$clock, &$seen): void {
+            function (int $seconds) use (&$clock, &$seen, $identity): void {
                 $clock += $seconds;
                 // What the back office would read while the pass waits.
                 $row = PwCollectRunQuery::create()->filterByPassName(ShoppingCollector::PASS)->filterByStatus('started')->orderById(Criteria::DESC)->findOne();
-                $seen[] = [$row?->getProgressStep(), $row?->getProgressDone(), $row?->getProgressTotal()];
+                $seen[] = [$row?->getProgressStep(), $row?->getProgressDone(), $row?->getProgressTotal(), $row === null ? null : $this->item($row, (int) $identity->getProductId())[0]];
             },
             static function () use (&$clock): int {
                 return $clock;
@@ -155,12 +158,28 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertLessThanOrEqual(1_000_000 + 2 * 60, $clock, 'given up after the probe, not after the 600 s deadline');
         self::assertSame('partial', $result['run']->getStatus());
         self::assertStringContainsString('Internal SE Server Error', (string) $result['run']->getErrorsJson());
-        self::assertContains([PassStep::GtinSearch->value, 0, 1], $seen, 'the wait shows as the GTIN search, 0 of 1 answered');
+        self::assertContains([PassStep::GtinSearch->value, 0, 1, PassItems::GTIN], $seen, 'the wait shows as the GTIN search, 0 of 1 answered, the product being searched by GTIN');
+        self::assertSame([PassItems::ERROR, 0], $this->item($result['run'], (int) $identity->getProductId()), 'a failed search is no unknown product');
+    }
+
+    public function testTheProductsAreListedBeforeTheFirstSearchLeaves(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $atPost = null;
+
+        $this->collector($this->answers([$this->watched, null, null]), onRequest: function (string $url) use (&$atPost, $identity): void {
+            if ($atPost === null && str_contains($url, 'products/task_post')) {
+                $row = PwCollectRunQuery::create()->filterByPassName(ShoppingCollector::PASS)->filterByStatus('started')->orderById(Criteria::DESC)->findOne();
+                $atPost = $row === null ? null : $this->item($row, (int) $identity->getProductId())[0];
+            }
+        })->collect(10, 1, 60, [], true);
+
+        self::assertSame(PassItems::GTIN, $atPost, 'the list shows while Google is being asked, not after');
     }
 
     public function testASearchWithNoResultIsNoError(): void
     {
-        $this->identity('3660600123454');
+        $identity = $this->identity('3660600123454');
         $empty = $this->fixture('products-task_get_advanced');
         $empty['tasks'][0]['status_code'] = 40102;
         $empty['tasks'][0]['status_message'] = 'No Search Results.';
@@ -173,6 +192,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
 
         self::assertSame('success', $result['run']->getStatus(), 'Google found nothing: an answer, not a failure');
         self::assertNull($result['run']->getErrorsJson());
+        self::assertSame([PassItems::NO_CARD, 0], $this->item($result['run'], (int) $identity->getProductId()));
     }
 
     public function testAPassStoppedByAnErrorIsClosedAsFailed(): void
@@ -459,6 +479,20 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
     }
 
     /**
+     * @return array{0: ?string, 1: int} status and offers of a product, as listed under the progress bar
+     */
+    private function item(PwCollectRun $run, int $productId): array
+    {
+        foreach ((array) json_decode((string) $run->getProgressItems(), true) as $item) {
+            if (($item['id'] ?? null) === $productId) {
+                return [$item['status'], $item['offers']];
+            }
+        }
+
+        return [null, 0];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function fixture(string $name): array
@@ -506,14 +540,18 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
      *
      * @param array<string, array<string, mixed>> $answers
      */
-    private function collector(array $answers, ?\Closure $sleep = null, ?\Closure $now = null): ShoppingCollector
+    private function collector(array $answers, ?\Closure $sleep = null, ?\Closure $now = null, ?\Closure $onRequest = null): ShoppingCollector
     {
         $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
         $settings->setDataforseoLogin('login@example.com');
         $settings->storeSecret(SecretName::DataforseoPassword, 'api-password');
 
-        $http = new MockHttpClient(function (string $method, string $url, array $options) use ($answers): MockResponse {
+        $http = new MockHttpClient(function (string $method, string $url, array $options) use ($answers, $onRequest): MockResponse {
             ++$this->calls;
+
+            if ($onRequest !== null) {
+                $onRequest($url);
+            }
 
             // Title searches are tagged "p<product id>", and retag() puts
             // the tag in the task id.

@@ -143,4 +143,13 @@ return [
     'refused.same_variant' => 'Another size, says Jev',
     'refused.price_comparability' => 'Price not comparable, says Jev',
 
+    // Products of a running pass
+    'item.queued' => 'Waiting',
+    'item.gtin' => 'Searching by GTIN',
+    'item.title' => 'Searching by title',
+    'item.sellers' => 'Reading the sellers',
+    'item.done' => '%count% offer(s) recorded',
+    'item.none' => 'No watched competitor',
+    'item.no_card' => 'Not found on Google Shopping',
+    'item.error' => 'Google error',
 ];

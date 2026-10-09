@@ -35,7 +35,7 @@
             </form>
         </div>
         {% if run.running %}
-            {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress.html.twig' with {progress: run.progress, class: 'mt-2'} only %}
+            {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress.html.twig' with {progress: run.progress, class: 'mt-2', withItems: true} only %}
         {% elseif failed is not empty %}
             <div class="collapse" id="pw-run-errors">
                 {% for pass in failed %}

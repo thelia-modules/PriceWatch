@@ -19,6 +19,37 @@
     <div class="progress" role="progressbar" aria-label="{{ 'Progress of the running pass'|trans({}, 'pricewatch') }}" aria-valuenow="{{ progress.percent }}" aria-valuemin="0" aria-valuemax="100" style="height: .75rem;">
         <div class="progress-bar progress-bar-striped progress-bar-animated" data-testid="pw-progress-bar" style="width: {{ max(progress.percent, 3) }}%;"></div>
     </div>
+    {# The products of the pass, the ones still searched first. #}
+    {% if withItems|default(false) and progress.items.items is not empty %}
+        {% set icons = {
+            queued: 'bi-clock text-body-tertiary',
+            done: 'bi-check-circle-fill text-success',
+            none: 'bi-dash-circle text-body-tertiary',
+            no_card: 'bi-question-circle text-body-tertiary',
+            error: 'bi-exclamation-triangle-fill text-warning'
+        } %}
+        <div class="mt-2" data-testid="pw-progress-items">
+            <div class="small text-muted mb-1">{{ 'Products of this pass: %count%'|trans({'%count%': progress.items.items|length + progress.items.more}, 'pricewatch') }}</div>
+            <ul class="list-unstyled row row-cols-1 row-cols-lg-2 gx-4 small mb-0">
+                {% for item in progress.items.items %}
+                    {% set key = item.status == 'done' and item.offers == 0 ? 'none' : item.status %}
+                    <li class="col" data-status="{{ key }}" data-testid="pw-progress-item-{{ item.id }}">
+                        <div class="d-flex align-items-center gap-2 py-1 border-bottom">
+                            {% if key in ['gtin', 'title', 'sellers'] %}
+                                <span class="spinner-border spinner-border-sm text-primary flex-shrink-0" style="width: .8rem; height: .8rem" aria-hidden="true"></span>
+                            {% else %}
+                                <i class="bi {{ icons[key] ?? 'bi-circle text-body-tertiary' }} flex-shrink-0" aria-hidden="true"></i>
+                            {% endif %}
+                            <span class="text-truncate" style="min-width: 0" title="{{ item.title }}">{{ item.title ?: '#' ~ item.id }}</span>
+                            {% if item.sizes is not empty %}<span class="text-muted text-nowrap">{{ item.sizes|join(', ') }}</span>{% endif %}
+                            <span class="ms-auto text-nowrap {{ key == 'done' ? 'text-success-emphasis fw-semibold' : (key == 'error' ? 'text-warning-emphasis' : 'text-muted') }}">{{ ('item.' ~ key)|trans({'%count%': item.offers}, 'pricewatch') }}</span>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if progress.items.more > 0 %}<div class="small text-muted mt-1">{{ '+ %count% other product(s)'|trans({'%count%': progress.items.more}, 'pricewatch') }}</div>{% endif %}
+        </div>
+    {% endif %}
 {% else %}
     <div class="d-flex flex-wrap align-items-center gap-2 small text-success-emphasis" data-testid="pw-progress-done">
         <i class="bi bi-check-circle-fill" aria-hidden="true"></i>

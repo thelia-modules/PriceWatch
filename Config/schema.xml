@@ -387,6 +387,8 @@
         <column name="progress_step" size="30" type="VARCHAR"/>
         <column defaultValue="0" name="progress_done" type="INTEGER"/>
         <column defaultValue="0" name="progress_total" type="INTEGER"/>
+        <!-- The products of a running collect pass, each with where it stands (JSON). -->
+        <column name="progress_items" type="LONGVARCHAR"/>
         <column name="errors_json" type="LONGVARCHAR"/>
         <column defaultValue="0" name="dry_run" size="4" type="TINYINT"/>
 

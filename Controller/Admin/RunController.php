@@ -44,7 +44,7 @@ final readonly class RunController
      * from the same template as the page's, so both always read the same.
      */
     #[Route('/admin/module/pricewatch/run/progress', name: 'pricewatch_run_progress', defaults: ['ignore_thelia_view' => true], methods: ['GET'])]
-    public function progress(): Response
+    public function progress(Request $request): Response
     {
         if ($denied = $this->guard->denyView()) {
             return $denied;
@@ -54,7 +54,11 @@ final readonly class RunController
 
         $response = new JsonResponse([
             'running' => $progress['running'],
-            'html' => $this->twig->render('@PriceWatchModule/backOffice/default-twig/price-watch/_progress_body.html.twig', ['progress' => $progress]),
+            'html' => $this->twig->render('@PriceWatchModule/backOffice/default-twig/price-watch/_progress_body.html.twig', [
+                'progress' => $progress,
+                // Only the comparator lists the products of the pass.
+                'withItems' => ($request->query->all()['items'] ?? null) === '1',
+            ]),
         ]);
         $response->headers->set('Cache-Control', 'no-store');
 

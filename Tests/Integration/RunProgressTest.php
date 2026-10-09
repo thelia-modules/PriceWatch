@@ -83,6 +83,32 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
         self::assertSame($run->getStartedAt()?->getTimestamp(), $progress['startedAt']);
     }
 
+    public function testTheProductsOfTheCollectStayListedWhileJevChecks(): void
+    {
+        $collect = $this->passRow(ShoppingCollector::PASS, PassStep::Recording, 2, 2);
+        $collect->setStatus('success')->setProgressItems((string) json_encode([['id' => 42, 'title' => 'Casque Shark', 'sizes' => ['M'], 'status' => 'done', 'offers' => 3]]))->save();
+        $this->passRow(OfferJudge::PASS, PassStep::Judging, 0, 3);
+        $held = $this->locks->createLock('pricewatch.judge');
+        $held->acquire();
+
+        $items = $this->progress()->present()['items'];
+
+        self::assertSame([42], array_column($items['items'], 'id'));
+        self::assertSame(3, $items['items'][0]['offers']);
+    }
+
+    public function testNoOlderListWhileThePassHasNoRowYet(): void
+    {
+        $older = $this->passRow(ShoppingCollector::PASS, PassStep::Recording, 1, 1);
+        $older->setStatus('success')->setProgressItems((string) json_encode([['id' => 7, 'title' => 'Old', 'sizes' => [], 'status' => 'done', 'offers' => 1]]))->save();
+        // Lock held, but every row of this test's passes closed: no current row.
+        \PriceWatch\Model\PwCollectRunQuery::create()->filterByStatus('started')->update(['Status' => 'failed']);
+        $held = $this->locks->createLock('pricewatch.collect');
+        $held->acquire();
+
+        self::assertSame([], $this->progress()->present()['items']['items'], 'never the products of an older pass');
+    }
+
     public function testNothingRunsWithoutALockEvenIfARowSaysStarted(): void
     {
         $this->passRow(ShoppingCollector::PASS, PassStep::GtinSearch, 0, 2);

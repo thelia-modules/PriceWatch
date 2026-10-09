@@ -24,8 +24,11 @@ final readonly class RunProgress
     ) {
     }
 
+    /** Beyond this, the list says how many more. */
+    public const ITEMS_SHOWN = 12;
+
     /**
-     * @return array{running: bool, step: ?string, position: int, steps: int, done: int, total: int, percent: int, startedAt: ?int}
+     * @return array{running: bool, step: ?string, position: int, steps: int, done: int, total: int, percent: int, startedAt: ?int, items: array{items: list<array<string, mixed>>, more: int, counts: array<string, int>}}
      */
     public function present(): array
     {
@@ -48,7 +51,15 @@ final readonly class RunProgress
             ->orderById(Criteria::DESC)
             ->findOne();
 
-        return ['running' => true] + self::of($run);
+        // The judge pass follows a collect pass: its products stay listed. No
+        // row yet: nothing to list, never the products of an older pass.
+        $collect = $run === null || $run->getPassName() === ShoppingCollector::PASS ? $run : PwCollectRunQuery::create()
+            ->filterByPassName(ShoppingCollector::PASS)
+            ->filterByDryRun(0)
+            ->orderById(Criteria::DESC)
+            ->findOne();
+
+        return ['running' => true, 'items' => PassItems::forDisplay($collect?->getProgressItems(), self::ITEMS_SHOWN)] + self::of($run);
     }
 
     private function collectStartedSince(int $timestamp): bool
@@ -79,6 +90,7 @@ final readonly class RunProgress
             'total' => $total,
             'percent' => $step?->percent($done, $total) ?? 0,
             'startedAt' => $run?->getStartedAt()?->getTimestamp(),
+            'items' => PassItems::forDisplay(null, 0),
         ];
     }
 }

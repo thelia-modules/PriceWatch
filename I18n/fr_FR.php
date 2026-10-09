@@ -400,4 +400,15 @@ return [
     'Confirm: same product, same size' => 'Confirmer : même produit, même taille',
     'Exclude this offer' => 'Écarter cette offre',
 
+    // Produits d'une passe en cours
+    'Products of this pass: %count%' => 'Produits de cette passe : %count%',
+    '+ %count% other product(s)' => '+ %count% autre(s) produit(s)',
+    'item.queued' => 'En attente',
+    'item.gtin' => 'Recherche par GTIN',
+    'item.title' => 'Recherche par titre',
+    'item.sellers' => 'Lecture des vendeurs',
+    'item.done' => '%count% offre(s) relevée(s)',
+    'item.none' => 'Aucun concurrent suivi',
+    'item.no_card' => 'Introuvable sur Google Shopping',
+    'item.error' => 'Erreur Google',
 ];
