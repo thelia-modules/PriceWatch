@@ -42,15 +42,29 @@ final readonly class WatchedRepository
     }
 
     /**
+     * One pass over the aggregate for every tab: each tab's condition is the
+     * same as its HAVING clause in aggregate(), summed instead of filtered.
+     *
      * @return array<string, int> view value => number of products, same search
      */
     public function counts(WatchedFilters $filters, string $locale): array
     {
+        [$sql, $params] = $this->aggregate($filters, WatchedView::All, $locale);
+        $row = $this->fetch(
+            'SELECT
+                COUNT(*) AS `all`,
+                COALESCE(SUM(monitored > 0 AND last_collected_at IS NULL), 0) AS `never`,
+                COALESCE(SUM(monitored > 0 AND collectable = 0), 0) AS `not_collectable`,
+                COALESCE(SUM(compared > 0), 0) AS `compared`,
+                COALESCE(SUM(monitored = 0), 0) AS `paused`
+            FROM ('.$sql.') AS products',
+            $params,
+        )[0] ?? [];
+
         $counts = [];
 
         foreach (WatchedView::cases() as $view) {
-            [$sql, $params] = $this->aggregate($filters, $view, $locale);
-            $counts[$view->value] = (int) ($this->fetch('SELECT COUNT(*) AS n FROM ('.$sql.') AS products', $params)[0]['n'] ?? 0);
+            $counts[$view->value] = (int) ($row[$view->value] ?? 0);
         }
 
         return $counts;

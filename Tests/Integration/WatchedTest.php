@@ -53,10 +53,15 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
         $paused = $this->product('Bottes en pause');
         $this->variant($paused, monitored: false, collectable: true);
 
+        // One size paused, the other still watched: not a paused product.
+        $partly = $this->product('Veste en partie suspendue');
+        $this->variant($partly, monitored: true, collectable: true);
+        $this->variant($partly, monitored: false, collectable: true);
+
         $rows = $this->rows(new WatchedFilters(search: $this->tag));
         $byTitle = array_column($rows, null, 'title');
 
-        self::assertCount(4, $rows, 'the referential is the list, offers or not');
+        self::assertCount(5, $rows, 'the referential is the list, offers or not');
         self::assertSame(2, (int) $byTitle['Casque jamais relevé '.$this->tag]['monitored']);
         self::assertNull($byTitle['Casque jamais relevé '.$this->tag]['last_collected_at']);
         self::assertSame(2, (int) $byTitle['Blouson comparé '.$this->tag]['compared']);
@@ -65,7 +70,7 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
         self::assertSame('Blouson comparé '.$this->tag, $rows[0]['title'], 'sorted by best gap first, products without one after');
 
         self::assertSame(
-            ['all' => 4, 'never' => 2, 'not_collectable' => 1, 'compared' => 1, 'paused' => 1],
+            ['all' => 5, 'never' => 3, 'not_collectable' => 1, 'compared' => 1, 'paused' => 1],
             $this->repository()->counts(new WatchedFilters(search: $this->tag), 'fr_FR'),
         );
         self::assertSame(['Gants sans GTIN '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::NotCollectable, $this->tag)), 'title'));
