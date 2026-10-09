@@ -1,0 +1,51 @@
+{# Token and cost counter of the paid services, per period. #}
+<details class="card mb-3" data-testid="pw-usage" {% if open is defined and open %}open{% endif %}>
+    <summary class="card-body py-2 d-flex flex-wrap align-items-center gap-3" style="cursor: pointer; list-style: none">
+        <span class="fw-semibold"><i class="bi bi-coin me-1" aria-hidden="true"></i>{{ 'API consumption'|trans({}, 'pricewatch') }}</span>
+        <span class="small text-muted">{{ 'usage.period.today'|trans({}, 'pricewatch') }}</span>
+        <span class="fw-semibold" data-testid="pw-usage-today">{{ usage.total.today }}</span>
+        <span class="small text-muted">{{ 'usage.period.month'|trans({}, 'pricewatch') }}</span>
+        <span class="fw-semibold">{{ usage.total.month }}</span>
+        <span class="small text-muted">{{ 'usage.period.all'|trans({}, 'pricewatch') }}</span>
+        <span class="fw-semibold" data-testid="pw-usage-all">{{ usage.total.all }}</span>
+        <span class="small text-primary ms-auto">{{ 'Details'|trans({}, 'pricewatch') }}</span>
+    </summary>
+    <div class="card-body pt-0">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-1" data-testid="pw-usage-table">
+                <thead>
+                    <tr>
+                        <th scope="col">{{ 'Service'|trans({}, 'pricewatch') }}</th>
+                        {% for period in usage.periods %}<th scope="col" class="text-end">{{ ('usage.period.' ~ period)|trans({}, 'pricewatch') }}</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                {% for source in usage.sources %}
+                    <tr data-testid="pw-usage-{{ source.key }}">
+                        <td style="white-space: normal">
+                            <span class="fw-semibold">{{ ('usage.source.' ~ source.key)|trans({}, 'pricewatch') }}</span>
+                            <div class="small text-muted">{{ ('usage.billing.' ~ source.billing)|trans({}, 'pricewatch') }}</div>
+                        </td>
+                        {% for period in usage.periods %}
+                            {% set cell = source.cells[period] %}
+                            <td class="text-end">
+                                <div class="fw-semibold">{{ cell.cost }}</div>
+                                <div class="small text-muted">
+                                    {% for unit, value in cell.detail %}{{ ('usage.unit.' ~ unit)|trans({'%count%': value}, 'pricewatch') }}{% if not loop.last %} · {% endif %}{% endfor %}
+                                </div>
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th scope="row">{{ 'Total'|trans({}, 'pricewatch') }}</th>
+                        {% for period in usage.periods %}<th class="text-end">{{ usage.total[period] }}</th>{% endfor %}
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <p class="small text-muted mb-0">{{ 'Counted from the module\'s own passes. Calls made outside the module (tests by hand, other tools on the same keys) are not included: the providers\' dashboards remain the reference for billing.'|trans({}, 'pricewatch') }}</p>
+    </div>
+</details>

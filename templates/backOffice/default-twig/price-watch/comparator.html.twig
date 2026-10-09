@@ -120,6 +120,8 @@
         </div>
     </div>
 
+    {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_usage.html.twig' with {usage: usage} only %}
+
     <form method="get" action="{{ path('pricewatch_comparator') }}" class="row g-2 align-items-end mb-3" data-testid="pw-filters">
         <input type="hidden" name="view" value="{{ view }}">
         <div class="col-12 col-md-4">

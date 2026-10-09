@@ -16,6 +16,8 @@ final readonly class LlmAnswer
         public string $model,
         public int $promptTokens,
         public int $completionTokens,
+        /** As billed by OpenRouter (usage.cost, in USD); null if not given. */
+        public ?float $costUsd = null,
     ) {
     }
 }

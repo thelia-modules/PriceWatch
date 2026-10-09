@@ -8,6 +8,7 @@ use PriceWatch\Service\Llm\LlmException;
 use PriceWatch\Service\Llm\OpenRouterClient;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Settings\PriceWatchSettings;
+use PriceWatch\Service\Usage\UsageLedger;
 
 /**
  * Asks the reasoning model for competitor candidates, then lets the code
@@ -22,6 +23,7 @@ use PriceWatch\Service\Settings\PriceWatchSettings;
 final readonly class CompetitorDiscovery
 {
     public const SOURCE = 'llm';
+    public const PASS = 'suggest';
     public const DEFAULT_MAXIMUM = 15;
 
     public function __construct(
@@ -33,6 +35,7 @@ final readonly class CompetitorDiscovery
         private DomainResolver $resolver,
         private DiscoveryPrompt $prompt,
         private DiscoveryResponseParser $parser,
+        private UsageLedger $ledger,
     ) {
     }
 
@@ -54,6 +57,9 @@ final readonly class CompetitorDiscovery
             ),
             DiscoveryPrompt::WEB_SEARCH_PROMPT,
         );
+
+        // Paid as soon as answered, whatever the answer turns out to be worth.
+        $this->ledger->recordModelCall(self::PASS, $answer);
 
         $candidates = $this->parser->parse($answer->content) ?? throw LlmException::malformed('no competitor list in the answer');
 

@@ -250,4 +250,23 @@ return [
     'gauge.same_variant' => 'Taille',
     'gauge.price_comparability' => 'Prix',
     'Jev disagrees on:' => 'Jev n\'est pas d\'accord sur :',
+
+    // API consumption
+    'API consumption' => 'Consommation des API',
+    'Details' => 'Détail',
+    'Service' => 'Service',
+    'Total' => 'Total',
+    'usage.period.today' => 'Aujourd\'hui',
+    'usage.period.month' => '30 derniers jours',
+    'usage.period.all' => 'Depuis le début',
+    'usage.source.jev' => 'Jev (contrôles)',
+    'usage.source.llm' => 'Modèle de réflexion (suggestions de concurrents)',
+    'usage.source.dataforseo' => 'DataForSEO (Google Shopping)',
+    'usage.billing.estimated' => 'Estimé : tokens d\'entrée × 0,042 $ par million, la sortie est gratuite',
+    'usage.billing.billed' => 'Montant renvoyé par le service à chaque appel',
+    'usage.unit.tokens' => '%count% tokens',
+    'usage.unit.requests' => '%count% appels',
+    'usage.unit.cached' => '%count% depuis le cache',
+    'usage.unit.tasks' => '%count% tâches',
+    'Counted from the module\'s own passes. Calls made outside the module (tests by hand, other tools on the same keys) are not included: the providers\' dashboards remain the reference for billing.' => 'Compté à partir des passes du module. Les appels faits en dehors (essais à la main, autres outils sur les mêmes clés) n\'y sont pas : les tableaux de bord des services restent la référence pour la facturation.',
 ];

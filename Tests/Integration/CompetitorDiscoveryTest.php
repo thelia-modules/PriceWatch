@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace PriceWatch\Tests\Integration;
 
+use PriceWatch\Model\PwCollectRunQuery;
 use PriceWatch\Model\PwCompetitorQuery;
 use PriceWatch\Service\Competitor\CatalogSample;
 use PriceWatch\Service\Competitor\CatalogSampleSource;
@@ -19,6 +20,7 @@ use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
+use PriceWatch\Service\Usage\UsageLedger;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -133,9 +135,32 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
 
     public function testUnparseableAnswerIsAnErrorNotAnEmptyList(): void
     {
-        $this->expectException(LlmException::class);
+        $before = $this->ledgerRows();
 
-        $this->discovery(rawContent: 'Je ne peux pas répondre.')->suggest('fr_FR');
+        try {
+            $this->discovery(rawContent: 'Je ne peux pas répondre.')->suggest('fr_FR');
+            self::fail('expected an error');
+        } catch (LlmException) {
+        }
+
+        self::assertSame($before + 1, $this->ledgerRows(), 'a useless answer is still paid for, and counted');
+    }
+
+    public function testWhatTheModelConsumedGoesToTheLedger(): void
+    {
+        $this->discovery([['domain' => $this->domain('ledger'), 'name' => 'Ledger', 'reason' => 'x']])->suggest('fr_FR');
+
+        $run = PwCollectRunQuery::create()->filterByPassName(CompetitorDiscovery::PASS)->orderById('desc')->findOne();
+        self::assertNotNull($run);
+        self::assertSame('vendor/model', $run->getLlmModel());
+        self::assertSame(1234, $run->getLlmPromptTokens());
+        self::assertSame(567, $run->getLlmCompletionTokens());
+        self::assertEqualsWithDelta(0.00421, (float) $run->getLlmCostUsd(), 1e-9, 'the cost OpenRouter billed, not an estimate');
+    }
+
+    private function ledgerRows(): int
+    {
+        return PwCollectRunQuery::create()->filterByPassName(CompetitorDiscovery::PASS)->count();
     }
 
     private function domain(string $name): string
@@ -165,6 +190,7 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
 
             return new MockResponse((string) json_encode([
                 'model' => 'vendor/model',
+                'usage' => ['prompt_tokens' => 1234, 'completion_tokens' => 567, 'total_tokens' => 1801, 'cost' => 0.00421],
                 'choices' => [['message' => [
                     'content' => $content,
                     'annotations' => [['type' => 'url_citation', 'url_citation' => ['url' => 'https://source.example/page', 'title' => 'Source']]],
@@ -204,6 +230,7 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
             $resolver,
             new DiscoveryPrompt(),
             new DiscoveryResponseParser(),
+            new UsageLedger(),
         );
     }
 }

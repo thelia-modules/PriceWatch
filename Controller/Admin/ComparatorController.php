@@ -9,6 +9,7 @@ use PriceWatch\Service\Comparator\ComparatorFilters;
 use PriceWatch\Service\Comparator\ComparatorPresenter;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Comparator\OfferReview;
+use PriceWatch\Service\Usage\UsagePresenter;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -28,6 +29,7 @@ final readonly class ComparatorController
     public function __construct(
         private AdminRequestGuard $guard,
         private ComparatorPresenter $presenter,
+        private UsagePresenter $usage,
         private ComparatorRepository $repository,
         private OfferReview $review,
         private UrlGeneratorInterface $urlGenerator,
@@ -45,6 +47,7 @@ final readonly class ComparatorController
 
         return new Response($this->twig->render('@PriceWatchModule/backOffice/default-twig/price-watch/comparator.html.twig', [
             ...$this->presenter->present(ComparatorFilters::fromRequest($request), $request->getLocale()),
+            'usage' => $this->usage->present($request->getLocale()),
             'csrfToken' => $this->guard->token(),
         ]));
     }

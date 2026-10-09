@@ -88,4 +88,17 @@ return [
     'gauge.same_product' => 'Product',
     'gauge.same_variant' => 'Size',
     'gauge.price_comparability' => 'Price',
+
+    'usage.period.today' => 'Today',
+    'usage.period.month' => 'Last 30 days',
+    'usage.period.all' => 'Since the start',
+    'usage.source.jev' => 'Jev (checks)',
+    'usage.source.llm' => 'Reasoning model (competitor suggestions)',
+    'usage.source.dataforseo' => 'DataForSEO (Google Shopping)',
+    'usage.billing.estimated' => 'Estimated: input tokens × $0.042 per million, output is free',
+    'usage.billing.billed' => 'Amount returned by the service on each call',
+    'usage.unit.tokens' => '%count% tokens',
+    'usage.unit.requests' => '%count% calls',
+    'usage.unit.cached' => '%count% from cache',
+    'usage.unit.tasks' => '%count% tasks',
 ];

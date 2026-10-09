@@ -75,6 +75,9 @@ final readonly class OpenRouterClient
             model: \is_string($payload['model'] ?? null) ? $payload['model'] : $model,
             promptTokens: (int) ($payload['usage']['prompt_tokens'] ?? 0),
             completionTokens: (int) ($payload['usage']['completion_tokens'] ?? 0),
+            // Always in the response since OpenRouter made usage accounting
+            // automatic (docs read 2026-10-09).
+            costUsd: is_numeric($payload['usage']['cost'] ?? null) ? (float) $payload['usage']['cost'] : null,
         );
     }
 

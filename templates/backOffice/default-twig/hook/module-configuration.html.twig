@@ -45,6 +45,8 @@
         <a class="btn btn-outline-primary" href="{{ path('pricewatch_competitors') }}">{{ 'Manage competitors'|trans({}, 'pricewatch') }}</a>
     </div>
 
+    {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_usage.html.twig' with {usage: usage, open: true} only %}
+
     <form id="pw-settings-form" method="post" action="{{ path('pricewatch_settings_save') }}">
         <input type="hidden" name="_token" value="{{ csrfToken }}">
 

@@ -368,6 +368,11 @@
 
         <column defaultValue="0" name="dataforseo_tasks" type="INTEGER"/>
         <column name="dataforseo_cost_usd" scale="8" size="12" type="DECIMAL"/>
+        <!-- Reasoning model (competitor suggestions): cost as billed by OpenRouter (usage.cost). -->
+        <column name="llm_model" size="100" type="VARCHAR"/>
+        <column defaultValue="0" name="llm_prompt_tokens" type="INTEGER"/>
+        <column defaultValue="0" name="llm_completion_tokens" type="INTEGER"/>
+        <column name="llm_cost_usd" scale="8" size="12" type="DECIMAL"/>
         <column defaultValue="0" name="http_errors" type="INTEGER"/>
         <column defaultValue="0" name="pages_fetched" type="INTEGER"/>
 

@@ -10,6 +10,7 @@ use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\ReasoningEffort;
 use PriceWatch\Service\Settings\SecretName;
+use PriceWatch\Service\Usage\UsagePresenter;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
@@ -34,6 +35,7 @@ class PriceWatchAdminHook extends BaseHook
         private readonly PriceWatchSettings $settings,
         private readonly AdminRequestGuard $guard,
         private readonly ProductCardPresenter $productCard,
+        private readonly UsagePresenter $usage,
         private readonly RequestStack $requestStack,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly Environment $twig,
@@ -108,6 +110,7 @@ class PriceWatchAdminHook extends BaseHook
 
         $event->add($this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/module-configuration.html.twig', [
             'csrfToken' => $this->guard->token(),
+            'usage' => $this->usage->present($this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR'),
             'secrets' => $secrets,
             'jevProvider' => $this->settings->jevProvider()->value,
             'jevProviders' => array_map(static fn (JevProvider $provider): string => $provider->value, JevProvider::cases()),
