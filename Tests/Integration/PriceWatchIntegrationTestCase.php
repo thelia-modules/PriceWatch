@@ -129,6 +129,18 @@ abstract class PriceWatchIntegrationTestCase extends TestCase
         }
     }
 
+    /**
+     * For the few core services a test cannot build by hand (the event
+     * dispatcher behind image processing).
+     */
+    protected static function coreService(string $id): object
+    {
+        $service = self::$kernel?->getContainer()->get($id);
+        self::assertIsObject($service);
+
+        return $service;
+    }
+
     protected function createFixtureFactory(): FixtureFactory
     {
         return new FixtureFactory(Propel::getConnection('TheliaMain'));

@@ -16,8 +16,12 @@ final readonly class ComparatorPresenter
     public function __construct(
         private ComparatorRepository $repository,
         private UrlGeneratorInterface $urlGenerator,
+        private CatalogThumbnails $thumbnails,
     ) {
     }
+
+    /** A gap this wide or wider fills its half of the bar. */
+    private const BAR_FULL_AT_PCT = 40.0;
 
     /**
      * @return array<string, mixed>
@@ -35,13 +39,16 @@ final readonly class ComparatorPresenter
         $identities = $this->repository->identities(array_values(array_unique(array_map(static fn (PwCompetitorOffer $offer): int => (int) $offer->getProductSaleElementsId(), $offers))));
         $products = $this->repository->products(array_values(array_unique(array_map(static fn (array $identity): int => $identity['productId'], $identities))), $locale);
         $competitors = $this->repository->competitors();
+        $pictures = $this->pictures(array_keys($products));
 
         $rows = [];
 
         foreach ($offers as $offer) {
             $identity = $identities[(int) $offer->getProductSaleElementsId()] ?? ['productId' => 0, 'size' => null, 'pseRef' => null];
-            $rows[] = $this->row($offer, $quotes[(int) $offer->getId()] ?? null, $identity, $products[$identity['productId']] ?? null, $competitors[(int) $offer->getCompetitorId()] ?? '', $money, $percent);
+            $rows[] = $this->row($offer, $quotes[(int) $offer->getId()] ?? null, $identity, $products[$identity['productId']] ?? null, $competitors[(int) $offer->getCompetitorId()] ?? '', $money, $percent, $pictures[$identity['productId']] ?? null);
         }
+
+        $direction = $filters->gapDirection();
 
         $summary = $this->repository->gapSummary($filters);
 
@@ -71,6 +78,51 @@ final readonly class ComparatorPresenter
                 'next' => $filters->offset() + ComparatorFilters::PAGE_SIZE < $total ? $this->url($filters->withPage($filters->page + 1)) : null,
             ],
             'returnQuery' => http_build_query($filters->toQueryParams()),
+            'sort' => [
+                'direction' => $direction,
+                'toggle' => $this->url($filters->withSort($direction === 'ASC' ? ComparatorFilters::SORT_GAP_DESC : ComparatorFilters::SORT_GAP)),
+            ],
+        ];
+    }
+
+    /**
+     * Every row gets a picture when one exists anywhere: the Google Shopping
+     * card of an offer on the same product first, our own catalogue's next.
+     *
+     * @param list<int> $productIds
+     *
+     * @return array<int, string> product id => picture URL
+     */
+    private function pictures(array $productIds): array
+    {
+        $pictures = $this->repository->cardImages($productIds);
+        $missing = array_values(array_diff($productIds, array_keys($pictures)));
+
+        return $pictures + $this->thumbnails->urls($missing);
+    }
+
+    /**
+     * The gap drawn from the middle of a bar: to the left when the
+     * competitor is cheaper, to the right when we are, nothing when equal.
+     *
+     * @return array{side: ?string, width: int}|null width in percent of the whole bar
+     */
+    public static function bar(?string $deltaPct): ?array
+    {
+        if ($deltaPct === null || $deltaPct === '') {
+            return null;
+        }
+
+        $gap = (float) $deltaPct;
+
+        if (abs($gap) < PricePosition::EQUAL_BELOW) {
+            return ['side' => null, 'width' => 0];
+        }
+
+        return [
+            'side' => $gap < 0 ? 'left' : 'right',
+            // Never thinner than a visible sliver.
+            'width' => max(2, (int) round(min(abs($gap), self::BAR_FULL_AT_PCT) / self::BAR_FULL_AT_PCT * 50)),
         ];
     }
 
@@ -86,10 +138,6 @@ final readonly class ComparatorPresenter
         return preg_match('#^https?://[^\s"\'<>]+$#i', $url) === 1 ? $url : null;
     }
 
-    /**
-     * Gaps are stored in percent (-12.5 for -12.5 %); the sign is always
-     * shown, since it says who is cheaper.
-     */
     /**
      * From the most to the least direct: the product page itself when Google
      * gave it for this competitor, the Google Shopping page listing every
@@ -130,8 +178,16 @@ final readonly class ComparatorPresenter
         ]);
     }
 
+    /**
+     * Gaps are stored in percent (-12.5 for -12.5 %); the sign is always
+     * shown, since it says who is cheaper.
+     */
     private static function percent(float $value, \NumberFormatter $percent): string
     {
+        // Rounded first: -0.02 would otherwise print as "-0.0 %", a sign
+        // for a gap the screen shows as equal.
+        $value = round($value, 1) == 0.0 ? 0.0 : $value;
+
         return ($value > 0 ? '+' : '').$percent->format($value / 100);
     }
 
@@ -141,7 +197,7 @@ final readonly class ComparatorPresenter
      *
      * @return array<string, mixed>
      */
-    private function row(PwCompetitorOffer $offer, ?PwPriceQuote $quote, array $identity, ?array $product, string $competitor, \NumberFormatter $money, \NumberFormatter $percent): array
+    private function row(PwCompetitorOffer $offer, ?PwPriceQuote $quote, array $identity, ?array $product, string $competitor, \NumberFormatter $money, \NumberFormatter $percent, ?string $picture): array
     {
         $state = (string) $offer->getMatchState();
         $theirs = $offer->getLastPrice();
@@ -175,13 +231,14 @@ final readonly class ComparatorPresenter
                 $competitor,
                 $product['title'] ?? '',
             ),
-            'image' => \is_array($payload) ? self::safeUrl(\is_string($payload['card']['image'] ?? null) ? $payload['card']['image'] : null) : null,
+            'image' => (\is_array($payload) ? self::safeUrl(\is_string($payload['card']['image'] ?? null) ? $payload['card']['image'] : null) : null) ?? $picture,
             'theirs' => $theirs === null ? null : $money->formatCurrency((float) $theirs, (string) ($offer->getLastCurrencyCode() ?? 'EUR')),
             'ours' => $ours === null ? null : $money->formatCurrency((float) $ours, 'EUR'),
             'shipping' => $quote?->getShippingPrice() === null ? null : $money->formatCurrency((float) $quote->getShippingPrice(), (string) ($quote->getCurrencyCode() ?? 'EUR')),
             'delta' => $delta === null ? null : ((float) $delta > 0 ? '+' : '').$money->formatCurrency((float) $delta, 'EUR'),
             'deltaPct' => $deltaPct === null ? null : self::percent((float) $deltaPct, $percent),
             'position' => PricePosition::fromGapPct($deltaPct)->value,
+            'bar' => self::bar($deltaPct),
             'availability' => $quote?->getAvailability(),
             'seenAt' => $offer->getLastSeenAt()?->format('d/m/Y H:i'),
             'searchedBy' => \is_array($payload) && \is_string($payload['searched_by'] ?? null) ? $payload['searched_by'] : null,

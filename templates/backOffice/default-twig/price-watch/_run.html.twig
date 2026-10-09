@@ -1,21 +1,25 @@
-{# Where the price watch stands, and the button that starts a pass by hand. #}
+{# Where the price watch stands, and the button that starts a pass by hand,
+   on one line: the errors of a pass that ended badly open on demand. #}
+{% set failed = [run.collect, run.judge]|filter(pass => pass and pass.status in ['failed', 'partial'] and pass.errors is not empty) %}
 <div class="card mb-3" data-testid="pw-run">
     <div class="card-body py-2">
-        <div class="d-flex flex-wrap align-items-center gap-3">
-            <span class="fw-semibold"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>{{ 'Price watch passes'|trans({}, 'pricewatch') }}</span>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="fw-semibold text-nowrap"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>{{ 'Price watch passes'|trans({}, 'pricewatch') }}</span>
             {% if run.running %}
                 <span data-pw-running class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" data-testid="pw-run-running">{{ 'A pass is running'|trans({}, 'pricewatch') }}</span>
             {% else %}
                 <span class="small text-muted" data-testid="pw-run-last">
                     {% if run.collect %}
-                        {{ 'Last collect: %at%, %targets% variant(s) searched, %seen% offer(s) seen.'|trans({'%at%': run.collect.at, '%targets%': run.collect.targets, '%seen%': run.collect.seen}, 'pricewatch') }}
+                        {{ 'Last collect %at%: %seen% offer(s) seen'|trans({'%at%': run.collect.at, '%seen%': run.collect.seen}, 'pricewatch') }}{% if run.judge %} · {{ 'checked: %matched% matched, %review% to review'|trans({'%matched%': run.judge.matched, '%review%': run.judge.review}, 'pricewatch') }}{% endif %}
                     {% else %}
                         {{ 'No collect pass yet.'|trans({}, 'pricewatch') }}
                     {% endif %}
-                    {% if run.judge %}
-                        {{ 'Last judgment: %at%, %matched% matched, %review% to review, %rejected% excluded.'|trans({'%at%': run.judge.at, '%matched%': run.judge.matched, '%review%': run.judge.review, '%rejected%': run.judge.rejected}, 'pricewatch') }}
-                    {% endif %}
                 </span>
+                {% if failed is not empty %}
+                    <button type="button" class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle" data-bs-toggle="collapse" data-bs-target="#pw-run-errors" aria-expanded="false" aria-controls="pw-run-errors" data-testid="pw-run-errors-toggle">
+                        <i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i>{{ 'Ended with errors'|trans({}, 'pricewatch') }}
+                    </button>
+                {% endif %}
             {% endif %}
             <form method="post" action="{{ path('pricewatch_run') }}" class="d-flex gap-2 ms-auto" data-testid="pw-run-form">
                 <input type="hidden" name="_token" value="{{ csrfToken }}">
@@ -25,24 +29,23 @@
                         <option value="{{ batch.size }}">{{ '%count% variants, at most %cost%'|trans({'%count%': batch.size, '%cost%': batch.cost}, 'pricewatch') }}</option>
                     {% endfor %}
                 </select>
-                <button type="submit" class="btn btn-sm btn-primary text-nowrap" data-testid="pw-run-start" {% if run.running %}disabled{% endif %}>
+                <button type="submit" class="btn btn-sm btn-primary text-nowrap" data-testid="pw-run-start" data-bs-toggle="tooltip" title="{{ 'The variants collected longest ago go first. Google Shopping priority queue, then Jev checks the offers found.'|trans({}, 'pricewatch') }}" {% if run.running %}disabled{% endif %}>
                     <i class="bi bi-play-fill me-1" aria-hidden="true"></i>{{ 'Start a pass'|trans({}, 'pricewatch') }}
                 </button>
             </form>
         </div>
         {% if run.running %}
             {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress.html.twig' with {progress: run.progress, class: 'mt-2'} only %}
-        {% else %}
-            {% for pass in [run.collect, run.judge] %}
-                {% if pass and pass.status in ['failed', 'partial'] and pass.errors is not empty %}
+        {% elseif failed is not empty %}
+            <div class="collapse" id="pw-run-errors">
+                {% for pass in failed %}
                     <div class="alert alert-warning py-1 px-2 small mt-2 mb-0" data-testid="pw-run-errors">
                         {{ ('Last pass ' ~ pass.status)|trans({'%at%': pass.at}, 'pricewatch') }}
                         <ul class="mb-0 ps-3">{% for error in pass.errors %}<li>{{ error }}</li>{% endfor %}</ul>
                         <span class="text-muted">{{ 'Details in var/log/pricewatch.log.'|trans({}, 'pricewatch') }}</span>
                     </div>
-                {% endif %}
-            {% endfor %}
+                {% endfor %}
+            </div>
         {% endif %}
-        <div class="small text-muted mt-1">{{ 'The variants collected longest ago go first. Google Shopping priority queue, then Jev checks the offers found.'|trans({}, 'pricewatch') }}</div>
     </div>
 </div>

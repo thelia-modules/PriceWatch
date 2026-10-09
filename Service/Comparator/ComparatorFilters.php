@@ -15,12 +15,17 @@ final readonly class ComparatorFilters
     public const PAGE_SIZE = 50;
     private const MAX_SEARCH_LENGTH = 80;
 
+    /** Sort by gap, competitor cheapest first; "-gap" reverses it. */
+    public const SORT_GAP = 'gap';
+    public const SORT_GAP_DESC = '-gap';
+
     public function __construct(
         public ComparatorView $view = ComparatorView::Gaps,
         public ?int $competitorId = null,
         public string $search = '',
         public bool $cheaperOnly = false,
         public int $page = 1,
+        public ?string $sort = null,
     ) {
     }
 
@@ -40,6 +45,7 @@ final readonly class ComparatorFilters
             mb_substr(trim(\is_string($query['q'] ?? null) ? $query['q'] : ''), 0, self::MAX_SEARCH_LENGTH),
             \in_array(self::scalar($query['cheaper'] ?? null), ['1', 'true', 'on'], true),
             self::positiveInt($query['page'] ?? null) ?? 1,
+            \in_array(self::scalar($query['sort'] ?? null), [self::SORT_GAP, self::SORT_GAP_DESC], true) ? self::scalar($query['sort']) : null,
         );
     }
 
@@ -74,16 +80,38 @@ final readonly class ComparatorFilters
             'q' => $this->search,
             'cheaper' => $this->cheaperOnly ? 1 : 0,
             'page' => $this->page > 1 ? $this->page : 0,
+            'sort' => $this->sort ?? '',
         ], static fn (string|int $value): bool => $value !== '' && $value !== 0);
     }
 
     public function withView(ComparatorView $view): self
     {
-        return new self($view, $this->competitorId, $this->search, $this->cheaperOnly);
+        return new self($view, $this->competitorId, $this->search, $this->cheaperOnly, 1, $this->sort);
     }
 
     public function withPage(int $page): self
     {
-        return new self($this->view, $this->competitorId, $this->search, $this->cheaperOnly, max(1, $page));
+        return new self($this->view, $this->competitorId, $this->search, $this->cheaperOnly, max(1, $page), $this->sort);
+    }
+
+    /**
+     * Back to the first page: the order changed, page 3 means nothing.
+     */
+    public function withSort(?string $sort): self
+    {
+        return new self($this->view, $this->competitorId, $this->search, $this->cheaperOnly, 1, $sort);
+    }
+
+    /**
+     * How the gap orders the list: as asked, else competitor cheapest first
+     * on the gaps tab, else not at all (each tab keeps its own order).
+     */
+    public function gapDirection(): ?string
+    {
+        return match ($this->sort) {
+            self::SORT_GAP => 'ASC',
+            self::SORT_GAP_DESC => 'DESC',
+            default => $this->view === ComparatorView::Gaps ? 'ASC' : null,
+        };
     }
 }

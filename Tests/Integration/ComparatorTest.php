@@ -11,14 +11,22 @@ use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
+use PriceWatch\Service\Comparator\CatalogThumbnails;
 use PriceWatch\Service\Comparator\ComparatorFilters;
+use PriceWatch\Service\Comparator\ComparatorPresenter;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Comparator\ComparatorView;
 use PriceWatch\Service\Comparator\OfferReview;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use Propel\Runtime\Propel;
+use Symfony\Component\Routing\Generator\UrlGenerator;
+use Symfony\Component\Routing\RequestContext;
+use Symfony\Component\Routing\Route;
+use Symfony\Component\Routing\RouteCollection;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 use Thelia\Model\Product;
+use Thelia\Model\ProductImage;
 use Thelia\Model\ProductSaleElementsQuery;
 
 final class ComparatorTest extends PriceWatchIntegrationTestCase
@@ -157,27 +165,118 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         // No ANALYZE TABLE here: it commits implicitly, and the 2,000 rows
         // would stay in the development database (it happened, 2026-10-09).
 
-        $query = $this->repository->pageQuery(new ComparatorFilters());
-        self::assertNotNull($query);
-        // The selected columns are only added when a query runs.
-        $query->addSelfSelectColumns();
-        $params = [];
-        $sql = $query->createSelectSql($params);
-        $statement = $connection->prepare('EXPLAIN '.$sql);
+        // Both directions of the gap sort: the index is read backwards.
+        foreach ([new ComparatorFilters(), new ComparatorFilters(sort: ComparatorFilters::SORT_GAP_DESC)] as $filters) {
+            $query = $this->repository->pageQuery($filters);
+            self::assertNotNull($query);
+            // The selected columns are only added when a query runs.
+            $query->addSelfSelectColumns();
+            $params = [];
+            $sql = $query->createSelectSql($params);
+            $statement = $connection->prepare('EXPLAIN '.$sql);
 
-        // Propel names its placeholders :p1, :p2... in the order of $params.
-        foreach ($params as $position => $param) {
-            $statement->bindValue(':p'.($position + 1), $param['value']);
+            // Propel names its placeholders :p1, :p2... in the order of $params.
+            foreach ($params as $position => $param) {
+                $statement->bindValue(':p'.($position + 1), $param['value']);
+            }
+
+            $statement->execute();
+            $plan = $statement->fetchAll(\PDO::FETCH_ASSOC);
+
+            self::assertSame('idx_pw_offer_screen', $plan[0]['key'], 'plan: '.json_encode($plan).' for '.$sql);
+            self::assertStringNotContainsString('filesort', (string) $plan[0]['Extra'], 'plan: '.json_encode($plan).' for '.$sql);
         }
+    }
 
-        $statement->execute();
-        $plan = $statement->fetchAll(\PDO::FETCH_ASSOC);
+    public function testTheGapSortCanBeReversed(): void
+    {
+        $product = $this->product('Gants Furygan '.$this->tag);
+        $dearer = $this->offer($product, 'matched_judged', comparable: true, deltaPct: '-12.500');
+        $equal = $this->offer($product, 'matched_judged', comparable: true, deltaPct: '-0.040');
+        $cheaper = $this->offer($product, 'matched_judged', comparable: true, deltaPct: '5.000');
 
-        self::assertSame('idx_pw_offer_screen', $plan[0]['key'], 'plan: '.json_encode($plan).' for '.$sql);
-        self::assertStringNotContainsString('filesort', (string) $plan[0]['Extra'], 'plan: '.json_encode($plan));
+        self::assertSame([$dearer->getId(), $equal->getId(), $cheaper->getId()], $this->ids(new ComparatorFilters()));
+        self::assertSame([$cheaper->getId(), $equal->getId(), $dearer->getId()], $this->ids(new ComparatorFilters(sort: ComparatorFilters::SORT_GAP_DESC)), 'we are cheapest first');
+    }
+
+    public function testOnlyTheLastReadingOfEachOfferIsLoaded(): void
+    {
+        $offer = $this->offer($this->product('Casque Shark '.$this->tag), 'matched_judged', comparable: true, deltaPct: '-3.000');
+        $today = $this->latestQuote($offer);
+        $today->setCollectedDay(new \DateTime('yesterday'))->setCollectedAt(new \DateTime('-1 day'))->save();
+        $latest = (new PwPriceQuote())->setOfferId($offer->getId())->setCollectedDay(new \DateTime())->setSource('test')->setCollectedAt(new \DateTime())->setPrice('88.00');
+        $latest->save();
+
+        self::assertSame($latest->getId(), $this->repository->latestQuotes([(int) $offer->getId()])[(int) $offer->getId()]->getId());
+    }
+
+    public function testAnOfferWithoutPictureBorrowsTheOneOfItsProduct(): void
+    {
+        $product = $this->product('Blouson Ixon '.$this->tag);
+        $withPicture = $this->offer($product, 'matched_judged', comparable: true, deltaPct: '-3.000');
+        $this->latestQuote($withPicture)->setRawPayloadJson((string) json_encode(['card' => ['image' => 'https://encrypted-tbn0.gstatic.com/'.$this->tag.'.jpg']], \JSON_UNESCAPED_SLASHES))->save();
+        $hostile = $this->product('Blouson Hostile '.$this->tag);
+        $this->latestQuote($this->offer($hostile, 'matched_judged', comparable: true, deltaPct: '-3.000'))
+            ->setRawPayloadJson('{"card":{"image":"http\\u0000javascript:alert(1)"}}')->save();
+
+        $images = $this->repository->cardImages([(int) $product->getId(), (int) $hostile->getId()]);
+
+        self::assertSame(['https://encrypted-tbn0.gstatic.com/'.$this->tag.'.jpg'], array_values($images));
+        self::assertArrayHasKey((int) $product->getId(), $images, 'any offer of the product lends its card picture');
+    }
+
+    public function testEveryLineGetsAPictureAndAnUnsignedEqualGap(): void
+    {
+        $product = $this->product('Blouson Furygan '.$this->tag);
+        $withPicture = $this->offer($product, 'matched_judged', comparable: true, deltaPct: '-3.000');
+        $this->latestQuote($withPicture)->setRawPayloadJson((string) json_encode(['card' => ['image' => 'https://img.example/'.$this->tag.'.jpg']], \JSON_UNESCAPED_SLASHES))->save();
+        $without = $this->offer($product, 'matched_judged', comparable: true, deltaPct: '-0.040');
+        $ours = $this->product('Casque catalogue '.$this->tag);
+        (new ProductImage())->setProductId($ours->getId())->setFile('PROD001-1.jpg')->setVisible(1)->setPosition(1)->save();
+        $catalogue = $this->offer($ours, 'matched_judged', comparable: true, deltaPct: '2.000');
+
+        $rows = array_column($this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['rows'], null, 'id');
+
+        self::assertSame('https://img.example/'.$this->tag.'.jpg', $rows[$without->getId()]['image'], 'borrowed from the other offer on the product');
+        self::assertStringContainsString('/cache/images/product/', (string) $rows[$catalogue->getId()]['image'], 'our own picture when Google gave none');
+        self::assertStringNotContainsString('-', (string) $rows[$without->getId()]['deltaPct'], 'shown as 0.0 %, without a sign');
+        self::assertSame(['side' => 'left', 'width' => 4], $rows[$withPicture->getId()]['bar']);
+    }
+
+    public function testOurOwnPictureIsTheLastResort(): void
+    {
+        $product = $this->product('Casque catalogue '.$this->tag);
+        $missing = $this->product('Casque sans fichier '.$this->tag);
+        // A picture of the demo catalogue, present on disk in this install.
+        (new ProductImage())->setProductId($product->getId())->setFile('PROD001-1.jpg')->setVisible(1)->setPosition(1)->save();
+        (new ProductImage())->setProductId($missing->getId())->setFile('missing-'.$this->tag.'.jpg')->setVisible(1)->setPosition(1)->save();
+
+        $dispatcher = self::coreService('event_dispatcher');
+        self::assertInstanceOf(EventDispatcherInterface::class, $dispatcher);
+        $urls = (new CatalogThumbnails($dispatcher))->urls([(int) $product->getId(), (int) $missing->getId()]);
+
+        self::assertArrayHasKey((int) $product->getId(), $urls);
+        // The image cache lowercases the file name.
+        self::assertStringContainsString('/cache/images/product/', $urls[(int) $product->getId()]);
+        self::assertStringContainsStringIgnoringCase('prod001-1', $urls[(int) $product->getId()]);
+        self::assertArrayNotHasKey((int) $missing->getId(), $urls, 'a missing file: no picture, no error');
     }
 
     // ------------------------------------------------------------------
+
+    private function presenter(): ComparatorPresenter
+    {
+        $routes = new RouteCollection();
+
+        foreach (['pricewatch_comparator' => '/c', 'admin.products.update' => '/p'] as $name => $path) {
+            $routes->add($name, new Route($path));
+        }
+
+        $dispatcher = self::coreService('event_dispatcher');
+        self::assertInstanceOf(EventDispatcherInterface::class, $dispatcher);
+
+        return new ComparatorPresenter($this->repository, new UrlGenerator($routes, new RequestContext()), new CatalogThumbnails($dispatcher));
+    }
 
     /**
      * @return list<int>

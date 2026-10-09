@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Service\Comparator;
 
 use PriceWatch\Model\Map\PwCompetitorOfferTableMap;
+use PriceWatch\Model\Map\PwPriceQuoteTableMap;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Model\PwCompetitorQuery;
@@ -14,6 +15,7 @@ use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use Propel\Runtime\ActiveQuery\Criteria;
+use Propel\Runtime\Propel;
 use Thelia\Model\ProductI18nQuery;
 use Thelia\Model\ProductQuery;
 use Thelia\Model\ProductSaleElementsQuery;
@@ -49,12 +51,15 @@ final readonly class ComparatorRepository
             return null;
         }
 
-        // The gaps order matches idx_pw_offer_screen: no sort pass. The id
-        // tie-break is the primary key, implicit in an InnoDB secondary index.
-        match ($filters->view) {
-            ComparatorView::Gaps => $query->orderByLastDeltaPct(Criteria::ASC)->orderById(),
-            ComparatorView::Review, ComparatorView::Pending => $query->orderById(),
-            ComparatorView::Excluded => $query->orderByLastSeenAt(Criteria::DESC)->orderById(),
+        // The gaps order matches idx_pw_offer_screen, read forwards or
+        // backwards: no sort pass. The id tie-break is the primary key,
+        // implicit in an InnoDB secondary index, and goes the same way.
+        $direction = $filters->gapDirection();
+
+        match (true) {
+            $direction !== null => $query->orderByLastDeltaPct($direction)->orderById($direction),
+            $filters->view === ComparatorView::Excluded => $query->orderByLastSeenAt(Criteria::DESC)->orderById(),
+            default => $query->orderById(),
         };
 
         return $query->offset($filters->offset())->limit(ComparatorFilters::PAGE_SIZE);
@@ -131,13 +136,64 @@ final readonly class ComparatorRepository
             return [];
         }
 
+        // One reading per offer and per day: the history grows every day, so
+        // only the last reading of each offer is loaded, not all of them.
+        $lastIds = PwPriceQuoteQuery::create()
+            ->filterByOfferId($offerIds, Criteria::IN)
+            ->groupByOfferId()
+            ->withColumn('MAX('.PwPriceQuoteTableMap::COL_ID.')', 'lastId')
+            ->select(['lastId'])
+            ->find()
+            ->getData();
+
         $latest = [];
 
-        foreach (PwPriceQuoteQuery::create()->filterByOfferId($offerIds, Criteria::IN)->orderByCollectedAt(Criteria::ASC)->find() as $quote) {
+        foreach (PwPriceQuoteQuery::create()->filterById(array_map('intval', $lastIds), Criteria::IN)->find() as $quote) {
             $latest[(int) $quote->getOfferId()] = $quote;
         }
 
         return $latest;
+    }
+
+    /**
+     * A picture of each product, taken from the Google Shopping card of any
+     * offer on it: the variants of one product share their card, and an
+     * offer read before pictures were kept borrows its sibling's.
+     *
+     * @param list<int> $productIds
+     *
+     * @return array<int, string> product id => picture URL (http(s) only)
+     */
+    public function cardImages(array $productIds): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+
+        $ids = implode(',', array_map('intval', $productIds));
+        $statement = Propel::getConnection('TheliaMain')->prepare(
+            'SELECT pse.product_id, q.raw_payload_json FROM pw_price_quote q'
+            .' JOIN (SELECT MAX(q2.id) AS id FROM pw_price_quote q2'
+            .' JOIN pw_competitor_offer o2 ON o2.id = q2.offer_id'
+            .' JOIN product_sale_elements pse2 ON pse2.id = o2.product_sale_elements_id'
+            .' WHERE pse2.product_id IN ('.$ids.') AND q2.raw_payload_json LIKE :image'
+            .' GROUP BY pse2.product_id) last ON last.id = q.id'
+            .' JOIN pw_competitor_offer o ON o.id = q.offer_id'
+            .' JOIN product_sale_elements pse ON pse.id = o.product_sale_elements_id',
+        );
+        $statement->execute(['image' => '%"image":"http%']);
+        $images = [];
+
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $payload = json_decode((string) $row['raw_payload_json'], true);
+            $url = ComparatorPresenter::safeUrl(\is_string($payload['card']['image'] ?? null) ? $payload['card']['image'] : null);
+
+            if ($url !== null) {
+                $images[(int) $row['product_id']] = $url;
+            }
+        }
+
+        return $images;
     }
 
     /**

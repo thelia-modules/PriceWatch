@@ -134,4 +134,13 @@ return [
     'progress.count.sellers' => '%done% / %total% seller lists answered',
     'progress.count.recording' => '%done% / %total% product cards recorded',
     'progress.count.judging' => '%done% / %total% offers checked',
+
+    // Comparator list
+    'gauge.short.same_product' => 'P',
+    'gauge.short.same_variant' => 'S',
+    'gauge.short.price_comparability' => '€',
+    'refused.same_product' => 'Another product, says Jev',
+    'refused.same_variant' => 'Another size, says Jev',
+    'refused.price_comparability' => 'Price not comparable, says Jev',
+
 ];
