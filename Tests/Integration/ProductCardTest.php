@@ -48,6 +48,8 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         $this->offer($small, $this->first, 'matched_judged', true, '-8.000');
         $this->offer($small, $this->second, 'matched_manual', true, '3.000');
         $this->offer($small, $this->second, 'needs_review', false, '-30.000');
+        // Same item at a promotional price: matched, but out of the gap.
+        $this->offer($small, $this->first, 'matched_judged', false, '-25.000');
         $blacklisted = (new CompetitorRepository())->create('black-'.bin2hex(random_bytes(4)).'.example', CompetitorStatus::Rejected, 'manual');
         $this->offer($small, $blacklisted, 'matched_judged', true, '-50.000');
 
