@@ -29,6 +29,10 @@ final class SizeNormalizerTest extends TestCase
         yield 'doubled letter notation' => ['XXL', SizeFamily::Alpha, 'XXL', null];
         yield 'digit letter notation' => ['2XL', SizeFamily::Alpha, 'XXL', null];
         yield 'three X notation' => ['3XL', SizeFamily::Alpha, 'XXXL', null];
+        yield 'multiplier written apart' => ['2 XL', SizeFamily::Alpha, 'XXL', null];
+        yield 'multiplier written apart, small' => ['3 XS', SizeFamily::Alpha, 'XXXS', null];
+        yield 'five X apart' => ['5 XL', SizeFamily::Alpha, 'XXXXXL', null];
+        yield 'a real number before a letter stays numeric' => ['52 L', SizeFamily::Numeric, '52', 'L'];
         yield 'garment number' => ['52', SizeFamily::Numeric, '52', null];
         yield 'helmet head circumference' => ['57', SizeFamily::Numeric, '57', null];
         yield 'helmet with a letter hint' => ['57 (M)', SizeFamily::Numeric, '57', 'M'];

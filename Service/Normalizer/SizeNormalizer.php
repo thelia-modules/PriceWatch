@@ -52,6 +52,10 @@ final readonly class SizeNormalizer
             return new NormalizedSize($raw, SizeFamily::Alpha, 'TU');
         }
 
+        // "2 XL", "3 XS": a multiplier written apart from the letters. Read
+        // token by token, the 2 would pass for a numeric size.
+        $folded = preg_replace('/\b([2-5])\s+(x+s|x+l)\b/', '$1$2', $folded) ?? $folded;
+
         $number = null;
         $alpha = null;
 

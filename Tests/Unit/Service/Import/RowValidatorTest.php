@@ -100,6 +100,31 @@ final class RowValidatorTest extends TestCase
         self::assertSame('Noir mat', $row->colorLabel);
     }
 
+    public function testQualifiedAxisNamesFromARealCatalogueAreRecognised(): void
+    {
+        // Axis names as they appear in the Classic Ride export.
+        $helmet = $this->validate(['product_ref' => 'REF1', 'attribute_combination' => 'Taille casque:57 (M)']);
+        $garment = $this->validate(['product_ref' => 'REF1', 'attribute_combination' => 'Taille vêtement:2 XL']);
+        $colour = $this->validate(['product_ref' => 'REF1', 'attribute_combination' => 'Couleur cadre:Noir|Pointure:43']);
+
+        self::assertInstanceOf(ReferenceRow::class, $helmet);
+        self::assertInstanceOf(ReferenceRow::class, $garment);
+        self::assertInstanceOf(ReferenceRow::class, $colour);
+        self::assertSame('57', $helmet->size->canonical);
+        self::assertSame('M', $helmet->size->alphaHint);
+        self::assertSame('XXL', $garment->size->canonical);
+        self::assertSame('43', $colour->size->canonical);
+        self::assertSame('Noir', $colour->colorLabel);
+    }
+
+    public function testAnAxisMerelyContainingTheWordIsNotTakenForASize(): void
+    {
+        $row = $this->validate(['product_ref' => 'REF1', 'attribute_combination' => 'Grande taille:Oui']);
+        self::assertInstanceOf(ReferenceRow::class, $row);
+
+        self::assertNull($row->size->canonical);
+    }
+
     public function testLetterHintIsRecoveredFromTheAttributeAxisForTheSameSize(): void
     {
         $row = $this->validate([

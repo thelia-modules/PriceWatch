@@ -21,8 +21,12 @@ use PriceWatch\Service\Normalizer\TextNormalizer;
  */
 final readonly class RowValidator
 {
-    private const SIZE_AXIS_NAMES = ['taille', 'size', 'pointure', 'tour de tete', 'tour de tete casque'];
-    private const COLOR_AXIS_NAMES = ['coloris', 'couleur', 'color', 'colour'];
+    /**
+     * Matched on the first word, because real catalogues qualify the axis:
+     * "Taille vêtement", "Taille casque", "Taille chaussures", "Couleur cadre".
+     */
+    private const SIZE_AXIS_WORDS = ['taille', 'size', 'pointure', 'tour'];
+    private const COLOR_AXIS_WORDS = ['coloris', 'couleur', 'color', 'colour'];
 
     private const MAX_LENGTH = [
         'product_ref' => 255,
@@ -147,9 +151,9 @@ final readonly class RowValidator
         $competitorDomains = array_values($competitorDomains);
         sort($competitorDomains);
 
-        $axisSizeLabel = $this->axisValue($attributePairs, self::SIZE_AXIS_NAMES);
+        $axisSizeLabel = $this->axisValue($attributePairs, self::SIZE_AXIS_WORDS);
         $sizeLabel = $this->value($row, 'size_label') ?? $axisSizeLabel;
-        $colorLabel = $this->value($row, 'color_label') ?? $this->axisValue($attributePairs, self::COLOR_AXIS_NAMES);
+        $colorLabel = $this->value($row, 'color_label') ?? $this->axisValue($attributePairs, self::COLOR_AXIS_WORDS);
         $gtin = $this->gtinNormalizer->normalize($this->value($row, 'ean_code'));
         $mpn = $this->mpnNormalizer->normalize($this->value($row, 'mpn'));
         $brandLabel = $this->value($row, 'brand_title');
@@ -279,12 +283,14 @@ final readonly class RowValidator
 
     /**
      * @param array<string, string> $pairs
-     * @param list<string>          $axisNames
+     * @param list<string>          $axisNames first words that designate the axis
      */
     private function axisValue(array $pairs, array $axisNames): ?string
     {
         foreach ($pairs as $name => $value) {
-            if (\in_array($this->textNormalizer->normalize($name), $axisNames, true)) {
+            $firstWord = explode(' ', $this->textNormalizer->normalize($name))[0];
+
+            if (\in_array($firstWord, $axisNames, true)) {
                 return $value;
             }
         }
