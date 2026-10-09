@@ -17,6 +17,7 @@ enum ResolutionCode: string
     case AttributeUnresolved = 'ATTRIBUTE_UNRESOLVED';
     case AmbiguousPseRef = 'AMBIGUOUS_PSE_REF';
     case AmbiguousPse = 'AMBIGUOUS_PSE';
+    case DuplicateInFile = 'DUPLICATE_IN_FILE';
 
     public function message(): string
     {
@@ -29,6 +30,7 @@ enum ResolutionCode: string
             self::AttributeUnresolved => 'At least one attribute name or value does not match this product\'s variants.',
             self::AmbiguousPseRef => 'Several sale elements of this product carry this pse_ref.',
             self::AmbiguousPse => 'The line does not narrow the product down to a single sale element.',
+            self::DuplicateInFile => 'An earlier line of the same file already claimed this sale element.',
         };
     }
 }

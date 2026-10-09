@@ -20,6 +20,11 @@ final readonly class CatalogCsvReader
     private const REQUIRED_HEADER = 'product_ref';
 
     /**
+     * Deliberately NOT a generator: opening the file and validating the header
+     * must happen when read() is called, not when iteration starts. A
+     * generator would defer both, and a caller that records an import batch
+     * before iterating would leave that batch behind on an unreadable file.
+     *
      * @return iterable<int, array{0: array<string, string>, 1: string}> line number, column map, raw line
      *
      * @throws MalformedReferenceFileException
@@ -38,6 +43,24 @@ final readonly class CatalogCsvReader
 
         try {
             $header = $this->readHeader($handle, $path);
+        } catch (MalformedReferenceFileException $error) {
+            fclose($handle);
+
+            throw $error;
+        }
+
+        return $this->rows($handle, $header);
+    }
+
+    /**
+     * @param resource     $handle
+     * @param list<string> $header
+     *
+     * @return \Generator<int, array{0: array<string, string>, 1: string}>
+     */
+    private function rows($handle, array $header): \Generator
+    {
+        try {
             $lineNumber = 1;
 
             while (($cells = fgetcsv($handle, 0, self::DELIMITER, self::ENCLOSURE)) !== false) {

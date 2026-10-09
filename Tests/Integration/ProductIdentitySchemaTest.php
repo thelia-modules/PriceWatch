@@ -6,7 +6,6 @@ namespace PriceWatch\Tests\Integration;
 
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
-use Propel\Runtime\ActiveQuery\Criteria;
 use Propel\Runtime\Exception\PropelException;
 use Thelia\Model\ProductSaleElementsQuery;
 
@@ -32,7 +31,7 @@ final class ProductIdentitySchemaTest extends PriceWatchIntegrationTestCase
             // TINYINT columns take an int setter: 1, never true.
             ->setGtinValid(1)
             ->setGtinShared(0)
-            ->setMpnNormalized('IXON1001010451023L')
+            ->setMpnNormalized(self::MARKER_MPN)
             ->setBrandNormalized('ixon')
             ->setSizeNormalized('L')
             // DECIMAL columns take a string setter: '349.000000', never a float.
@@ -98,9 +97,11 @@ final class ProductIdentitySchemaTest extends PriceWatchIntegrationTestCase
      */
     public function testNothingWrittenByTheTestsAboveSurvives(): void
     {
-        // filterBy with IN, never _or(): _or() rewrites the whole WHERE.
+        // The marker is deliberately implausible as real catalogue data: a
+        // realistic value would collide with rows a genuine import left behind
+        // and this test would stop proving anything about isolation.
         $leftovers = PwProductIdentityQuery::create()
-            ->filterByMpnNormalized(['IXON1001010451023L', self::MARKER_MPN], Criteria::IN)
+            ->filterByMpnNormalized(self::MARKER_MPN)
             ->count();
 
         self::assertSame(0, $leftovers, 'the development database must come out of the suite untouched');
