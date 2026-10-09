@@ -40,6 +40,16 @@ final class ComparatorInputTest extends TestCase
         self::assertSame('https://motoblouz.com', $links['site']);
     }
 
+    public function testTheGoogleShoppingPageIsRebuiltFromTheCardId(): void
+    {
+        self::assertSame(
+            'https://www.google.fr/search?ibp=oshop&q=cid%3A5363984672087245351&prds=catalogid%3A5363984672087245351%2Cpvt%3Ahg%2Cpvo%3A3&hl=fr&gl=FR',
+            ComparatorPresenter::googleShoppingUrl('5363984672087245351'),
+        );
+        self::assertNull(ComparatorPresenter::googleShoppingUrl('5363&q=evil'));
+        self::assertNull(ComparatorPresenter::googleShoppingUrl(null));
+    }
+
     public function testNoLinkIsBuiltFromSomethingThatIsNotADomain(): void
     {
         $links = ComparatorPresenter::links('file:///goto%3Furl=CAES', 'javascript:alert(1)', 'evil.example/"><script>', 'x');

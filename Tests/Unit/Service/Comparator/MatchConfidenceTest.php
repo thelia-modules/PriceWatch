@@ -40,10 +40,21 @@ final class MatchConfidenceTest extends TestCase
         self::assertCount(3, $confidence['gauges'], 'what Jev said stays visible');
     }
 
+    public function testAHumanMatchAgainstAClearNoIsFlagged(): void
+    {
+        // Recorded on the Stormer offer: confirmed by hand, "same size" at 4 %.
+        $confirmed = MatchConfidence::of('human', $this->judgment(0.78, 0.04, 'comparable', 0.71), 'matched_manual');
+        $rejected = MatchConfidence::of('human', $this->judgment(0.78, 0.04, 'comparable', 0.71), 'rejected');
+
+        self::assertSame(['same_variant'], $confirmed['disagreements']);
+        self::assertSame([], $rejected['disagreements'], 'excluding what Jev said no to is agreement');
+        self::assertSame([], MatchConfidence::of('human', $this->judgment(0.78, 0.40, 'comparable', 0.71), 'matched_manual')['disagreements'], 'an uncertain answer is no disagreement');
+    }
+
     public function testRulesAndUnjudgedOffersHaveNoScore(): void
     {
         self::assertSame(MatchConfidence::RULE, MatchConfidence::of('code', [])['level']);
-        self::assertSame(['level' => MatchConfidence::NONE, 'score' => null, 'gauges' => []], MatchConfidence::of(null, []));
+        self::assertSame(['level' => MatchConfidence::NONE, 'score' => null, 'gauges' => [], 'disagreements' => []], MatchConfidence::of(null, []));
     }
 
     /**

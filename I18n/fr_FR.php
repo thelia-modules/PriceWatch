@@ -249,4 +249,5 @@ return [
     'gauge.same_product' => 'Produit',
     'gauge.same_variant' => 'Taille',
     'gauge.price_comparability' => 'Prix',
+    'Jev disagrees on:' => 'Jev n\'est pas d\'accord sur :',
 ];

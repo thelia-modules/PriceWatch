@@ -110,6 +110,26 @@ final readonly class ComparatorPresenter
         ];
     }
 
+    /**
+     * Readings made before the Google page was kept still carry the card's
+     * product id, which is all the page address needs (same form as the
+     * check_url DataForSEO returns).
+     */
+    public static function googleShoppingUrl(mixed $productId): ?string
+    {
+        if (!\is_string($productId) || preg_match('/^\d{5,25}$/', $productId) !== 1) {
+            return null;
+        }
+
+        return 'https://www.google.fr/search?'.http_build_query([
+            'ibp' => 'oshop',
+            'q' => 'cid:'.$productId,
+            'prds' => 'catalogid:'.$productId.',pvt:hg,pvo:3',
+            'hl' => 'fr',
+            'gl' => 'FR',
+        ]);
+    }
+
     private static function percent(float $value, \NumberFormatter $percent): string
     {
         return ($value > 0 ? '+' : '').$percent->format($value / 100);
@@ -149,7 +169,12 @@ final readonly class ComparatorPresenter
             'competitor' => $competitor,
             'remoteTitle' => (string) $offer->getRemoteTitle(),
             'remoteVariant' => $offer->getRemoteVariantLabel(),
-            'links' => self::links($offer->getUrl(), \is_array($payload) ? ($payload['google_url'] ?? null) : null, $competitor, $product['title'] ?? ''),
+            'links' => self::links(
+                $offer->getUrl(),
+                (\is_array($payload) ? ($payload['google_url'] ?? null) : null) ?? self::googleShoppingUrl(\is_array($payload) ? ($payload['card']['productId'] ?? null) : null),
+                $competitor,
+                $product['title'] ?? '',
+            ),
             'image' => \is_array($payload) ? self::safeUrl(\is_string($payload['card']['image'] ?? null) ? $payload['card']['image'] : null) : null,
             'theirs' => $theirs === null ? null : $money->formatCurrency((float) $theirs, (string) ($offer->getLastCurrencyCode() ?? 'EUR')),
             'ours' => $ours === null ? null : $money->formatCurrency((float) $ours, 'EUR'),
@@ -161,7 +186,7 @@ final readonly class ComparatorPresenter
             'seenAt' => $offer->getLastSeenAt()?->format('d/m/Y H:i'),
             'searchedBy' => \is_array($payload) && \is_string($payload['searched_by'] ?? null) ? $payload['searched_by'] : null,
             'extraction' => $quote?->getExtractionMethod(),
-            'confidence' => MatchConfidence::of($offer->getMatchMethod(), \is_array($judgment) ? $judgment : []),
+            'confidence' => MatchConfidence::of($offer->getMatchMethod(), \is_array($judgment) ? $judgment : [], $state),
             'actions' => [
                 'confirm' => \in_array($state, ['needs_review', 'rejected', 'candidate'], true) || ($state !== OfferReview::HUMAN_MATCH && \in_array($state, ComparatorView::MATCHED_STATES, true) && (int) $offer->getLastComparable() === 0),
                 'reject' => $state !== 'rejected',

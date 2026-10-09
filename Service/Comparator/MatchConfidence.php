@@ -32,9 +32,14 @@ final readonly class MatchConfidence
     /**
      * @param array<string, mixed> $judgment as stored on the offer (judgment_json)
      *
-     * @return array{level: string, score: ?int, gauges: list<array{question: string, percent: int, band: string, choice: ?string}>}
+     * A match a human confirmed against a clear "no" from Jev is shown as a
+     * disagreement: the decision stands, but nobody should overlook it.
+     * Seen on 2026-10-09: a helmet confirmed by hand while Jev gave 4 % to
+     * "same size" (XS at the competitor, M at ours).
+     *
+     * @return array{level: string, score: ?int, gauges: list<array{question: string, percent: int, band: string, choice: ?string}>, disagreements: list<string>}
      */
-    public static function of(?string $method, array $judgment): array
+    public static function of(?string $method, array $judgment, ?string $state = null): array
     {
         $gauges = [];
 
@@ -73,6 +78,10 @@ final readonly class MatchConfidence
             default => self::LOW,
         };
 
-        return ['level' => $level, 'score' => $score, 'gauges' => $gauges];
+        $disagreements = $level === self::HUMAN && \in_array($state, ComparatorView::MATCHED_STATES, true)
+            ? array_column(array_filter($gauges, static fn (array $gauge): bool => $gauge['band'] === JevAnswer::NO), 'question')
+            : [];
+
+        return ['level' => $level, 'score' => $score, 'gauges' => $gauges, 'disagreements' => array_values($disagreements)];
     }
 }

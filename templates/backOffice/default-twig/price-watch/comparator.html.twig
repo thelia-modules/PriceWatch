@@ -43,6 +43,12 @@
         <span class="badge border {{ levels[row.confidence.level] ?? levels.none }}">
             {{ ('confidence.' ~ row.confidence.level)|trans({}, 'pricewatch') }}{% if row.confidence.score is not null and row.confidence.level in ['high', 'medium', 'low'] %} · {{ row.confidence.score }} %{% endif %}
         </span>
+        {% if row.confidence.disagreements is not empty %}
+            <div class="small text-danger-emphasis mt-1" data-testid="pw-disagreement-{{ row.id }}">
+                <i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i>{{ 'Jev disagrees on:'|trans({}, 'pricewatch') }}
+                {% for question in row.confidence.disagreements %}{{ ('gauge.' ~ question)|trans({}, 'pricewatch')|lower }}{% if not loop.last %}, {% endif %}{% endfor %}
+            </div>
+        {% endif %}
         {% if row.searchedBy %}
             <span class="badge border bg-body-tertiary text-body" title="{{ ('searched_by.' ~ row.searchedBy)|trans({}, 'pricewatch') }}">{{ ('found_by.' ~ row.searchedBy)|trans({}, 'pricewatch') }}</span>
         {% endif %}
