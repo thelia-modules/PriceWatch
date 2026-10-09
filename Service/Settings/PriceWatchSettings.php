@@ -26,17 +26,21 @@ final readonly class PriceWatchSettings
     private const DATAFORSEO_LOGIN = 'dataforseo_login';
     private const DATAFORSEO_LOGIN_ENV = 'DATAFORSEO_USERNAME';
     private const UPDATED_SUFFIX = '_updated_at';
+    private const SHOP_DESCRIPTION = 'shop_description';
+    private const SHOP_DESCRIPTION_MAX_LENGTH = 500;
 
     public function __construct(
         private ConfigStore $store,
         private SecretBox $secretBox,
-        private ServerEnvironment $environment,
+        // Not named $environment: Thelia binds that name globally to
+        // %kernel.environment%, and the bind wins over the type hint.
+        private ServerEnvironment $serverEnvironment,
     ) {
     }
 
     public function secret(SecretName $name): ?string
     {
-        $fromEnvironment = $this->environment->get($name->environmentVariable());
+        $fromEnvironment = $this->serverEnvironment->get($name->environmentVariable());
 
         if ($fromEnvironment !== null) {
             return $fromEnvironment;
@@ -49,7 +53,7 @@ final readonly class PriceWatchSettings
 
     public function secretSource(SecretName $name): SecretSource
     {
-        if ($this->environment->get($name->environmentVariable()) !== null) {
+        if ($this->serverEnvironment->get($name->environmentVariable()) !== null) {
             return SecretSource::Environment;
         }
 
@@ -94,7 +98,7 @@ final readonly class PriceWatchSettings
 
     public function dataforseoLogin(): ?string
     {
-        $fromEnvironment = $this->environment->get(self::DATAFORSEO_LOGIN_ENV);
+        $fromEnvironment = $this->serverEnvironment->get(self::DATAFORSEO_LOGIN_ENV);
 
         if ($fromEnvironment !== null) {
             return $fromEnvironment;
@@ -107,7 +111,7 @@ final readonly class PriceWatchSettings
 
     public function dataforseoLoginFromEnvironment(): bool
     {
-        return $this->environment->get(self::DATAFORSEO_LOGIN_ENV) !== null;
+        return $this->serverEnvironment->get(self::DATAFORSEO_LOGIN_ENV) !== null;
     }
 
     /**
@@ -207,6 +211,31 @@ final readonly class PriceWatchSettings
     public function storeModelList(array $models): void
     {
         $this->store->set(self::MODEL_LIST, json_encode(array_values($models), \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * A sentence or two the merchant writes about the shop. Given to the
+     * model as context for competitor search; never treated as instructions.
+     */
+    public function shopDescription(): ?string
+    {
+        $description = $this->store->get(self::SHOP_DESCRIPTION);
+
+        return $description === '' ? null : $description;
+    }
+
+    /**
+     * @throws InvalidSettingException
+     */
+    public function setShopDescription(string $description): void
+    {
+        $description = trim($description);
+
+        if (mb_strlen($description) > self::SHOP_DESCRIPTION_MAX_LENGTH) {
+            throw new InvalidSettingException(self::SHOP_DESCRIPTION, \sprintf('The shop description is limited to %d characters.', self::SHOP_DESCRIPTION_MAX_LENGTH));
+        }
+
+        $this->store->set(self::SHOP_DESCRIPTION, $description);
     }
 
     public function isJevReady(): bool

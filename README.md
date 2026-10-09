@@ -72,6 +72,13 @@ need a container.
 - Auto-increment values are not rolled back: never hardcode an id in a test.
 - A hook absent from the `hook` table is dropped silently, with no error and no
   output. Only subscribe to hooks whose row exists in `local/setup/insert.sql`.
+- Never name a constructor argument `$environment`, `$env`, `$debug`,
+  `$debugMode`, `$cacheDir`, `$kernelCacheDir`, `$kernelDebug`,
+  `$kernelEnvironment`, `$sessionSavePath`, `$formDefinition` or
+  `$apiResourceAddons`: the core binds those names globally
+  (`vendor/thelia/core/lib/Thelia/Config/Resources/services.php:43-56`), the
+  binding applies to module services too, and it wins over the type hint. A
+  `ServerEnvironment $environment` argument receives the string `dev`.
 - In PHP, always pass the domain: `trans('X', [], 'pricewatch')`. The injected
   translator defaults to the `core` domain and falls back to the raw key, so a
   missing translation shows up as the key and never raises.
