@@ -87,42 +87,64 @@ final readonly class ShoppingCollector
 
         if ($watched !== [] && $identities !== []) {
             // 1. Find the product card Google attaches to each GTIN.
-            $keywords = [];
+            $titles = $this->productTitles($identities);
+            $gtins = [];
+            $ourTitles = [];
 
-            foreach ($identities as $identity) {
-                $keywords[(string) $identity->getId()] = self::searchableGtin((string) $identity->getGtin());
+            foreach ($identities as $id => $identity) {
+                $gtins[(string) $id] = self::searchableGtin((string) $identity->getGtin());
+                $ourTitles[(string) $id] = $titles[(int) $identity->getProductId()] ?? '';
             }
 
-            $posted = $this->client->postProductSearches($keywords, $priority, $sandbox);
-            $cost += $posted['costUsd'];
-            $counts['tasks'] += \count($posted['tasks']);
-            $titles = $this->productTitles($identities);
-            $cards = [];
+            $byGtin = $this->searchCards($gtins, $ourTitles, 'identity', $priority, $maxWaitSeconds, $sandbox);
+            $cards = $byGtin['cards'];
+            $searchedBy = array_fill_keys(array_keys($cards), 'gtin');
 
-            foreach ($this->waitFor('products', $posted['tasks'], $maxWaitSeconds, $sandbox) as $tag => $taskId) {
-                try {
-                    $result = $this->client->productCards($taskId, $sandbox);
-                } catch (DataForSeoException $error) {
-                    // Observed live: a task can end in 40101 "Internal SE
-                    // Server Error". One failed search must not sink the pass.
-                    $errors[] = \sprintf('search for identity %s: %s', $tag, $error->getMessage());
+            // 1b. Observed live (2026-10-09): Google knew 2 GTINs out of 10,
+            // while a title search found the right card. A product whose GTIN
+            // led nowhere is searched once by title, for all its variants
+            // at once; telling the variant apart is Jev's job.
+            $missedByProduct = [];
+
+            foreach ($identities as $id => $identity) {
+                if (!isset($cards[$id])) {
+                    $missedByProduct[(int) $identity->getProductId()][] = (string) $id;
+                }
+            }
+
+            $titleKeywords = [];
+
+            foreach (array_keys($missedByProduct) as $productId) {
+                if (($titles[$productId] ?? '') !== '') {
+                    $titleKeywords['p'.$productId] = $titles[$productId];
+                }
+            }
+
+            $byTitle = $this->searchCards($titleKeywords, $titleKeywords, 'product', $priority, $maxWaitSeconds, $sandbox);
+
+            foreach ($missedByProduct as $productId => $tags) {
+                $card = $byTitle['cards']['p'.$productId] ?? null;
+
+                if ($card === null) {
+                    // Kept for the report: a human tells a strict gate from
+                    // a product Google does not know at a glance.
+                    $noCard[$titles[$productId] ?? '#'.$productId] = array_merge(
+                        array_map(static fn (string $title): string => 'GTIN: '.$title, \array_slice($byGtin['missed'][$tags[0]] ?? [], 0, 2)),
+                        array_map(static fn (string $title): string => 'title: '.$title, \array_slice($byTitle['missed']['p'.$productId] ?? [], 0, 2)),
+                    );
                     continue;
                 }
 
-                $ourTitle = $titles[(int) $identities[(int) $tag]->getProductId()] ?? '';
-
-                foreach ($result['cards'] as $card) {
-                    if ($this->relevance->isPlausible($ourTitle, $card->title)) {
-                        $cards[$tag] = $card;
-                        break;
-                    }
+                foreach ($tags as $tag) {
+                    $cards[$tag] = $card;
+                    $searchedBy[$tag] = 'title';
                 }
+            }
 
-                if (!isset($cards[$tag])) {
-                    // Kept for the report: a human tells a strict gate from
-                    // a GTIN Google does not know at a glance.
-                    $noCard[$ourTitle] = array_map(static fn (ShoppingCard $card): string => $card->title, \array_slice($result['cards'], 0, 3));
-                }
+            foreach ([$byGtin, $byTitle] as $search) {
+                $cost += $search['costUsd'];
+                $counts['tasks'] += $search['tasks'];
+                array_push($errors, ...$search['errors']);
             }
 
             // 2. Read the sellers of each card, once per card: the variants
@@ -161,7 +183,7 @@ final readonly class ShoppingCollector
                                 continue;
                             }
 
-                            if ($this->record($identity, $competitorId, $cards[$tag], $offer, $ourPrice, (int) $run->getId())) {
+                            if ($this->record($identity, $competitorId, $cards[$tag], $searchedBy[$tag], $offer, $ourPrice, (int) $run->getId())) {
                                 ++$counts['written'];
                             }
                         }
@@ -183,6 +205,52 @@ final readonly class ShoppingCollector
             ->save();
 
         return ['run' => $run, 'unknownSellers' => $unknownSellers, 'noPlausibleCard' => $noCard];
+    }
+
+    /**
+     * Posts the searches, waits, and keeps for each the first card whose
+     * title is plausible against ours.
+     *
+     * @param array<string, string> $keywordsByTag
+     * @param array<string, string> $ourTitleByTag
+     *
+     * @return array{cards: array<string, ShoppingCard>, missed: array<string, list<string>>, costUsd: float, tasks: int, errors: list<string>}
+     *
+     * @throws DataForSeoException
+     */
+    private function searchCards(array $keywordsByTag, array $ourTitleByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
+    {
+        $found = ['cards' => [], 'missed' => [], 'costUsd' => 0.0, 'tasks' => 0, 'errors' => []];
+
+        if ($keywordsByTag === []) {
+            return $found;
+        }
+
+        $posted = $this->client->postProductSearches($keywordsByTag, $priority, $sandbox);
+        $found['costUsd'] = $posted['costUsd'];
+        $found['tasks'] = \count($posted['tasks']);
+
+        foreach ($this->waitFor('products', $posted['tasks'], $maxWaitSeconds, $sandbox) as $tag => $taskId) {
+            try {
+                $result = $this->client->productCards($taskId, $sandbox);
+            } catch (DataForSeoException $error) {
+                // Observed live: a task can end in 40101 "Internal SE Server
+                // Error". One failed search must not sink the pass.
+                $found['errors'][] = \sprintf('search for %s %s: %s', $subject, $tag, $error->getMessage());
+                continue;
+            }
+
+            foreach ($result['cards'] as $card) {
+                if ($this->relevance->isPlausible($ourTitleByTag[$tag] ?? '', $card->title)) {
+                    $found['cards'][$tag] = $card;
+                    continue 2;
+                }
+            }
+
+            $found['missed'][$tag] = array_map(static fn (ShoppingCard $card): string => $card->title, \array_slice($result['cards'], 0, 3));
+        }
+
+        return $found;
     }
 
     /**
@@ -314,7 +382,7 @@ final readonly class ShoppingCollector
         return $identities;
     }
 
-    private function record(PwProductIdentity $identity, int $competitorId, ShoppingCard $card, SellerOffer $offer, ?string $ourPrice, int $runId): bool
+    private function record(PwProductIdentity $identity, int $competitorId, ShoppingCard $card, string $searchedBy, SellerOffer $offer, ?string $ourPrice, int $runId): bool
     {
         $saleElementId = (int) $identity->getProductSaleElementsId();
         $offerKey = 'shopping:'.$saleElementId;
@@ -381,7 +449,7 @@ final readonly class ShoppingCollector
             ->setDeltaPct($delta === null || (float) $ourPrice === 0.0 ? null : number_format($delta / (float) $ourPrice * 100, 3, '.', ''))
             ->setComparable(0)
             ->setExtractionMethod('dataforseo_sellers')
-            ->setRawPayloadJson(json_encode(['card' => (array) $card, 'offer' => (array) $offer], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
+            ->setRawPayloadJson(json_encode(['searched_by' => $searchedBy, 'card' => (array) $card, 'offer' => (array) $offer],\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
             ->setCollectRunId($runId)
             ->save();
 

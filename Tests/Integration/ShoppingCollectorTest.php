@@ -131,8 +131,9 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
 
         self::assertSame(['Casque Bell Custom 500 Gloss Black'], array_keys($result['noPlausibleCard']));
-        self::assertContains('Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], 'what Google returned is shown');
-        self::assertSame(1, $result['run']->getDataforseoTasks(), 'the search is paid, the sellers lookup is not');
+        self::assertContains('GTIN: Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], 'what Google returned is shown');
+        self::assertContains('title: Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black']);
+        self::assertSame(2, $result['run']->getDataforseoTasks(), 'both searches are paid, the sellers lookup is not');
         self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
     }
 
@@ -146,6 +147,39 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(3, $result['run']->getDataforseoTasks(), 'two searches, one sellers lookup');
         self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($small->getProductSaleElementsId())->count());
         self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($large->getProductSaleElementsId())->count(), 'the card\'s sellers reach every variant led to it');
+    }
+
+    public function testAGtinGoogleDoesNotKnowFallsBackToOneTitleSearchPerProduct(): void
+    {
+        $small = $this->identity('3660600123454');
+        $this->addVariant($small, '3660600123461');
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['products/task_get:title'] = $answers['products/task_get'];
+        $answers['products/task_get'] = $this->unrelatedCards();
+
+        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
+
+        self::assertSame([], $result['noPlausibleCard']);
+        self::assertSame(4, $result['run']->getDataforseoTasks(), 'two GTIN searches, one title search for the product, one sellers lookup');
+        self::assertSame(2, $result['run']->getQuotesWritten(), 'both variants reached through the title');
+
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($small->getProductSaleElementsId())->findOne();
+        $quote = PwPriceQuoteQuery::create()->filterByOfferId($offer?->getId())->findOne();
+        self::assertSame('title', json_decode((string) $quote?->getRawPayloadJson(), true)['searched_by'] ?? null, 'how the card was found stays on the reading');
+    }
+
+    public function testAKnownGtinIsNotSearchedByTitle(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['products/task_get:title'] = $this->unrelatedCards();
+
+        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
+
+        self::assertSame(2, $result['run']->getDataforseoTasks(), 'one GTIN search, one sellers lookup');
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
+        $quote = PwPriceQuoteQuery::create()->filterByOfferId($offer?->getId())->findOne();
+        self::assertSame('gtin', json_decode((string) $quote?->getRawPayloadJson(), true)['searched_by'] ?? null);
     }
 
     public function testSamplingTakesOneVariantPerProduct(): void
@@ -234,6 +268,23 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
     }
 
     /**
+     * The recorded search answer with every title replaced by things seen
+     * live for GTINs Google did not know.
+     *
+     * @return array<string, mixed>
+     */
+    private function unrelatedCards(): array
+    {
+        $answer = $this->fixture('products-task_get_advanced');
+
+        foreach ($answer['tasks'][0]['result'][0]['items'] as $index => $item) {
+            $answer['tasks'][0]['result'][0]['items'][$index]['title'] = ['Kinetic Sand La Chocolaterie', 'Figurine Funko Pop! Jujutsu Kaisen', 'Pétrole liquide Ptx 2000'][$index % 3];
+        }
+
+        return $answer;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function fixture(string $name): array
@@ -283,6 +334,12 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
 
         $http = new MockHttpClient(function (string $method, string $url, array $options) use ($answers): MockResponse {
             ++$this->calls;
+
+            // Title searches are tagged "p<product id>", and retag() puts
+            // the tag in the task id.
+            if (isset($answers['products/task_get:title']) && preg_match('#/products/task_get/advanced/task-\d+-p\d+$#', $url) === 1) {
+                return new MockResponse((string) json_encode($answers['products/task_get:title']));
+            }
 
             foreach ($answers as $endpoint => $answer) {
                 if (str_contains($url, '/merchant/google/'.$endpoint)) {
