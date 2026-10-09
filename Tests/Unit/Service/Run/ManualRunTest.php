@@ -15,10 +15,31 @@ final class ManualRunTest extends TestCase
     /** @var list<array{commands: list<list<string>>, log: string}> */
     private array $started = [];
     private LockFactory $locks;
+    private string $marker;
 
     protected function setUp(): void
     {
         $this->locks = new LockFactory(new InMemoryStore());
+        $this->marker = sys_get_temp_dir().'/pricewatch-test-'.bin2hex(random_bytes(4)).'.started';
+    }
+
+    protected function tearDown(): void
+    {
+        if (is_file($this->marker)) {
+            unlink($this->marker);
+        }
+    }
+
+    public function testAPassJustStartedCountsAsStartingForAMoment(): void
+    {
+        self::assertNull($this->manualRun()->startedAt());
+
+        $this->manualRun()->start(10);
+
+        self::assertEqualsWithDelta(time(), $this->manualRun()->startedAt(), 2, 'the page after the click is drawn before the process takes its lock');
+
+        touch($this->marker, time() - 31);
+        self::assertNull($this->manualRun()->startedAt(), 'long enough ago, only the lock tells');
     }
 
     public function testAProductPassCollectsItsVariantsThenJudges(): void
@@ -90,6 +111,6 @@ final class ManualRunTest extends TestCase
             }
         };
 
-        return new ManualRun($runner, $this->locks, '/var/www/html');
+        return new ManualRun($runner, $this->locks, '/var/www/html', $this->marker);
     }
 }

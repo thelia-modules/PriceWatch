@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace PriceWatch\Tests\Integration;
 
+use PriceWatch\Model\PwCollectRunQuery;
 use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
@@ -14,11 +15,13 @@ use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
 use PriceWatch\Service\Normalizer\TextNormalizer;
+use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Source\CardRelevance;
 use PriceWatch\Service\Source\DataForSeoClient;
+use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\OurPrice;
 use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
@@ -105,6 +108,89 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $second = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
 
         self::assertSame(0, $second['run']->getQuotesWritten());
+    }
+
+    public function testAFinishedPassHasRecordedEveryCardItRead(): void
+    {
+        $this->identity('3660600123454');
+
+        $run = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true)['run'];
+
+        self::assertSame(PassStep::Recording->value, $run->getProgressStep(), 'the last step of a collect pass');
+        self::assertSame([1, 1], [$run->getProgressDone(), $run->getProgressTotal()]);
+    }
+
+    /**
+     * Observed live (2026-10-09): a search that ends in error (40101) never
+     * shows in tasks_ready, and the pass waited for it until the deadline.
+     * Read directly after a while, it stops being waited for.
+     */
+    public function testASearchThatFailedIsNotWaitedForUntilTheDeadline(): void
+    {
+        $this->identity('3660600123454');
+        $clock = 1_000_000;
+        $seen = [];
+        $failed = $this->fixture('products-task_get_advanced');
+        $failed['tasks'][0]['status_code'] = 40101;
+        $failed['tasks'][0]['status_message'] = 'Internal SE Server Error.';
+        $failed['tasks'][0]['result'] = null;
+
+        $result = $this->collector(
+            [
+                'products/task_post' => $this->fixture('products-task_post'),
+                'products/tasks_ready' => ['status_code' => 20000, 'tasks' => [['status_code' => 20000, 'result' => []]]],
+                'products/task_get' => $failed,
+            ],
+            function (int $seconds) use (&$clock, &$seen): void {
+                $clock += $seconds;
+                // What the back office would read while the pass waits.
+                $row = PwCollectRunQuery::create()->filterByPassName(ShoppingCollector::PASS)->filterByStatus('started')->orderById(Criteria::DESC)->findOne();
+                $seen[] = [$row?->getProgressStep(), $row?->getProgressDone(), $row?->getProgressTotal()];
+            },
+            static function () use (&$clock): int {
+                return $clock;
+            },
+        )->collect(1, 2, 600);
+
+        self::assertLessThanOrEqual(1_000_000 + 2 * 60, $clock, 'given up after the probe, not after the 600 s deadline');
+        self::assertSame('partial', $result['run']->getStatus());
+        self::assertStringContainsString('Internal SE Server Error', (string) $result['run']->getErrorsJson());
+        self::assertContains([PassStep::GtinSearch->value, 0, 1], $seen, 'the wait shows as the GTIN search, 0 of 1 answered');
+    }
+
+    public function testASearchWithNoResultIsNoError(): void
+    {
+        $this->identity('3660600123454');
+        $empty = $this->fixture('products-task_get_advanced');
+        $empty['tasks'][0]['status_code'] = 40102;
+        $empty['tasks'][0]['status_message'] = 'No Search Results.';
+        $empty['tasks'][0]['result'] = null;
+
+        $result = $this->collector([
+            'products/task_post' => $this->fixture('products-task_post'),
+            'products/task_get' => $empty,
+        ])->collect(10, 1, 60, [], true);
+
+        self::assertSame('success', $result['run']->getStatus(), 'Google found nothing: an answer, not a failure');
+        self::assertNull($result['run']->getErrorsJson());
+    }
+
+    public function testAPassStoppedByAnErrorIsClosedAsFailed(): void
+    {
+        $this->identity('3660600123454');
+
+        try {
+            // Nothing answers: posting the searches fails.
+            $this->collector([])->collect(10, 1, 60, [], true);
+            self::fail('the error reaches the command');
+        } catch (DataForSeoException) {
+        }
+
+        $run = PwCollectRunQuery::create()->filterByPassName(ShoppingCollector::PASS)->orderById(Criteria::DESC)->findOne();
+        self::assertNotNull($run);
+        self::assertSame('failed', $run->getStatus(), 'never left "started"');
+        self::assertNotNull($run->getFinishedAt());
+        self::assertStringContainsString('Stopped by an error', (string) $run->getErrorsJson());
     }
 
     public function testOneFailedSearchDoesNotSinkThePass(): void
@@ -420,7 +506,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
      *
      * @param array<string, array<string, mixed>> $answers
      */
-    private function collector(array $answers): ShoppingCollector
+    private function collector(array $answers, ?\Closure $sleep = null, ?\Closure $now = null): ShoppingCollector
     {
         $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
         $settings->setDataforseoLogin('login@example.com');
@@ -457,7 +543,9 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
             new IdentityFingerprint($text, new BrandNormalizer($text), new GtinNormalizer()),
             new OurPrice(new TaxCalculatorFactory()),
             new CardRelevance($text),
-            static function (int $seconds): void {},
+            $sleep ?? static function (int $seconds): void {},
+            null,
+            $now,
         );
     }
 

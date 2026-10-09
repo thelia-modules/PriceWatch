@@ -16,7 +16,11 @@ use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
 use PriceWatch\Service\Normalizer\TextNormalizer;
+use PriceWatch\Service\Run\PassStep;
+use PriceWatch\Service\Run\PriceWatchLog;
 use Propel\Runtime\ActiveQuery\Criteria;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Thelia\Model\ProductI18nQuery;
 
 /**
@@ -37,6 +41,12 @@ final readonly class ShoppingCollector
     public const PASS = 'collect';
     public const SOURCE = 'dataforseo';
     private const POLL_SECONDS = 10;
+
+    /** After this, late tasks are read directly instead of waited for. */
+    private const PROBE_AFTER_SECONDS = 30;
+
+    /** How often the wait is reported in the log. */
+    private const REPORT_EVERY_SECONDS = 60;
     private const LOCALE = 'fr_FR';
     private const HUMAN_MATCH = 'matched_manual';
     private const MATCHED_STATES = ['matched_exact', 'matched_judged', 'matched_manual'];
@@ -44,8 +54,14 @@ final readonly class ShoppingCollector
     /** @var \Closure(int): void */
     private \Closure $sleep;
 
+    /** @var \Closure(): int */
+    private \Closure $now;
+
+    private LoggerInterface $log;
+
     /**
      * @param (\Closure(int): void)|null $sleep injected so tests never wait
+     * @param (\Closure(): int)|null     $now   injected so tests control time
      */
     public function __construct(
         private DataForSeoClient $client,
@@ -55,10 +71,14 @@ final readonly class ShoppingCollector
         private OurPrice $ourPrice,
         private CardRelevance $relevance,
         ?\Closure $sleep = null,
+        ?PriceWatchLog $log = null,
+        ?\Closure $now = null,
     ) {
         $this->sleep = $sleep ?? static function (int $seconds): void {
             sleep($seconds);
         };
+        $this->now = $now ?? static fn (): int => time();
+        $this->log = $log ?? new NullLogger();
     }
 
     /**
@@ -73,19 +93,75 @@ final readonly class ShoppingCollector
     {
         $run = (new PwCollectRun())->setPassName(self::PASS)->setStatus('started')->setStartedAt(new \DateTime());
         $run->save();
+        $tally = new CollectTally();
+        $this->log->info('Collect pass #{run} started: limit {limit}, {queue} queue{products}{sandbox}.', [
+            'run' => $run->getId(),
+            'limit' => $limit,
+            'queue' => $priority === 2 ? 'priority' : 'standard',
+            'products' => $productRefs === [] ? '' : ', products '.implode(', ', $productRefs),
+            'sandbox' => $sandbox ? ', sandbox' : '',
+        ]);
 
+        try {
+            $this->pass($run, $tally, $limit, $priority, $maxWaitSeconds, $productRefs, $sandbox, $onePerProduct);
+        } catch (\Throwable $error) {
+            // Whatever stops the pass, its row says so, with what was already
+            // paid: never a pass left "started" because of an exception.
+            $tally->errors[] = \sprintf('Stopped by an error: %s (%s)', $error->getMessage(), $error::class);
+            $this->close($run, $tally, 'failed');
+            $this->log->error('Collect pass #{run} stopped by an error: {error}', ['run' => $run->getId(), 'error' => $error->getMessage(), 'exception' => $error]);
+
+            throw $error;
+        }
+
+        $this->close($run, $tally, $tally->errors === [] ? 'success' : 'partial');
+        arsort($tally->unknownSellers);
+
+        return ['run' => $run, 'unknownSellers' => $tally->unknownSellers, 'noPlausibleCard' => $tally->noCard];
+    }
+
+    private function close(PwCollectRun $run, CollectTally $tally, string $status): void
+    {
+        $run->setStatus($status)
+            ->setFinishedAt(new \DateTime())
+            ->setTargetsPlanned($tally->targets)
+            ->setOffersSeen($tally->seen)
+            ->setQuotesWritten($tally->written)
+            ->setDataforseoTasks($tally->tasks)
+            ->setDataforseoCostUsd(number_format($tally->costUsd, 8, '.', ''))
+            ->setErrorsJson($tally->errors === [] ? null : json_encode($tally->errors, \JSON_UNESCAPED_UNICODE))
+            ->save();
+
+        $seconds = $run->getFinishedAt() !== null && $run->getStartedAt() !== null ? $run->getFinishedAt()->getTimestamp() - $run->getStartedAt()->getTimestamp() : 0;
+        $this->log->log($status === 'success' ? 'info' : 'warning', 'Collect pass #{run} {status} in {seconds} s: {targets} variant(s), {tasks} task(s), {cost} USD, {seen} offer(s) seen, {written} recorded, {errors} error(s).', [
+            'run' => $run->getId(),
+            'status' => $status,
+            'seconds' => $seconds,
+            'targets' => $tally->targets,
+            'tasks' => $tally->tasks,
+            'cost' => number_format($tally->costUsd, 3, '.', ''),
+            'seen' => $tally->seen,
+            'written' => $tally->written,
+            'errors' => \count($tally->errors),
+        ]);
+    }
+
+    /**
+     * @param list<string> $productRefs
+     *
+     * @throws DataForSeoException
+     */
+    private function pass(PwCollectRun $run, CollectTally $tally, int $limit, int $priority, int $maxWaitSeconds, array $productRefs, bool $sandbox, bool $onePerProduct): void
+    {
         $watched = $this->watchedCompetitors();
         $domainsById = array_flip($watched);
         $sellers = new SellerMatcher($watched, $this->domains, $this->text);
         $identities = $this->identities($limit, $productRefs, $onePerProduct);
-        $errors = [];
-        $unknownSellers = [];
-        $counts = ['tasks' => 0, 'seen' => 0, 'written' => 0, 'targets' => \count($identities)];
-        $noCard = [];
-        $cost = 0.0;
+        $tally->targets = \count($identities);
+        $this->log->info('Collect: {variants} variant(s) to search, {competitors} whitelisted competitor(s).', ['variants' => \count($identities), 'competitors' => \count($watched)]);
 
         if ($watched === []) {
-            $errors[] = 'No whitelisted competitor: nothing would be compared. Add competitors to the whitelist first.';
+            $tally->errors[] = 'No whitelisted competitor: nothing would be compared. Add competitors to the whitelist first.';
         }
 
         if ($watched !== [] && $identities !== []) {
@@ -99,7 +175,7 @@ final readonly class ShoppingCollector
                 $ourTitles[(string) $id] = $titles[(int) $identity->getProductId()] ?? '';
             }
 
-            $byGtin = $this->searchCards($gtins, $ourTitles, 'identity', $priority, $maxWaitSeconds, $sandbox);
+            $byGtin = $this->searchCards($run, PassStep::GtinSearch, $gtins, $ourTitles, 'identity', $priority, $maxWaitSeconds, $sandbox);
 
             // Paid at the post, whatever comes back: these go to the back of
             // the queue for the next pass.
@@ -129,7 +205,7 @@ final readonly class ShoppingCollector
                 }
             }
 
-            $byTitle = $this->searchCards($titleKeywords, $titleKeywords, 'product', $priority, $maxWaitSeconds, $sandbox);
+            $byTitle = $this->searchCards($run, PassStep::TitleSearch, $titleKeywords, $titleKeywords, 'product', $priority, $maxWaitSeconds, $sandbox);
 
             foreach ($missedByProduct as $productId => $tags) {
                 $card = $byTitle['cards']['p'.$productId] ?? null;
@@ -137,7 +213,7 @@ final readonly class ShoppingCollector
                 if ($card === null) {
                     // Kept for the report: a human tells a strict gate from
                     // a product Google does not know at a glance.
-                    $noCard[$titles[$productId] ?? '#'.$productId] = array_merge(
+                    $tally->noCard[$titles[$productId] ?? '#'.$productId] = array_merge(
                         array_map(static fn (string $title): string => 'GTIN: '.$title, \array_slice($byGtin['missed'][$tags[0]] ?? [], 0, 2)),
                         array_map(static fn (string $title): string => 'title: '.$title, \array_slice($byTitle['missed']['p'.$productId] ?? [], 0, 2)),
                     );
@@ -151,9 +227,9 @@ final readonly class ShoppingCollector
             }
 
             foreach ([$byGtin, $byTitle] as $search) {
-                $cost += $search['costUsd'];
-                $counts['tasks'] += $search['tasks'];
-                array_push($errors, ...$search['errors']);
+                $tally->costUsd += $search['costUsd'];
+                $tally->tasks += $search['tasks'];
+                array_push($tally->errors, ...$search['errors']);
             }
 
             // 2. Read the sellers of each card, once per card: the variants
@@ -167,15 +243,23 @@ final readonly class ShoppingCollector
             if ($tagsByProductId !== []) {
                 $productIds = array_combine(array_map('strval', array_keys($tagsByProductId)), array_map('strval', array_keys($tagsByProductId)));
                 $postedSellers = $this->client->postSellerLookups($productIds, $priority, $sandbox);
-                $cost += $postedSellers['costUsd'];
-                $counts['tasks'] += \count($postedSellers['tasks']);
+                $tally->costUsd += $postedSellers['costUsd'];
+                $tally->tasks += \count($postedSellers['tasks']);
+                $this->log->info('Collect: {count} sellers lookup(s) posted.', ['count' => \count($postedSellers['tasks'])]);
 
-                foreach ($this->waitFor('sellers', $postedSellers['tasks'], $maxWaitSeconds, $sandbox) as $productId => $taskId) {
+                $ready = $this->waitFor($run, PassStep::Sellers, 'sellers', $postedSellers['tasks'], $maxWaitSeconds, $sandbox);
+                $read = 0;
+                PassStep::Recording->record($run, 0, \count($ready));
+
+                foreach ($ready as $productId => $taskId) {
+                    PassStep::Recording->record($run, $read++, \count($ready));
+
                     try {
                         $listing = $this->client->sellerOffers($taskId, $sandbox);
                         $offers = $listing['offers'];
                     } catch (DataForSeoException $error) {
-                        $errors[] = \sprintf('sellers of card %s: %s', $productId, $error->getMessage());
+                        $tally->errors[] = \sprintf('sellers of card %s: %s', $productId, $error->getMessage());
+                        $this->log->warning('Collect: sellers of card {card} not read: {error}', ['card' => $productId, 'error' => $error->getMessage(), 'task' => $taskId]);
                         continue;
                     }
 
@@ -184,12 +268,12 @@ final readonly class ShoppingCollector
                         $ourPrice = $this->ourPrice->inclTax((int) $identity->getProductSaleElementsId());
 
                         foreach ($offers as $offer) {
-                            ++$counts['seen'];
+                            ++$tally->seen;
                             $competitorId = $sellers->competitorOf($offer);
 
                             if ($competitorId === null) {
                                 $label = $this->domains->registrableDomain($offer->domain) ?? $offer->sellerName;
-                                $unknownSellers[$label] = ($unknownSellers[$label] ?? 0) + 1;
+                                $tally->unknownSellers[$label] = ($tally->unknownSellers[$label] ?? 0) + 1;
                                 continue;
                             }
 
@@ -199,27 +283,15 @@ final readonly class ShoppingCollector
                             ];
 
                             if ($this->record($identity, $competitorId, $cards[$tag], $searchedBy[$tag], $offer, $links, $ourPrice, (int) $run->getId())) {
-                                ++$counts['written'];
+                                ++$tally->written;
                             }
                         }
                     }
                 }
+
+                PassStep::Recording->record($run, \count($ready), \count($ready));
             }
         }
-
-        arsort($unknownSellers);
-
-        $run->setStatus($errors === [] ? 'success' : 'partial')
-            ->setFinishedAt(new \DateTime())
-            ->setTargetsPlanned($counts['targets'])
-            ->setOffersSeen($counts['seen'])
-            ->setQuotesWritten($counts['written'])
-            ->setDataforseoTasks($counts['tasks'])
-            ->setDataforseoCostUsd(number_format($cost, 8, '.', ''))
-            ->setErrorsJson($errors === [] ? null : json_encode($errors, \JSON_UNESCAPED_UNICODE))
-            ->save();
-
-        return ['run' => $run, 'unknownSellers' => $unknownSellers, 'noPlausibleCard' => $noCard];
     }
 
     /**
@@ -233,7 +305,7 @@ final readonly class ShoppingCollector
      *
      * @throws DataForSeoException
      */
-    private function searchCards(array $keywordsByTag, array $ourTitleByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
+    private function searchCards(PwCollectRun $run, PassStep $step, array $keywordsByTag, array $ourTitleByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
     {
         $found = ['cards' => [], 'missed' => [], 'costUsd' => 0.0, 'tasks' => 0, 'errors' => []];
 
@@ -244,14 +316,20 @@ final readonly class ShoppingCollector
         $posted = $this->client->postProductSearches($keywordsByTag, $priority, $sandbox);
         $found['costUsd'] = $posted['costUsd'];
         $found['tasks'] = \count($posted['tasks']);
+        $this->log->info('Collect: {count} {subject} search(es) posted for {cost} USD.', ['count' => $found['tasks'], 'subject' => $subject, 'cost' => number_format($posted['costUsd'], 3, '.', '')]);
 
-        foreach ($this->waitFor('products', $posted['tasks'], $maxWaitSeconds, $sandbox) as $tag => $taskId) {
+        if ($found['tasks'] < \count($keywordsByTag)) {
+            $this->log->warning('Collect: DataForSEO created {created} of {asked} {subject} search(es).', ['created' => $found['tasks'], 'asked' => \count($keywordsByTag), 'subject' => $subject]);
+        }
+
+        foreach ($this->waitFor($run, $step, 'products', $posted['tasks'], $maxWaitSeconds, $sandbox) as $tag => $taskId) {
             try {
                 $result = $this->client->productCards($taskId, $sandbox);
             } catch (DataForSeoException $error) {
                 // Observed live: a task can end in 40101 "Internal SE Server
                 // Error". One failed search must not sink the pass.
                 $found['errors'][] = \sprintf('search for %s %s: %s', $subject, $tag, $error->getMessage());
+                $this->log->warning('Collect: search for {subject} {tag} failed: {error}', ['subject' => $subject, 'tag' => $tag, 'error' => $error->getMessage(), 'task' => $taskId]);
                 continue;
             }
 
@@ -303,38 +381,68 @@ final readonly class ShoppingCollector
      * Waits on tasks_ready, then hands back every task: the ready ones, and
      * the ones never listed, which the caller reads once anyway.
      *
-     * Observed live (2026-10-09): tasks_ready answered 40104 twice in a row of
-     * normal answers, and a task that ended in error never appeared in it. So
-     * a polling error is waited out, and an unlisted task is read rather than
-     * dropped: reading is free, and it either brings the result or the reason
-     * it failed.
+     * Observed live (2026-10-09): a task that ends in error (40101) never
+     * shows in tasks_ready, so the pass used to wait for it until the
+     * deadline: 7 minutes for 10 variants. After PROBE_AFTER_SECONDS, late
+     * tasks are read directly (free): done in error or in result, they stop
+     * being waited for. tasks_ready itself answered 40104 twice in a row of
+     * normal answers: a polling error is logged and waited out.
      *
      * @param array<string, string> $tasks tag => task id
      *
      * @return array<string, string> tag => task id
      */
-    private function waitFor(string $function, array $tasks, int $maxWaitSeconds, bool $sandbox): array
+    private function waitFor(PwCollectRun $run, PassStep $step, string $function, array $tasks, int $maxWaitSeconds, bool $sandbox): array
     {
         if ($sandbox || $tasks === []) {
             // The sandbox answers any task id at once and lists nothing as ready.
+            $step->record($run, \count($tasks), \count($tasks));
+
             return $tasks;
         }
 
         $pending = array_flip($tasks);
-        $deadline = time() + $maxWaitSeconds;
+        $start = ($this->now)();
+        $deadline = $start + $maxWaitSeconds;
+        $lastReport = $start;
 
-        while ($pending !== [] && time() < $deadline) {
+        while ($pending !== [] && ($this->now)() < $deadline) {
+            $step->record($run, \count($tasks) - \count($pending), \count($tasks));
+
             try {
                 foreach ($this->client->readyTaskIds($function, $sandbox) as $id) {
                     unset($pending[$id]);
                 }
-            } catch (DataForSeoException) {
-                // Transient: try again on the next tick.
+            } catch (DataForSeoException $error) {
+                $this->log->warning('Collect: tasks_ready for {function} failed, retrying: {error}', ['function' => $function, 'error' => $error->getMessage()]);
             }
 
-            if ($pending !== []) {
-                ($this->sleep)(self::POLL_SECONDS);
+            if ($pending !== [] && ($this->now)() - $start >= self::PROBE_AFTER_SECONDS) {
+                foreach (array_keys($pending) as $id) {
+                    if ($this->client->taskState($function, (string) $id, $sandbox) === 'done') {
+                        unset($pending[$id]);
+                    }
+                }
             }
+
+            if ($pending === []) {
+                break;
+            }
+
+            if (($this->now)() - $lastReport >= self::REPORT_EVERY_SECONDS) {
+                $lastReport = ($this->now)();
+                $this->log->info('Collect: still waiting for {count} {function} task(s) after {seconds} s.', ['count' => \count($pending), 'function' => $function, 'seconds' => $lastReport - $start]);
+            }
+
+            ($this->sleep)(self::POLL_SECONDS);
+        }
+
+        $step->record($run, \count($tasks) - \count($pending), \count($tasks));
+
+        if ($pending !== []) {
+            $this->log->warning('Collect: {count} {function} task(s) still not ready after {seconds} s; read anyway, a later pass will retry them.', ['count' => \count($pending), 'function' => $function, 'seconds' => $maxWaitSeconds, 'tasks' => array_keys($pending)]);
+        } else {
+            $this->log->info('Collect: {count} {function} task(s) ready after {seconds} s.', ['count' => \count($tasks), 'function' => $function, 'seconds' => ($this->now)() - $start]);
         }
 
         return $tasks;

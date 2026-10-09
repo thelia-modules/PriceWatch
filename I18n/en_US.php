@@ -119,4 +119,19 @@ return [
     'watched.status.never' => 'Never collected',
     'watched.status.not_collectable' => 'Not collectable',
     'watched.status.paused' => 'Paused',
+
+    // Progress of a running pass
+    'Last pass failed' => 'The last pass of %at% failed:',
+    'Last pass partial' => 'The last pass of %at% ended with errors:',
+    'progress.step.preparing' => 'choosing the variants',
+    'progress.step.gtin_search' => 'Google Shopping search by GTIN',
+    'progress.step.title_search' => 'Google Shopping search by title',
+    'progress.step.sellers' => 'reading the sellers',
+    'progress.step.recording' => 'recording the offers',
+    'progress.step.judging' => 'Jev checks',
+    'progress.count.gtin_search' => '%done% / %total% searches answered',
+    'progress.count.title_search' => '%done% / %total% searches answered',
+    'progress.count.sellers' => '%done% / %total% seller lists answered',
+    'progress.count.recording' => '%done% / %total% product cards recorded',
+    'progress.count.judging' => '%done% / %total% offers checked',
 ];

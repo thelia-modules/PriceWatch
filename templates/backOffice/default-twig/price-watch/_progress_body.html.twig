@@ -1,0 +1,28 @@
+{# The inside of the progress bar: rendered with the page, then again by
+   every poll of pricewatch_run_progress, so both always read the same. #}
+{% if progress.running %}
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 small mb-1">
+        <span class="fw-semibold" data-testid="pw-progress-label">
+            <span class="spinner-border spinner-border-sm text-primary me-1" aria-hidden="true"></span>
+            {{ 'Step %position% of %steps%: %step%'|trans({
+                '%position%': progress.position,
+                '%steps%': progress.steps,
+                '%step%': ('progress.step.' ~ (progress.step ?: 'preparing'))|trans({}, 'pricewatch')
+            }, 'pricewatch') }}
+        </span>
+        <span class="text-muted text-nowrap" data-testid="pw-progress-detail">
+            {% if progress.step and progress.total > 0 %}{{ ('progress.count.' ~ progress.step)|trans({'%done%': progress.done, '%total%': progress.total}, 'pricewatch') }} · {% endif %}
+            {{ progress.percent }} %
+            {% if progress.startedAt %}· <span data-pw-elapsed="{{ progress.startedAt }}" data-pw-elapsed-format="{{ 'running for %time%'|trans({}, 'pricewatch') }}"></span>{% endif %}
+        </span>
+    </div>
+    <div class="progress" role="progressbar" aria-label="{{ 'Progress of the running pass'|trans({}, 'pricewatch') }}" aria-valuenow="{{ progress.percent }}" aria-valuemin="0" aria-valuemax="100" style="height: .75rem;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" data-testid="pw-progress-bar" style="width: {{ max(progress.percent, 3) }}%;"></div>
+    </div>
+{% else %}
+    <div class="d-flex flex-wrap align-items-center gap-2 small text-success-emphasis" data-testid="pw-progress-done">
+        <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+        {{ 'The pass is over.'|trans({}, 'pricewatch') }}
+        <button type="button" class="btn btn-sm btn-outline-primary py-0" data-pw-reload>{{ 'Reload to see the results'|trans({}, 'pricewatch') }}</button>
+    </div>
+{% endif %}

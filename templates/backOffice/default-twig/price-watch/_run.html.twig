@@ -4,8 +4,7 @@
         <div class="d-flex flex-wrap align-items-center gap-3">
             <span class="fw-semibold"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>{{ 'Price watch passes'|trans({}, 'pricewatch') }}</span>
             {% if run.running %}
-                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" data-testid="pw-run-running">{{ 'A pass is running'|trans({}, 'pricewatch') }}</span>
-                <span class="small text-muted">{{ 'Reload the page in a minute or two.'|trans({}, 'pricewatch') }}</span>
+                <span data-pw-running class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" data-testid="pw-run-running">{{ 'A pass is running'|trans({}, 'pricewatch') }}</span>
             {% else %}
                 <span class="small text-muted" data-testid="pw-run-last">
                     {% if run.collect %}
@@ -31,6 +30,19 @@
                 </button>
             </form>
         </div>
+        {% if run.running %}
+            {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress.html.twig' with {progress: run.progress, class: 'mt-2'} only %}
+        {% else %}
+            {% for pass in [run.collect, run.judge] %}
+                {% if pass and pass.status in ['failed', 'partial'] and pass.errors is not empty %}
+                    <div class="alert alert-warning py-1 px-2 small mt-2 mb-0" data-testid="pw-run-errors">
+                        {{ ('Last pass ' ~ pass.status)|trans({'%at%': pass.at}, 'pricewatch') }}
+                        <ul class="mb-0 ps-3">{% for error in pass.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                        <span class="text-muted">{{ 'Details in var/log/pricewatch.log.'|trans({}, 'pricewatch') }}</span>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
         <div class="small text-muted mt-1">{{ 'The variants collected longest ago go first. Google Shopping priority queue, then Jev checks the offers found.'|trans({}, 'pricewatch') }}</div>
     </div>
 </div>

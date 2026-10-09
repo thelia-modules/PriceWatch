@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Command;
 
 use PriceWatch\Service\Matching\OfferJudge;
+use PriceWatch\Service\Run\AbandonedRuns;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -25,6 +26,7 @@ final class JudgeOffersCommand extends Command
     public function __construct(
         private readonly OfferJudge $judge,
         private readonly LockFactory $lockFactory,
+        private readonly AbandonedRuns $abandonedRuns,
     ) {
         parent::__construct();
     }
@@ -46,6 +48,11 @@ final class JudgeOffersCommand extends Command
             $io->warning('A judge pass is already running.');
 
             return self::LOCKED;
+        }
+
+        // Holding the lock, any row of this pass still "started" is a dead one.
+        if (($abandoned = $this->abandonedRuns->close(OfferJudge::PASS)) > 0) {
+            $io->note(\sprintf('%d interrupted pass(es) closed as failed.', $abandoned));
         }
 
         try {

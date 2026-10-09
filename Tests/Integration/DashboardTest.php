@@ -14,6 +14,7 @@ use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Run\BackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\RunProgress;
 use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Usage\UsagePresenter;
 use PriceWatch\Service\Usage\UsageRepository;
@@ -124,7 +125,7 @@ final class DashboardTest extends PriceWatchIntegrationTestCase
 
         return new DashboardPresenter(
             new ComparatorRepository(),
-            new RunStatus(new ManualRun($runner, new LockFactory(new InMemoryStore()), '/tmp'), $ledger),
+            new RunStatus(new RunProgress(new ManualRun($runner, new LockFactory(new InMemoryStore()), '/tmp')), $ledger),
             new UsagePresenter($ledger),
             new UrlGenerator($routes, new RequestContext()),
         );

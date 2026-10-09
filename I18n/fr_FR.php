@@ -303,7 +303,7 @@ return [
     'No variant of this product can be collected: watch it first, with a valid EAN code of its own.' => 'Aucune déclinaison de ce produit ne peut être relevée : ajoutez-le d\'abord à la veille, avec un code EAN valide propre à chaque déclinaison.',
     'No competitor is whitelisted: there would be nothing to compare.' => 'Aucun concurrent en liste blanche : il n\'y aurait rien à comparer.',
     'A pass is already running: wait until it ends, then reload the page.' => 'Une passe est déjà en cours : attendez qu\'elle se termine, puis rechargez la page.',
-    'Price watch started on %count% variant(s), at most %cost%. Results come in within a few minutes: reload the page.' => 'Surveillance lancée sur %count% déclinaison(s), au plus %cost%. Les résultats arrivent d\'ici quelques minutes : rechargez la page.',
+    'Price watch started on %count% variant(s), at most %cost%. Its progress shows on the page.' => 'Surveillance lancée sur %count% déclinaison(s), au plus %cost%. Sa progression s\'affiche sur la page.',
 
     // Home dashboard
     'Our position on the compared offers' => 'Notre position sur les offres comparées',
@@ -347,4 +347,25 @@ return [
     'Collect (at most %cost%)' => 'Relever (au plus %cost%)',
     'Offers' => 'Offres',
     'Start watching' => 'Surveiller',
+
+    // Progression d'une passe en cours
+    'Step %position% of %steps%: %step%' => 'Étape %position% sur %steps% : %step%',
+    'running for %time%' => 'depuis %time%',
+    'Progress of the running pass' => 'Progression de la passe en cours',
+    'The pass is over.' => 'La passe est terminée.',
+    'Reload to see the results' => 'Recharger pour voir les résultats',
+    'Last pass failed' => 'La dernière passe, le %at%, a échoué :',
+    'Last pass partial' => 'La dernière passe, le %at%, s\'est terminée avec des erreurs :',
+    'Details in var/log/pricewatch.log.' => 'Détails dans var/log/pricewatch.log.',
+    'progress.step.preparing' => 'choix des déclinaisons',
+    'progress.step.gtin_search' => 'recherche Google Shopping par GTIN',
+    'progress.step.title_search' => 'recherche Google Shopping par titre',
+    'progress.step.sellers' => 'lecture des vendeurs',
+    'progress.step.recording' => 'enregistrement des offres',
+    'progress.step.judging' => 'contrôles Jev',
+    'progress.count.gtin_search' => '%done% / %total% recherches revenues',
+    'progress.count.title_search' => '%done% / %total% recherches revenues',
+    'progress.count.sellers' => '%done% / %total% listes de vendeurs revenues',
+    'progress.count.recording' => '%done% / %total% fiches enregistrées',
+    'progress.count.judging' => '%done% / %total% offres contrôlées',
 ];

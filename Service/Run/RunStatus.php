@@ -14,18 +14,21 @@ use PriceWatch\Service\Usage\UsageRepository;
 final readonly class RunStatus
 {
     public function __construct(
-        private ManualRun $manualRun,
+        private RunProgress $progress,
         private UsageRepository $ledger,
     ) {
     }
 
     /**
-     * @return array{running: bool, collect: ?array<string, mixed>, judge: ?array<string, mixed>}
+     * @return array{running: bool, progress: array<string, mixed>, collect: ?array<string, mixed>, judge: ?array<string, mixed>}
      */
     public function present(): array
     {
+        $progress = $this->progress->present();
+
         return [
-            'running' => $this->manualRun->isRunning(),
+            'running' => $progress['running'],
+            'progress' => $progress,
             'collect' => $this->row($this->ledger->latestRun('collect')),
             'judge' => $this->row($this->ledger->latestRun('judge')),
         ];
@@ -49,6 +52,8 @@ final readonly class RunStatus
             'matched' => (int) $run->getOffersMatched(),
             'review' => (int) $run->getOffersReview(),
             'rejected' => (int) $run->getOffersRejected(),
+            // Shown when a pass did not end well, with where to read the rest.
+            'errors' => \array_slice(array_values(array_filter((array) json_decode((string) $run->getErrorsJson(), true), 'is_string')), 0, 3),
         ];
     }
 }

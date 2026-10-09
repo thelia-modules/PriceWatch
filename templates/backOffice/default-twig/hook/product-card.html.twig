@@ -23,7 +23,7 @@
                 {% endif %}
                 {% if inReferential and watch.collectable > 0 %}
                     {% if run.running %}
-                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle align-self-center" data-testid="pw-card-running">{{ 'A pass is running'|trans({}, 'pricewatch') }}</span>
+                        <span data-pw-running class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle align-self-center" data-testid="pw-card-running">{{ 'A pass is running'|trans({}, 'pricewatch') }}</span>
                     {% else %}
                         {{ _self.watch_form('pricewatch_product_collect', {productId: productId}, 'Collect now (at most %cost%)'|trans({'%cost%': collectCost}, 'pricewatch'), 'btn-primary', csrfToken, 'pw-card-collect', 'bi-arrow-repeat') }}
                     {% endif %}
@@ -37,6 +37,9 @@
             </div>
         {% endif %}
     </div>
+    {% if run.running %}
+        {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress.html.twig' with {progress: run.progress, class: 'mb-3'} only %}
+    {% endif %}
     {% if not inReferential %}
         <p class="text-muted mb-0" data-testid="pw-card-empty">
             {{ 'This product is not in the price watch referential: no competitor price is collected for it.'|trans({}, 'pricewatch') }}

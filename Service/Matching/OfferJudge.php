@@ -17,6 +17,7 @@ use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\JevException;
 use PriceWatch\Service\Jev\OfferQuestions;
 use PriceWatch\Service\Jev\OfferState;
+use PriceWatch\Service\Run\PassStep;
 use Propel\Runtime\ActiveQuery\Criteria;
 use Thelia\Model\ProductI18nQuery;
 
@@ -56,12 +57,39 @@ final readonly class OfferJudge
         $errors = [];
         $counts = ['matched' => 0, 'review' => 0, 'rejected' => 0, 'requests' => 0, 'hits' => 0, 'tokens' => 0, 'seen' => 0];
 
-        foreach ($this->pending($limit) as $offer) {
+        try {
+            $this->judge($run, $limit, $budgetUsd, $dryRun, $spent, $errors, $counts);
+            $status = $errors === [] ? 'success' : 'partial';
+        } catch (\Throwable $error) {
+            // Never a pass left "started" because of an exception: its row
+            // says it failed, with what was already spent.
+            $errors[] = \sprintf('Stopped by an error: %s (%s)', $error->getMessage(), $error::class);
+            $this->close($run, 'failed', $spent, $errors, $counts);
+
+            throw $error;
+        }
+
+        $this->close($run, $status, $spent, $errors, $counts);
+
+        return $run;
+    }
+
+    /**
+     * @param list<string>       $errors
+     * @param array<string, int> $counts
+     */
+    private function judge(PwCollectRun $run, int $limit, float $budgetUsd, bool $dryRun, float &$spent, array &$errors, array &$counts): void
+    {
+        $pending = $this->pending($limit);
+        PassStep::Judging->record($run, 0, \count($pending));
+
+        foreach ($pending as $offer) {
             if ($spent + self::REQUEST_COST_ESTIMATE > $budgetUsd) {
                 $errors[] = 'Budget reached: remaining offers left for the next pass.';
                 break;
             }
 
+            PassStep::Judging->record($run, $counts['seen'], \count($pending));
             ++$counts['seen'];
             $quote = PwPriceQuoteQuery::create()->filterByOfferId($offer->getId())->orderByCollectedAt(Criteria::DESC)->findOne();
 
@@ -108,7 +136,16 @@ final readonly class OfferJudge
             };
         }
 
-        $run->setStatus($errors === [] ? 'success' : 'partial')
+        PassStep::Judging->record($run, \count($pending), \count($pending));
+    }
+
+    /**
+     * @param list<string>       $errors
+     * @param array<string, int> $counts
+     */
+    private function close(PwCollectRun $run, string $status, float $spent, array $errors, array $counts): void
+    {
+        $run->setStatus($status)
             ->setFinishedAt(new \DateTime())
             ->setOffersSeen($counts['seen'])
             ->setOffersMatched($counts['matched'])
@@ -120,8 +157,6 @@ final readonly class OfferJudge
             ->setJevCostUsd(number_format($spent, 8, '.', ''))
             ->setErrorsJson($errors === [] ? null : json_encode($errors, \JSON_UNESCAPED_UNICODE))
             ->save();
-
-        return $run;
     }
 
     /**

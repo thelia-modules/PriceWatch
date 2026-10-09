@@ -30,6 +30,7 @@ final readonly class DataForSeoClient
     private const MAX_TASKS_PER_POST = 100;
     private const LOCATION = 'France';
     private const LANGUAGE = 'fr';
+    private const NO_RESULTS = 40102;
 
     public function __construct(
         private HttpClientInterface $httpClient,
@@ -85,6 +86,25 @@ final readonly class DataForSeoClient
         }
 
         return $this->post('/merchant/google/sellers/task_post', $tasks, $sandbox);
+    }
+
+    /**
+     * Where a task stands, read directly (reading is free). A task that ends
+     * in error never shows in tasks_ready: without this, a pass waits for it
+     * until its deadline (seen 2026-10-09: 7 minutes for two 40101 errors).
+     *
+     * @return 'done'|'pending' done means readable now, as a result or as an error
+     */
+    public function taskState(string $function, string $taskId, bool $sandbox = false): string
+    {
+        try {
+            $this->resultItems('/merchant/google/'.$function.'/task_get/advanced/'.$taskId, $sandbox);
+        } catch (DataForSeoException $error) {
+            // Not processed yet, or the network failed: ask again later.
+            return $error->isNotReady() || $error->getCode() === 0 ? 'pending' : 'done';
+        }
+
+        return 'done';
     }
 
     /**
@@ -235,12 +255,18 @@ final readonly class DataForSeoClient
         }
 
         $status = (int) ($task['status_code'] ?? 0);
+        $tag = \is_string($task['data']['tag'] ?? null) ? $task['data']['tag'] : null;
+
+        // "No Search Results": an empty answer, not a failure (DataForSEO
+        // appendix, read 2026-10-09).
+        if ($status === self::NO_RESULTS) {
+            return [$tag, [], []];
+        }
 
         if ($status !== 20000) {
             throw DataForSeoException::fromStatus($status, (string) ($task['status_message'] ?? ''));
         }
 
-        $tag = \is_string($task['data']['tag'] ?? null) ? $task['data']['tag'] : null;
         $result = \is_array($task['result'][0] ?? null) ? $task['result'][0] : [];
         $items = $result['items'] ?? [];
 

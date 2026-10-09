@@ -1,0 +1,86 @@
+{# Progress bar of the running pass, refreshed every few seconds until the
+   pass ends. Included only while a pass runs. #}
+<div class="{{ class|default('') }}" data-pw-progress="{{ path('pricewatch_run_progress') }}" data-testid="pw-progress">
+    {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress_body.html.twig' with {progress: progress} only %}
+</div>
+<script>
+    (function () {
+        // Several blocks of one page share one poll.
+        if (window.pricewatchProgress) {
+            return;
+        }
+        window.pricewatchProgress = true;
+
+        const POLL_MS = 3000;
+        const MAX_FAILURES = 10;
+        let idle = 0;
+        let failures = 0;
+
+        const boxes = () => document.querySelectorAll('[data-pw-progress]');
+
+        function tick() {
+            document.querySelectorAll('[data-pw-elapsed]').forEach((element) => {
+                const seconds = Math.max(0, Math.floor(Date.now() / 1000) - Number(element.dataset.pwElapsed));
+                const time = seconds >= 60
+                    ? Math.floor(seconds / 60) + ' min ' + String(seconds % 60).padStart(2, '0') + ' s'
+                    : seconds + ' s';
+                element.textContent = element.dataset.pwElapsedFormat.replace('%time%', time);
+            });
+        }
+
+        async function poll() {
+            const first = boxes()[0];
+
+            if (!first) {
+                return;
+            }
+
+            try {
+                const response = await fetch(first.dataset.pwProgress, {
+                    headers: { Accept: 'application/json' },
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                });
+
+                if (!response.ok) {
+                    throw new Error(String(response.status));
+                }
+
+                const data = await response.json();
+                failures = 0;
+                // Between the collect pass and the judge pass, no lock is held
+                // for an instant: two idle answers in a row mean the run is over.
+                idle = data.running ? 0 : idle + 1;
+
+                if (data.running || idle >= 2) {
+                    boxes().forEach((box) => {
+                        box.innerHTML = data.html;
+                    });
+                    tick();
+                }
+
+                if (idle >= 2) {
+                    document.querySelectorAll('[data-pw-running]').forEach((badge) => badge.remove());
+
+                    return;
+                }
+            } catch (error) {
+                if (++failures >= MAX_FAILURES) {
+                    return;
+                }
+            }
+
+            window.setTimeout(poll, POLL_MS);
+        }
+
+        document.addEventListener('click', (event) => {
+            if (event.target.closest('[data-pw-reload]')) {
+                window.location.reload();
+            }
+        });
+
+        tick();
+        window.setInterval(tick, 1000);
+        window.setTimeout(poll, POLL_MS);
+    })();
+</script>

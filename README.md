@@ -89,3 +89,19 @@ need a container.
 - In PHP, always pass the domain: `trans('X', [], 'pricewatch')`. The injected
   translator defaults to the `core` domain and falls back to the raw key, so a
   missing translation shows up as the key and never raises.
+- Never run `thelia:cache:clear` while a pass runs: it removes the code under
+  the running process, which dies without closing its row. The next pass of
+  the same kind closes such rows as failed ("Interrupted"), once it holds the
+  lock.
+- PHPUnit's `TestCase::run()` is final: never name a test helper `run()`.
+
+## Logs
+
+- `var/log/pricewatch.log`: what each collect pass did and why it stopped
+  (searches posted, waits, DataForSEO errors, summary line).
+- `var/log/pricewatch-manual.log`: the console output of passes started from
+  the back office.
+
+While a pass runs, each step writes where it stands on its `pw_collect_run`
+row (`progress_step`, `progress_done`, `progress_total`); the back office polls
+`/admin/module/pricewatch/run/progress` to draw the progress bar.

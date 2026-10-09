@@ -29,12 +29,23 @@ final readonly class ManualRun
     /** Same lock names as the commands: a click cannot start a second pass. */
     private const LOCKS = ['pricewatch.collect', 'pricewatch.judge'];
 
+    /**
+     * The page shown after the click is rendered before the background
+     * process takes its lock (observed on 2026-10-09): for this long after a
+     * start, the pass counts as starting.
+     */
+    private const STARTING_SECONDS = 30;
+
+    private string $startMarker;
+
     public function __construct(
         private BackgroundRunner $runner,
         private LockFactory $lockFactory,
         #[Autowire('%kernel.project_dir%')]
         private string $projectDir,
+        string $startMarker = '',
     ) {
+        $this->startMarker = $startMarker !== '' ? $startMarker : $projectDir.'/var/pricewatch-manual.started';
     }
 
     public static function worstCaseUsd(int $variants): float
@@ -55,6 +66,16 @@ final readonly class ManualRun
         }
 
         return false;
+    }
+
+    /**
+     * When a pass was started from the back office, if that was a moment ago.
+     */
+    public function startedAt(): ?int
+    {
+        $at = is_file($this->startMarker) ? filemtime($this->startMarker) : false;
+
+        return $at !== false && time() - $at < self::STARTING_SECONDS ? $at : null;
     }
 
     /**
@@ -93,5 +114,6 @@ final readonly class ManualRun
             [$collect, [$php, $console, 'pricewatch:judge', '--no-ansi']],
             $this->projectDir.'/'.self::LOG_FILE,
         );
+        touch($this->startMarker);
     }
 }

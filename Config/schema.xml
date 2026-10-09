@@ -383,6 +383,10 @@
         <column defaultValue="0" name="pages_fetched" type="INTEGER"/>
 
         <column name="last_target_key" size="190" type="VARCHAR"/>
+        <!-- Where a running pass stands, for the back office's progress bar. -->
+        <column name="progress_step" size="30" type="VARCHAR"/>
+        <column defaultValue="0" name="progress_done" type="INTEGER"/>
+        <column defaultValue="0" name="progress_total" type="INTEGER"/>
         <column name="errors_json" type="LONGVARCHAR"/>
         <column defaultValue="0" name="dry_run" size="4" type="TINYINT"/>
 

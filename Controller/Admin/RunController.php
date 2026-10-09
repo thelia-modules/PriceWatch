@@ -9,12 +9,15 @@ use PriceWatch\Service\Admin\ReturnTo;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\RunProgress;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
+use Twig\Environment;
 
 /**
  * Starts a price watch pass by hand: collect then judge, in the background.
@@ -31,7 +34,31 @@ final readonly class RunController
         private ComparatorRepository $comparator,
         private UrlGeneratorInterface $urlGenerator,
         private TranslatorInterface $translator,
+        private RunProgress $progress,
+        private Environment $twig,
     ) {
+    }
+
+    /**
+     * Polled by the progress bar while a pass runs. The bar's markup comes
+     * from the same template as the page's, so both always read the same.
+     */
+    #[Route('/admin/module/pricewatch/run/progress', name: 'pricewatch_run_progress', defaults: ['ignore_thelia_view' => true], methods: ['GET'])]
+    public function progress(): Response
+    {
+        if ($denied = $this->guard->denyView()) {
+            return $denied;
+        }
+
+        $progress = $this->progress->present();
+
+        $response = new JsonResponse([
+            'running' => $progress['running'],
+            'html' => $this->twig->render('@PriceWatchModule/backOffice/default-twig/price-watch/_progress_body.html.twig', ['progress' => $progress]),
+        ]);
+        $response->headers->set('Cache-Control', 'no-store');
+
+        return $response;
     }
 
     #[Route('/admin/module/pricewatch/run', name: 'pricewatch_run', methods: ['POST'])]
@@ -82,7 +109,7 @@ final readonly class RunController
             return $this->redirect($request, $back, 'warning', 'A pass is already running: wait until it ends, then reload the page.');
         }
 
-        return $this->redirect($request, $back, 'success', 'Price watch started on %count% variant(s), at most %cost%. Results come in within a few minutes: reload the page.', [
+        return $this->redirect($request, $back, 'success', 'Price watch started on %count% variant(s), at most %cost%. Its progress shows on the page.', [
             '%count%' => $variants,
             '%cost%' => self::usd(ManualRun::worstCaseUsd($variants), $request->getLocale()),
         ]);

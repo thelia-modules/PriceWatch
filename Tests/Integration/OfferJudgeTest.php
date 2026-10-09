@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace PriceWatch\Tests\Integration;
 
+use PriceWatch\Model\PwCollectRunQuery;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Model\PwJevJudgmentQuery;
@@ -18,12 +19,14 @@ use PriceWatch\Service\Jev\OfferQuestions;
 use PriceWatch\Service\Jev\OfferState;
 use PriceWatch\Service\Matching\MatchDecision;
 use PriceWatch\Service\Matching\OfferJudge;
+use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use Propel\Runtime\ActiveQuery\Criteria;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Thelia\Model\ProductSaleElementsQuery;
@@ -31,6 +34,7 @@ use Thelia\Model\ProductSaleElementsQuery;
 final class OfferJudgeTest extends PriceWatchIntegrationTestCase
 {
     private int $calls = 0;
+    private ?\Throwable $failWith = null;
 
     public function testConfirmedOfferBecomesMatchedAndComparable(): void
     {
@@ -52,6 +56,35 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         self::assertEqualsWithDelta(0.94, $judgment[OfferQuestions::SAME_PRODUCT]['value'], 1e-9, 'the answers stay on the offer as proof');
         self::assertSame('yes', $judgment[OfferQuestions::SAME_VARIANT]['band']);
         self::assertSame('comparable', $judgment[OfferQuestions::PRICE_COMPARABILITY]['value']);
+    }
+
+    public function testThePassReportsHowManyOffersItChecked(): void
+    {
+        $this->offer(CompetitorStatus::Watched, '22.00', '21.90');
+
+        $run = $this->judge([$this->jev(0.94, 0.96, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        self::assertSame(PassStep::Judging->value, $run->getProgressStep());
+        self::assertGreaterThanOrEqual(1, $run->getProgressTotal());
+        self::assertSame($run->getProgressTotal(), $run->getProgressDone(), 'every offer checked');
+    }
+
+    public function testAPassStoppedByAnUnexpectedErrorIsClosedAsFailed(): void
+    {
+        $this->offer(CompetitorStatus::Watched, '22.00', '21.90');
+        $judge = $this->judge([]);
+        $this->failWith = new \LogicException('Unexpected');
+
+        try {
+            $judge->judgePending(50, 1.0);
+            self::fail('the error reaches the command');
+        } catch (\LogicException) {
+        }
+
+        $run = PwCollectRunQuery::create()->filterByPassName(OfferJudge::PASS)->orderById(Criteria::DESC)->findOne();
+        self::assertNotNull($run);
+        self::assertSame('failed', $run->getStatus(), 'never left "started"');
+        self::assertStringContainsString('Stopped by an error: Unexpected', (string) $run->getErrorsJson());
     }
 
     public function testClearancePriceKeepsTheMatchButStaysOutOfTheGap(): void
@@ -230,6 +263,10 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
 
         $http = new MockHttpClient(function () use (&$responses): MockResponse {
             ++$this->calls;
+
+            if ($this->failWith !== null) {
+                throw $this->failWith;
+            }
 
             return array_shift($responses) ?? new MockResponse('{"error": "boom"}', ['http_code' => 500]);
         });

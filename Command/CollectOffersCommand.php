@@ -6,6 +6,7 @@ namespace PriceWatch\Command;
 
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\ShoppingCollector;
+use PriceWatch\Service\Run\AbandonedRuns;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -28,6 +29,7 @@ final class CollectOffersCommand extends Command
     public function __construct(
         private readonly ShoppingCollector $collector,
         private readonly LockFactory $lockFactory,
+        private readonly AbandonedRuns $abandonedRuns,
     ) {
         parent::__construct();
     }
@@ -67,6 +69,11 @@ final class CollectOffersCommand extends Command
             $io->warning('A collect pass is already running.');
 
             return self::LOCKED;
+        }
+
+        // Holding the lock, any row of this pass still "started" is a dead one.
+        if (($abandoned = $this->abandonedRuns->close(ShoppingCollector::PASS)) > 0) {
+            $io->note(\sprintf('%d interrupted pass(es) closed as failed.', $abandoned));
         }
 
         try {
