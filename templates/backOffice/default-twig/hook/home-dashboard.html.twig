@@ -10,7 +10,7 @@
              aria-label="{% for segment in split.segments %}{{ ('position.' ~ segment.position)|trans({}, 'pricewatch') }} : {{ segment.count }}{% if not loop.last %}, {% endif %}{% endfor %}">
             {% for segment in split.segments %}
                 <div style="width: {{ segment.share }}%; background: {{ swatch[segment.position] }}; border-radius: 4px; min-width: 4px"
-                     title="{{ ('position.' ~ segment.position)|trans({}, 'pricewatch') }} : {{ segment.count }} ({{ segment.share }} %)"
+                     title="{{ ('position.' ~ segment.position)|trans({}, 'pricewatch') }} : {{ segment.count }} ({{ segment.shareLabel }})"
                      data-position="{{ segment.position }}"></div>
             {% endfor %}
         </div>
@@ -51,7 +51,7 @@
         {{ _self.split_bar(split, swatch, '.9rem', 'pw-dash-split') }}
         <div class="d-flex flex-wrap gap-3 small text-muted mt-1 mb-3" data-testid="pw-dash-legend">
             {% for segment in split.segments %}
-                <span><span class="d-inline-block rounded-1 me-1" style="width: .7rem; height: .7rem; background: {{ swatch[segment.position] }}" aria-hidden="true"></span>{{ ('position.' ~ segment.position)|trans({}, 'pricewatch') }} : <span class="text-body fw-semibold">{{ segment.count }}</span> ({{ segment.share }} %)</span>
+                <span><span class="d-inline-block rounded-1 me-1" style="width: .7rem; height: .7rem; background: {{ swatch[segment.position] }}" aria-hidden="true"></span>{{ ('position.' ~ segment.position)|trans({}, 'pricewatch') }} : <span class="text-body fw-semibold">{{ segment.count }}</span> ({{ segment.shareLabel }})</span>
             {% else %}
                 <span>{{ 'No offer compared yet: start a pass from the comparator.'|trans({}, 'pricewatch') }}</span>
             {% endfor %}

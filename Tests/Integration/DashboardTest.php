@@ -66,6 +66,7 @@ final class DashboardTest extends PriceWatchIntegrationTestCase
             'cheaper, same price (shown as 0.0 %), dearer: every compared offer once',
         );
         self::assertSame(50.0, $dashboard['split']['segments'][2]['share']);
+        self::assertSame('50,0 %', str_replace("\u{a0}", ' ', $dashboard['split']['segments'][2]['shareLabel']), 'written the reader\'s way, not as a CSS number');
 
         self::assertSame(['Casque Bell TX501', 'Blouson Helstons Indy'], array_column($dashboard['worstGaps'], 'title'), 'the dearest first, and only where we are dearer');
         self::assertSame('dearer', $dashboard['worstGaps'][0]['position']);

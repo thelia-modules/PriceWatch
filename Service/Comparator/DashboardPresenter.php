@@ -65,13 +65,15 @@ final readonly class DashboardPresenter
     {
         $equal = max(0, $compared - $summary['weAreCheaper'] - $summary['weAreDearer']);
         $share = static fn (int $count): float => $compared === 0 ? 0.0 : round($count / $compared * 100, 1);
+        // The share is a CSS width (dot decimal) and a label (the reader's locale).
+        $label = static fn (int $count): string => (string) $percent->format($share($count) / 100);
 
         return [
             'compared' => $compared,
             'segments' => array_values(array_filter([
-                ['position' => PricePosition::WeAreCheaper->value, 'count' => $summary['weAreCheaper'], 'share' => $share($summary['weAreCheaper'])],
-                ['position' => PricePosition::Equal->value, 'count' => $equal, 'share' => $share($equal)],
-                ['position' => PricePosition::WeAreDearer->value, 'count' => $summary['weAreDearer'], 'share' => $share($summary['weAreDearer'])],
+                ['position' => PricePosition::WeAreCheaper->value, 'count' => $summary['weAreCheaper'], 'share' => $share($summary['weAreCheaper']), 'shareLabel' => $label($summary['weAreCheaper'])],
+                ['position' => PricePosition::Equal->value, 'count' => $equal, 'share' => $share($equal), 'shareLabel' => $label($equal)],
+                ['position' => PricePosition::WeAreDearer->value, 'count' => $summary['weAreDearer'], 'share' => $share($summary['weAreDearer']), 'shareLabel' => $label($summary['weAreDearer'])],
             ], static fn (array $segment): bool => $segment['count'] > 0)),
             'averagePct' => $summary['averagePct'] === null ? null : self::signed($summary['averagePct'], $percent),
             'averagePosition' => PricePosition::fromGapPct($summary['averagePct'])->value,
