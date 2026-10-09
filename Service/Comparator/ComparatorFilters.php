@@ -24,17 +24,38 @@ final readonly class ComparatorFilters
     ) {
     }
 
+    /**
+     * Read leniently: the form itself sends competitor= for "all
+     * competitors", and anyone can type anything in the address bar. Since
+     * Symfony 6.3, getInt() and get() throw on such values (reported on
+     * 2026-10-09); a filter that makes no sense falls back to its default.
+     */
     public static function fromRequest(Request $request): self
     {
-        $competitor = $request->query->getInt('competitor');
+        $query = $request->query->all();
 
         return new self(
-            ComparatorView::fromQuery($request->query->get('view')),
-            $competitor > 0 ? $competitor : null,
-            mb_substr(trim((string) $request->query->get('q', '')), 0, self::MAX_SEARCH_LENGTH),
-            $request->query->getBoolean('cheaper'),
-            max(1, $request->query->getInt('page', 1)),
+            ComparatorView::fromQuery($query['view'] ?? null),
+            self::positiveInt($query['competitor'] ?? null),
+            mb_substr(trim(\is_string($query['q'] ?? null) ? $query['q'] : ''), 0, self::MAX_SEARCH_LENGTH),
+            \in_array(self::scalar($query['cheaper'] ?? null), ['1', 'true', 'on'], true),
+            self::positiveInt($query['page'] ?? null) ?? 1,
         );
+    }
+
+    private static function positiveInt(mixed $value): ?int
+    {
+        $value = self::scalar($value);
+
+        return $value !== null && preg_match('/^[1-9]\d{0,8}$/', $value) === 1 ? (int) $value : null;
+    }
+
+    /**
+     * A URL only carries strings; a request built in code may carry ints.
+     */
+    private static function scalar(mixed $value): ?string
+    {
+        return \is_string($value) || \is_int($value) ? (string) $value : null;
     }
 
     public function offset(): int

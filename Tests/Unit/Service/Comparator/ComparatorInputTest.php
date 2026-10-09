@@ -72,6 +72,28 @@ final class ComparatorInputTest extends TestCase
         self::assertSame(80, mb_strlen($filters->search));
     }
 
+    /**
+     * What the filter form itself sends when "all competitors" is chosen
+     * (competitor=), and what anyone can type in the address bar. Reported
+     * on 2026-10-09: an empty competitor threw instead of meaning "all".
+     */
+    public function testEmptyOrNonNumericQueryValuesMeanTheDefault(): void
+    {
+        foreach (['', 'abc', '3.5', '1e3', '[]'] as $value) {
+            $filters = ComparatorFilters::fromRequest(new Request(['competitor' => $value, 'page' => $value, 'cheaper' => $value]));
+
+            self::assertNull($filters->competitorId, 'competitor='.$value);
+            self::assertSame(1, $filters->page, 'page='.$value);
+            self::assertFalse($filters->cheaperOnly, 'cheaper='.$value);
+        }
+
+        $arrays = ComparatorFilters::fromRequest(new Request(['competitor' => ['1'], 'page' => ['2'], 'q' => ['x'], 'view' => ['review']]));
+        self::assertEquals(new ComparatorFilters(), $arrays, 'array values from competitor[]=1 and the like');
+
+        self::assertSame(7, ComparatorFilters::fromRequest(new Request(['competitor' => '7']))->competitorId);
+        self::assertTrue(ComparatorFilters::fromRequest(new Request(['cheaper' => '1']))->cheaperOnly, 'the checkbox sends 1');
+    }
+
     public function testFiltersSurviveTheRoundTripThroughLinks(): void
     {
         $filters = new ComparatorFilters(ComparatorView::Review, 7, 'Helstons', true, 3);
