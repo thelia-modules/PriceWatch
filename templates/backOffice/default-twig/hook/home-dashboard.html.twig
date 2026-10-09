@@ -1,0 +1,113 @@
+{# Price watch summary on the admin home page.
+   Colours: a diverging split, green (we are cheaper) | grey (same price) |
+   red (we are dearer), checked with the palette validator (CVD ΔE ≥ 19).
+   The grey is low-contrast by design, so every segment is also labelled. #}
+{% set swatch = {cheaper: '#198754', equal: '#adb5bd', dearer: '#dc3545'} %}
+
+{% macro split_bar(split, swatch, height, testid) %}
+    {% if split.compared > 0 %}
+        <div class="d-flex w-100" style="gap: 2px; height: {{ height }}" role="img" data-testid="{{ testid }}"
+             aria-label="{% for segment in split.segments %}{{ ('position.' ~ segment.position)|trans({}, 'pricewatch') }} : {{ segment.count }}{% if not loop.last %}, {% endif %}{% endfor %}">
+            {% for segment in split.segments %}
+                <div style="width: {{ segment.share }}%; background: {{ swatch[segment.position] }}; border-radius: 4px; min-width: 4px"
+                     title="{{ ('position.' ~ segment.position)|trans({}, 'pricewatch') }} : {{ segment.count }} ({{ segment.share }} %)"
+                     data-position="{{ segment.position }}"></div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="w-100 bg-body-tertiary rounded" style="height: {{ height }}"></div>
+    {% endif %}
+{% endmacro %}
+
+<div data-testid="pricewatch-dashboard">
+    {% if not hasCompetitors %}
+        <p class="text-muted mb-2">{{ 'No competitor is whitelisted: nothing is compared yet.'|trans({}, 'pricewatch') }}</p>
+        <a class="btn btn-sm btn-primary" href="{{ links.competitors }}">{{ 'Manage competitors'|trans({}, 'pricewatch') }}</a>
+    {% else %}
+        <div class="row g-3 mb-3">
+            <div class="col-6 col-lg-3">
+                <div class="small text-muted">{{ 'Offers compared'|trans({}, 'pricewatch') }}</div>
+                <div class="fs-3 fw-semibold" data-testid="pw-dash-compared">{{ split.compared }}</div>
+            </div>
+            {% for segment in [{key: 'cheaper', label: 'We are cheaper'}, {key: 'dearer', label: 'We are dearer'}] %}
+                {% set count = (split.segments|filter(s => s.position == segment.key)|first).count ?? 0 %}
+                <div class="col-6 col-lg-3">
+                    <div class="small text-muted"><span class="d-inline-block rounded-1 me-1" style="width: .7rem; height: .7rem; background: {{ swatch[segment.key] }}" aria-hidden="true"></span>{{ segment.label|trans({}, 'pricewatch') }}</div>
+                    <div class="fs-3 fw-semibold" data-testid="pw-dash-{{ segment.key }}">{{ count }}</div>
+                </div>
+            {% endfor %}
+            <div class="col-6 col-lg-3">
+                <a class="text-decoration-none text-body" href="{{ links.review }}">
+                    <div class="small text-muted"><i class="bi bi-exclamation-circle me-1 {{ counts.review > 0 ? 'text-warning' : '' }}" aria-hidden="true"></i>{{ 'Waiting for your review'|trans({}, 'pricewatch') }}</div>
+                    <div class="fs-3 fw-semibold" data-testid="pw-dash-review">{{ counts.review }}</div>
+                </a>
+            </div>
+        </div>
+
+        <div class="mb-1 d-flex justify-content-between small">
+            <span class="fw-semibold">{{ 'Our position on the compared offers'|trans({}, 'pricewatch') }}</span>
+            {% if split.averagePct %}<span class="text-muted">{{ 'Average gap'|trans({}, 'pricewatch') }} <span class="fw-semibold text-body">{{ split.averagePct }}</span></span>{% endif %}
+        </div>
+        {{ _self.split_bar(split, swatch, '.9rem', 'pw-dash-split') }}
+        <div class="d-flex flex-wrap gap-3 small text-muted mt-1 mb-3" data-testid="pw-dash-legend">
+            {% for segment in split.segments %}
+                <span><span class="d-inline-block rounded-1 me-1" style="width: .7rem; height: .7rem; background: {{ swatch[segment.position] }}" aria-hidden="true"></span>{{ ('position.' ~ segment.position)|trans({}, 'pricewatch') }} : <span class="text-body fw-semibold">{{ segment.count }}</span> ({{ segment.share }} %)</span>
+            {% else %}
+                <span>{{ 'No offer compared yet: start a pass from the comparator.'|trans({}, 'pricewatch') }}</span>
+            {% endfor %}
+        </div>
+
+        <div class="row g-4">
+            <div class="col-12 col-xl-7">
+                <div class="d-flex justify-content-between align-items-baseline mb-1">
+                    <h3 class="h6 mb-0">{{ 'Where we are the dearest'|trans({}, 'pricewatch') }}</h3>
+                    <a class="small" href="{{ links.dearer }}">{{ 'See all'|trans({}, 'pricewatch') }}</a>
+                </div>
+                {% if worstGaps is empty %}
+                    <p class="small text-muted mb-0">{{ 'No compared offer where a competitor is cheaper.'|trans({}, 'pricewatch') }}</p>
+                {% else %}
+                    <ul class="list-group list-group-flush" data-testid="pw-dash-worst">
+                        {% for row in worstGaps %}
+                            <li class="list-group-item px-0 d-flex justify-content-between align-items-center gap-2">
+                                <span class="text-truncate">
+                                    {% if row.url %}<a href="{{ row.url }}">{{ row.title }}</a>{% else %}{{ row.title }}{% endif %}
+                                    {% if row.size %}<span class="small text-muted"> · {{ 'Size'|trans({}, 'pricewatch') }} {{ row.size }}</span>{% endif %}
+                                    <span class="small text-muted d-block">{{ row.competitor }}</span>
+                                </span>
+                                {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_gap.html.twig' with {position: row.position, pct: row.gap} only %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+            <div class="col-12 col-xl-5">
+                <h3 class="h6 mb-1">{{ 'By competitor'|trans({}, 'pricewatch') }}</h3>
+                <ul class="list-group list-group-flush" data-testid="pw-dash-competitors">
+                    {% for competitor in competitors %}
+                        <li class="list-group-item px-0">
+                            <div class="d-flex justify-content-between small mb-1">
+                                <a href="{{ competitor.url }}" class="fw-semibold">{{ competitor.domain }}</a>
+                                <span class="text-muted">{{ '%count% offer(s) compared'|trans({'%count%': competitor.compared}, 'pricewatch') }}{% if competitor.split.averagePct %} · {{ 'average'|trans({}, 'pricewatch') }} <span class="text-body fw-semibold">{{ competitor.split.averagePct }}</span>{% endif %}</span>
+                            </div>
+                            {{ _self.split_bar(competitor.split, swatch, '.5rem', 'pw-dash-split-' ~ loop.index) }}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 pt-2 border-top small text-muted">
+            <span data-testid="pw-dash-footer">
+                {% if run.running %}
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">{{ 'A pass is running'|trans({}, 'pricewatch') }}</span>
+                {% elseif run.collect %}
+                    {{ 'Last collect: %at%'|trans({'%at%': run.collect.at}, 'pricewatch') }}
+                {% else %}
+                    {{ 'No collect pass yet.'|trans({}, 'pricewatch') }}
+                {% endif %}
+                · {{ 'API spending over 30 days: %amount%'|trans({'%amount%': spentThisMonth}, 'pricewatch') }}
+            </span>
+            <a class="btn btn-sm btn-outline-primary" href="{{ links.comparator }}">{{ 'Open the comparator'|trans({}, 'pricewatch') }}</a>
+        </div>
+    {% endif %}
+</div>

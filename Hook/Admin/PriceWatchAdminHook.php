@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Hook\Admin;
 
 use PriceWatch\Service\Admin\AdminRequestGuard;
+use PriceWatch\Service\Comparator\DashboardPresenter;
 use PriceWatch\Service\Comparator\ProductCardPresenter;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
@@ -40,6 +41,7 @@ class PriceWatchAdminHook extends BaseHook
         private readonly ProductCardPresenter $productCard,
         private readonly UsagePresenter $usage,
         private readonly RunStatus $runStatus,
+        private readonly DashboardPresenter $dashboard,
         private readonly RequestStack $requestStack,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly Environment $twig,
@@ -55,6 +57,7 @@ class PriceWatchAdminHook extends BaseHook
             'main.top-menu-catalog' => [['type' => 'back', 'method' => 'onCatalogMenu']],
             'module.configuration' => [['type' => 'back', 'method' => 'onModuleConfiguration']],
             'product.tab-content' => [['type' => 'back', 'method' => 'onProductTabContent']],
+            'home.block' => [['type' => 'back', 'method' => 'onHomeBlock']],
         ];
     }
 
@@ -76,6 +79,26 @@ class PriceWatchAdminHook extends BaseHook
             'class' => '',
             'url' => $this->urlGenerator->generate('pricewatch_competitors'),
             'title' => $this->trans('Price watch: competitors', [], AdminRequestGuard::MODULE_CODE),
+        ]);
+    }
+
+    /**
+     * home.block is a block hook (checked in the hook table): each entry is a
+     * card of the dashboard grid, hence HookRenderBlockEvent.
+     */
+    public function onHomeBlock(HookRenderBlockEvent $event): void
+    {
+        if (!$this->securityContext->isGranted(['ADMIN'], [], [AdminRequestGuard::MODULE_CODE], [AccessManager::VIEW])) {
+            return;
+        }
+
+        $locale = $this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR';
+
+        $event->add([
+            'id' => 'pricewatch-dashboard',
+            'class' => 'col-12',
+            'title' => $this->trans('Price watch', [], AdminRequestGuard::MODULE_CODE),
+            'content' => $this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/home-dashboard.html.twig', $this->dashboard->present($locale)),
         ]);
     }
 

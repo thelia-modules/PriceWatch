@@ -304,4 +304,17 @@ return [
     'No competitor is whitelisted: there would be nothing to compare.' => 'Aucun concurrent en liste blanche : il n\'y aurait rien à comparer.',
     'A pass is already running: wait until it ends, then reload the page.' => 'Une passe est déjà en cours : attendez qu\'elle se termine, puis rechargez la page.',
     'Price watch started on %count% variant(s), at most %cost%. Results come in within a few minutes: reload the page.' => 'Surveillance lancée sur %count% déclinaison(s), au plus %cost%. Les résultats arrivent d\'ici quelques minutes : rechargez la page.',
+
+    // Home dashboard
+    'Our position on the compared offers' => 'Notre position sur les offres comparées',
+    'No offer compared yet: start a pass from the comparator.' => 'Aucune offre comparée pour l\'instant : lancez une surveillance depuis le comparateur.',
+    'Where we are the dearest' => 'Là où nous sommes le plus cher',
+    'See all' => 'Tout voir',
+    'No compared offer where a competitor is cheaper.' => 'Aucune offre comparée où un concurrent est moins cher.',
+    'By competitor' => 'Par concurrent',
+    '%count% offer(s) compared' => '%count% offre(s) comparée(s)',
+    'average' => 'moyenne',
+    'Last collect: %at%' => 'Dernière collecte : %at%',
+    'API spending over 30 days: %amount%' => 'Dépense API sur 30 jours : %amount%',
+    'Open the comparator' => 'Ouvrir le comparateur',
 ];
