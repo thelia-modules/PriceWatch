@@ -71,4 +71,9 @@ return [
     'exclusion.PRICE_GAP_IMPLAUSIBLE' => 'Implausible gap',
     'exclusion.unclear' => 'Price unclear',
     'shipping' => 'shipping',
+
+    'position.cheaper' => 'We are cheaper',
+    'position.dearer' => 'We are dearer',
+    'position.equal' => 'Same price',
+    'position.unknown' => 'Unknown gap',
 ];

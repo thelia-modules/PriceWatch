@@ -47,6 +47,8 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         $this->variant($product, 'M', null);
         $this->offer($small, $this->first, 'matched_judged', true, '-8.000');
         $this->offer($small, $this->second, 'matched_manual', true, '3.000');
+        // Shown as 0.0 %, in neutral: not counted as a place where we are dearer.
+        $this->offer($small, $this->first, 'matched_judged', true, '-0.040');
         $this->offer($small, $this->second, 'needs_review', false, '-30.000');
         // Same item at a promotional price: matched, but out of the gap.
         $this->offer($small, $this->first, 'matched_judged', false, '-25.000');
@@ -56,12 +58,12 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         $card = $this->presenter()->present((int) $product->getId(), 'fr_FR');
 
         self::assertTrue($card['inReferential']);
-        self::assertSame(['compared' => 2, 'review' => 1, 'cheaper' => 1], $card['totals'], 'the blacklisted offer counts nowhere');
+        self::assertSame(['compared' => 3, 'review' => 1, 'weAreDearer' => 1], $card['totals'], 'the blacklisted offer counts nowhere');
         self::assertCount(2, $card['variants']);
         self::assertSame('S', $card['variants'][0]['size']);
         self::assertSame('3660600123454', $card['variants'][0]['gtin'], 'shown as published, without the storage padding');
         self::assertSame($this->first->getDomain(), $card['variants'][0]['best']['competitor']);
-        self::assertSame('cheaper', $card['variants'][0]['best']['trend']);
+        self::assertSame('dearer', $card['variants'][0]['best']['position'], 'the competitor is 8 % cheaper: we are dearer, in red');
         self::assertStringContainsString('8,0', $card['variants'][0]['best']['gap']);
         self::assertNull($card['variants'][1]['best']);
         self::assertStringContainsString('q='.urlencode((string) $product->getRef()), $card['comparatorUrl'], 'the comparator opens on this product');

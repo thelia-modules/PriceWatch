@@ -1,0 +1,15 @@
+{# Our position against one competitor: green when we are cheaper, red when
+   we are dearer, neutral when equal. The words say it too, for whoever does
+   not read colours. #}
+{% set styles = {
+    cheaper: 'bg-success-subtle text-success-emphasis border border-success-subtle',
+    dearer: 'bg-danger-subtle text-danger-emphasis border border-danger-subtle',
+    equal: 'bg-body-secondary text-body border'
+} %}
+{% if pct %}
+    <span class="badge rounded-pill fs-6 fw-semibold text-nowrap {{ styles[position] ?? styles.equal }}" data-position="{{ position }}">{{ pct }}</span>
+    {% if amount is defined and amount %}<div class="small text-muted mt-1">{{ amount }}</div>{% endif %}
+    {% if with_label is defined and with_label %}<div class="small lh-sm {{ position == 'cheaper' ? 'text-success-emphasis' : (position == 'dearer' ? 'text-danger-emphasis' : 'text-muted') }}">{{ ('position.' ~ position)|trans({}, 'pricewatch') }}</div>{% endif %}
+{% else %}
+    <span class="text-muted">–</span>
+{% endif %}

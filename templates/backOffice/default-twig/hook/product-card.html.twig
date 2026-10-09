@@ -6,7 +6,7 @@
         </p>
     {% else %}
         <p class="mb-2">
-            {{ '%compared% offer(s) compared, %cheaper% where the competitor is cheaper, %review% waiting for your review.'|trans({'%compared%': totals.compared, '%cheaper%': totals.cheaper, '%review%': totals.review}, 'pricewatch') }}
+            {{ '%compared% offer(s) compared, %dearer% where we are dearer, %review% waiting for your review.'|trans({'%compared%': totals.compared, '%dearer%': totals.weAreDearer, '%review%': totals.review}, 'pricewatch') }}
             <a href="{{ comparatorUrl }}" class="ms-1">{{ 'Open in the comparator'|trans({}, 'pricewatch') }}</a>
             {% if totals.review > 0 %}· <a href="{{ reviewUrl }}">{{ 'Review'|trans({}, 'pricewatch') }}</a>{% endif %}
         </p>
@@ -38,8 +38,8 @@
                         <td class="text-end">{{ variant.compared }}</td>
                         <td>
                             {% if variant.best %}
-                                <span class="fw-semibold {{ variant.best.trend == 'cheaper' ? 'text-danger' : (variant.best.trend == 'dearer' ? 'text-success' : '') }}">{{ variant.best.gap }}</span>
-                                <span class="small text-muted">{{ variant.best.competitor }}</span>
+                                {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_gap.html.twig' with {position: variant.best.position, pct: variant.best.gap} only %}
+                                <span class="small text-muted ms-1">{{ variant.best.competitor }}</span>
                             {% else %}<span class="text-muted">–</span>{% endif %}
                         </td>
                         <td class="text-end">{{ variant.review ?: '' }}</td>

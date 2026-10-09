@@ -75,26 +75,30 @@ final readonly class ComparatorRepository
     }
 
     /**
-     * @return array{cheaper: int, dearer: int, averagePct: ?float}
+     * Counted with the screen's own notion of equal (PricePosition), so the
+     * tiles agree with the colours of the rows.
+     *
+     * @return array{weAreCheaper: int, weAreDearer: int, averagePct: ?float}
      */
     public function gapSummary(ComparatorFilters $filters): array
     {
         $query = $this->query($filters, ComparatorView::Gaps);
 
         if ($query === null) {
-            return ['cheaper' => 0, 'dearer' => 0, 'averagePct' => null];
+            return ['weAreCheaper' => 0, 'weAreDearer' => 0, 'averagePct' => null];
         }
 
+        $gap = PwCompetitorOfferTableMap::COL_LAST_DELTA_PCT;
         $row = $query
-            ->withColumn('SUM('.PwCompetitorOfferTableMap::COL_LAST_DELTA_PCT.' < 0)', 'cheaper')
-            ->withColumn('SUM('.PwCompetitorOfferTableMap::COL_LAST_DELTA_PCT.' > 0)', 'dearer')
-            ->withColumn('AVG('.PwCompetitorOfferTableMap::COL_LAST_DELTA_PCT.')', 'averagePct')
-            ->select(['cheaper', 'dearer', 'averagePct'])
+            ->withColumn('SUM('.$gap.' >= '.PricePosition::EQUAL_BELOW.')', 'weAreCheaper')
+            ->withColumn('SUM('.$gap.' <= -'.PricePosition::EQUAL_BELOW.')', 'weAreDearer')
+            ->withColumn('AVG('.$gap.')', 'averagePct')
+            ->select(['weAreCheaper', 'weAreDearer', 'averagePct'])
             ->findOne();
 
         return [
-            'cheaper' => (int) ($row['cheaper'] ?? 0),
-            'dearer' => (int) ($row['dearer'] ?? 0),
+            'weAreCheaper' => (int) ($row['weAreCheaper'] ?? 0),
+            'weAreDearer' => (int) ($row['weAreDearer'] ?? 0),
             'averagePct' => isset($row['averagePct']) ? (float) $row['averagePct'] : null,
         ];
     }
@@ -272,7 +276,8 @@ final readonly class ComparatorRepository
         $query->filterByCompetitorId($competitors, Criteria::IN);
 
         if ($filters->cheaperOnly) {
-            $query->filterByLastDeltaPct(0, Criteria::LESS_THAN);
+            // Competitor cheaper, that is: we are dearer.
+            $query->filterByLastDeltaPct(-PricePosition::EQUAL_BELOW, Criteria::LESS_EQUAL);
         }
 
         if ($filters->search !== '') {

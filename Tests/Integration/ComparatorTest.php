@@ -46,6 +46,8 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     {
         $product = $this->product('Blouson Helstons Indy cuir noir');
         $this->offer($product, 'matched_judged', comparable: true, deltaPct: '5.000');
+        // Shows as 0.0 %: counted on neither side, like its neutral colour.
+        $this->offer($product, 'matched_judged', comparable: true, deltaPct: '-0.040');
         $cheapest = $this->offer($product, 'matched_manual', comparable: true, deltaPct: '-12.500');
         $this->offer($product, 'matched_judged', comparable: false, deltaPct: '-40.000', exclusion: 'promotional');
         $this->offer($product, 'needs_review', comparable: false, deltaPct: '-30.000');
@@ -54,10 +56,10 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
 
         $filters = new ComparatorFilters();
 
-        self::assertSame(['gaps' => 2, 'review' => 1, 'pending' => 1, 'excluded' => 2], $this->repository->counts($filters));
+        self::assertSame(['gaps' => 3, 'review' => 1, 'pending' => 1, 'excluded' => 2], $this->repository->counts($filters));
         $gaps = $this->repository->page($filters);
         self::assertSame($cheapest->getId(), $gaps[0]->getId(), 'the most worrying gap first: competitor cheapest');
-        self::assertSame(['cheaper' => 1, 'dearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2));
+        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2));
     }
 
     public function testOffersOfCompetitorsOffTheWhitelistAreNeverShown(): void
@@ -76,6 +78,8 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $jacket = $this->product('Blouson Segura Dorian '.$this->tag);
         $cheaper = $this->offer($helmet, 'matched_judged', comparable: true, deltaPct: '-3.000');
         $this->offer($jacket, 'matched_judged', comparable: true, deltaPct: '8.000');
+        // Shown as 0.0 %, in neutral: not a place where we are dearer.
+        $this->offer($this->product('Gants Furygan '.$this->tag), 'matched_judged', comparable: true, deltaPct: '-0.040');
 
         self::assertSame([$cheaper->getId()], $this->ids(new ComparatorFilters(search: 'TX501 Sprint '.$this->tag)));
         self::assertSame([$cheaper->getId()], $this->ids(new ComparatorFilters(search: (string) $helmet->getRef())));

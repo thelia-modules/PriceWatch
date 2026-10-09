@@ -54,9 +54,10 @@ final readonly class ComparatorPresenter
             'competitors' => $competitors,
             'summary' => [
                 'compared' => $counts[ComparatorView::Gaps->value],
-                'cheaper' => $summary['cheaper'],
-                'dearer' => $summary['dearer'],
+                'weAreCheaper' => $summary['weAreCheaper'],
+                'weAreDearer' => $summary['weAreDearer'],
                 'averagePct' => $summary['averagePct'] === null ? null : self::percent($summary['averagePct'], $percent),
+                'averagePosition' => PricePosition::fromGapPct($summary['averagePct'])->value,
             ],
             'tabs' => array_map(fn (ComparatorView $view): array => [
                 'view' => $view->value,
@@ -135,8 +136,7 @@ final readonly class ComparatorPresenter
             'shipping' => $quote?->getShippingPrice() === null ? null : $money->formatCurrency((float) $quote->getShippingPrice(), (string) ($quote->getCurrencyCode() ?? 'EUR')),
             'delta' => $delta === null ? null : ((float) $delta > 0 ? '+' : '').$money->formatCurrency((float) $delta, 'EUR'),
             'deltaPct' => $deltaPct === null ? null : self::percent((float) $deltaPct, $percent),
-            // Negative: the competitor is cheaper than us.
-            'trend' => $deltaPct === null ? 'none' : ((float) $deltaPct < 0 ? 'cheaper' : ((float) $deltaPct > 0 ? 'dearer' : 'equal')),
+            'position' => PricePosition::fromGapPct($deltaPct)->value,
             'availability' => $quote?->getAvailability(),
             'seenAt' => $offer->getLastSeenAt()?->format('d/m/Y H:i'),
             'searchedBy' => \is_array($payload) && \is_string($payload['searched_by'] ?? null) ? $payload['searched_by'] : null,

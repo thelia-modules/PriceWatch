@@ -123,14 +123,11 @@ return [
     'Price comparator' => 'Comparateur de prix',
     'Our prices against whitelisted competitors, for the same product in the same size. Prices include tax, shipping excluded.' => 'Nos prix face aux concurrents de la liste blanche, pour le même produit dans la même taille. Prix TTC, hors livraison.',
     'Offers compared' => 'Offres comparées',
-    'Competitor cheaper' => 'Concurrent moins cher',
-    'Competitor dearer' => 'Concurrent plus cher',
     'Average gap' => 'Écart moyen',
     'Waiting for your review' => 'En attente de votre vérification',
     'Product' => 'Produit',
     'Name or reference' => 'Nom ou référence',
     'All whitelisted competitors' => 'Tous les concurrents de la liste blanche',
-    'Only where the competitor is cheaper' => 'Seulement si le concurrent est moins cher',
     'Filter' => 'Filtrer',
     'Reset' => 'Réinitialiser',
     'view.gaps' => 'Écarts',
@@ -218,7 +215,6 @@ return [
 
     // Product card
     'This product is not in the price watch referential: no competitor price is collected for it.' => 'Ce produit n\'est pas dans le référentiel de veille : aucun prix concurrent n\'est relevé pour lui.',
-    '%compared% offer(s) compared, %cheaper% where the competitor is cheaper, %review% waiting for your review.' => '%compared% offre(s) comparée(s), dont %cheaper% où le concurrent est moins cher, %review% en attente de votre vérification.',
     'Open in the comparator' => 'Ouvrir dans le comparateur',
     'Review' => 'Vérifier',
     'Variant' => 'Déclinaison',
@@ -227,4 +223,14 @@ return [
     'invalid' => 'invalide',
     'shared' => 'partagé',
     'none' => 'aucun',
+
+    // Price position, from our side
+    'We are cheaper' => 'Nous sommes moins chers',
+    'We are dearer' => 'Nous sommes plus chers',
+    'Only where we are dearer' => 'Seulement là où nous sommes plus chers',
+    'position.cheaper' => 'Nous sommes moins chers',
+    'position.dearer' => 'Nous sommes plus chers',
+    'position.equal' => 'Même prix',
+    'position.unknown' => 'Écart inconnu',
+    '%compared% offer(s) compared, %dearer% where we are dearer, %review% waiting for your review.' => '%compared% offre(s) comparée(s), dont %dearer% où nous sommes plus chers, %review% en attente de votre vérification.',
 ];

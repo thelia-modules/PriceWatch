@@ -56,21 +56,21 @@
             </div></div>
         </div>
         <div class="col-6 col-lg">
-            <div class="card h-100"><div class="card-body py-2">
-                <div class="small text-muted">{{ 'Competitor cheaper'|trans({}, 'pricewatch') }}</div>
-                <div class="fs-4 fw-semibold text-danger" data-testid="pw-summary-cheaper">{{ summary.cheaper }}</div>
+            <div class="card h-100 border-success-subtle"><div class="card-body py-2">
+                <div class="small text-muted">{{ 'We are cheaper'|trans({}, 'pricewatch') }}</div>
+                <div class="fs-4 fw-semibold text-success-emphasis" data-testid="pw-summary-we-are-cheaper">{{ summary.weAreCheaper }}</div>
             </div></div>
         </div>
         <div class="col-6 col-lg">
-            <div class="card h-100"><div class="card-body py-2">
-                <div class="small text-muted">{{ 'Competitor dearer'|trans({}, 'pricewatch') }}</div>
-                <div class="fs-4 fw-semibold text-success">{{ summary.dearer }}</div>
+            <div class="card h-100 border-danger-subtle"><div class="card-body py-2">
+                <div class="small text-muted">{{ 'We are dearer'|trans({}, 'pricewatch') }}</div>
+                <div class="fs-4 fw-semibold text-danger-emphasis" data-testid="pw-summary-we-are-dearer">{{ summary.weAreDearer }}</div>
             </div></div>
         </div>
         <div class="col-6 col-lg">
             <div class="card h-100"><div class="card-body py-2">
                 <div class="small text-muted">{{ 'Average gap'|trans({}, 'pricewatch') }}</div>
-                <div class="fs-4 fw-semibold">{{ summary.averagePct ?? '–' }}</div>
+                <div class="fs-4 fw-semibold {{ summary.averagePosition == 'cheaper' ? 'text-success-emphasis' : (summary.averagePosition == 'dearer' ? 'text-danger-emphasis' : '') }}">{{ summary.averagePct ?? '–' }}</div>
             </div></div>
         </div>
         <div class="col-12 col-lg">
@@ -101,7 +101,7 @@
         <div class="col-12 col-sm-6 col-md-3">
             <div class="form-check mb-1">
                 <input class="form-check-input" type="checkbox" id="pw-cheaper" name="cheaper" value="1" {% if filters.cheaperOnly %}checked{% endif %}>
-                <label class="form-check-label small" for="pw-cheaper">{{ 'Only where the competitor is cheaper'|trans({}, 'pricewatch') }}</label>
+                <label class="form-check-label small" for="pw-cheaper">{{ 'Only where we are dearer'|trans({}, 'pricewatch') }}</label>
             </div>
         </div>
         <div class="col-12 col-md-2 d-flex gap-2">
@@ -156,7 +156,7 @@
                                 {% if row.product.size %} · {{ 'Size'|trans({}, 'pricewatch') }} <strong>{{ row.product.size }}</strong>{% endif %}
                             </div>
                         </td>
-                        <td class="text-break" style="min-width: 14rem">
+                        <td class="text-break" style="min-width: 14rem; max-width: 18rem; white-space: normal">
                             <div class="fw-semibold">{{ row.competitor }}</div>
                             <div class="small">{{ row.remoteVariant ?: row.remoteTitle }}</div>
                             <details class="small mt-1" data-testid="pw-proof-{{ row.id }}">
@@ -191,13 +191,10 @@
                             {% if row.shipping %}<div class="small text-muted">+ {{ row.shipping }} {{ 'shipping'|trans({}, 'pricewatch') }}</div>{% endif %}
                         </td>
                         <td class="text-end text-nowrap">{{ row.ours ?? '–' }}</td>
-                        <td class="text-end text-nowrap" data-testid="pw-gap-{{ row.id }}">
-                            {% if row.deltaPct %}
-                                <span class="fw-semibold {{ row.trend == 'cheaper' ? 'text-danger' : (row.trend == 'dearer' ? 'text-success' : '') }}">{{ row.deltaPct }}</span>
-                                <div class="small text-muted">{{ row.delta }}</div>
-                            {% else %}–{% endif %}
+                        <td class="text-end" style="min-width: 7rem; max-width: 9rem; white-space: normal" data-testid="pw-gap-{{ row.id }}">
+                            {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_gap.html.twig' with {position: row.position, pct: row.deltaPct, amount: row.delta, with_label: true} only %}
                         </td>
-                        <td style="min-width: 9rem; max-width: 13rem">{{ _self.state_badge(row) }}</td>
+                        <td style="min-width: 9rem; max-width: 13rem; white-space: normal">{{ _self.state_badge(row) }}</td>
                         <td>
                             <div class="d-flex flex-column align-items-end gap-1">
                             {% if row.actions.confirm %}{{ _self.review_form(row, 'confirm', 'Confirm'|trans({}, 'pricewatch'), 'btn-success', csrfToken, returnQuery) }}{% endif %}

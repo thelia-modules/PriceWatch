@@ -38,7 +38,7 @@ final readonly class ProductCardPresenter
         }
 
         $variants = [];
-        $totals = ['compared' => 0, 'review' => 0, 'cheaper' => 0];
+        $totals = ['compared' => 0, 'review' => 0, 'weAreDearer' => 0];
 
         foreach ($identities as $identity) {
             $variantOffers = $byVariant[(int) $identity->getProductSaleElementsId()] ?? [];
@@ -51,7 +51,7 @@ final readonly class ProductCardPresenter
 
             $totals['compared'] += \count($compared);
             $totals['review'] += $review;
-            $totals['cheaper'] += \count(array_filter($compared, static fn (PwCompetitorOffer $offer): bool => (float) $offer->getLastDeltaPct() < 0));
+            $totals['weAreDearer'] += \count(array_filter($compared, static fn (PwCompetitorOffer $offer): bool => PricePosition::fromGapPct($offer->getLastDeltaPct()) === PricePosition::WeAreDearer));
 
             $variants[] = [
                 'ref' => $identity->getProductSaleElements()?->getRef(),
@@ -66,8 +66,7 @@ final readonly class ProductCardPresenter
                 'best' => $best === null ? null : [
                     'competitor' => $competitors[(int) $best->getCompetitorId()] ?? '',
                     'gap' => (((float) $best->getLastDeltaPct() > 0) ? '+' : '').$percent->format((float) $best->getLastDeltaPct() / 100),
-                    // Negative: the competitor is cheaper than us.
-                    'trend' => (float) $best->getLastDeltaPct() < 0 ? 'cheaper' : ((float) $best->getLastDeltaPct() > 0 ? 'dearer' : 'equal'),
+                    'position' => PricePosition::fromGapPct($best->getLastDeltaPct())->value,
                 ],
             ];
         }
