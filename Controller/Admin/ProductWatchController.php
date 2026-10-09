@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Controller\Admin;
 
 use PriceWatch\Service\Admin\AdminRequestGuard;
+use PriceWatch\Service\Admin\ReturnTo;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Referential\ProductEnrolment;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -84,7 +85,7 @@ final readonly class ProductWatchController
         $request->getSession()->getFlashBag()->add($type, $this->trans($message, $parameters));
 
         return new RedirectResponse(
-            WatchedController::returnUrl($request, $this->urlGenerator)
+            ReturnTo::url($request, $this->urlGenerator)
             ?? $this->urlGenerator->generate('admin.products.update', ['product_id' => $productId, 'current_tab' => 'modules']),
         );
     }

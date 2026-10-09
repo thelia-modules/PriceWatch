@@ -116,6 +116,23 @@ final class ProductEnrolmentTest extends PriceWatchIntegrationTestCase
         self::assertSame(2, PwProductIdentityQuery::create()->filterByProductId($product->getId())->filterByMonitored(1)->count());
     }
 
+    public function testTheCatalogueColumnReadsThreeStates(): void
+    {
+        [$product, $medium] = $this->productWithSizes();
+        $catalog = new CatalogVariantRepository();
+
+        self::assertSame('none', $catalog->watchState((int) $product->getId()));
+
+        $this->enrolment()->enrol((int) $product->getId());
+        self::assertSame('watched', $catalog->watchState((int) $product->getId()));
+
+        $this->enrolment()->setMonitored((int) $product->getId(), false, (int) $medium->getId());
+        self::assertSame('watched', $catalog->watchState((int) $product->getId()), 'one size still watched');
+
+        $this->enrolment()->setMonitored((int) $product->getId(), false);
+        self::assertSame('paused', $catalog->watchState((int) $product->getId()));
+    }
+
     public function testAVariantOfAnotherProductCannotBeTouched(): void
     {
         [$product] = $this->productWithSizes();

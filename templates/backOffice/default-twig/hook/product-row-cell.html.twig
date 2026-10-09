@@ -1,0 +1,22 @@
+{# Price watch column of the catalogue's product table. #}
+{% macro action(route, params, label, style, csrfToken, returnQuery, testid, icon) %}
+    <form method="post" action="{{ path(route, params) }}" class="d-inline">
+        <input type="hidden" name="_token" value="{{ csrfToken }}">
+        <input type="hidden" name="back" value="category">
+        <input type="hidden" name="return" value="{{ returnQuery }}">
+        <button type="submit" class="btn btn-sm {{ style }}" data-testid="{{ testid }}">{% if icon %}<i class="bi {{ icon }} me-1" aria-hidden="true"></i>{% endif %}{{ label }}</button>
+    </form>
+{% endmacro %}
+<td class="text-nowrap" data-testid="pw-row-watch-{{ productId }}" data-state="{{ state }}">
+    {% if state == 'watched' %}
+        <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">{{ 'Watched'|trans({}, 'pricewatch') }}</span>
+        {% if canChange %}{{ _self.action('pricewatch_product_monitoring', {productId: productId, action: 'pause'}, 'Pause'|trans({}, 'pricewatch'), 'btn-link py-0', csrfToken, returnQuery, 'pw-row-pause-' ~ productId, null) }}{% endif %}
+    {% elseif state == 'paused' %}
+        <span class="badge bg-body-secondary text-body border">{{ 'Paused'|trans({}, 'pricewatch') }}</span>
+        {% if canChange %}{{ _self.action('pricewatch_product_monitoring', {productId: productId, action: 'resume'}, 'Resume'|trans({}, 'pricewatch'), 'btn-link py-0', csrfToken, returnQuery, 'pw-row-resume-' ~ productId, null) }}{% endif %}
+    {% elseif canChange %}
+        {{ _self.action('pricewatch_product_enrol', {productId: productId}, 'Watch'|trans({}, 'pricewatch'), 'btn-outline-primary py-0', csrfToken, returnQuery, 'pw-row-enrol-' ~ productId, 'bi-plus-circle') }}
+    {% else %}
+        <span class="text-muted">–</span>
+    {% endif %}
+</td>

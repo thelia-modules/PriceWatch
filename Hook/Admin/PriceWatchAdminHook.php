@@ -6,6 +6,7 @@ namespace PriceWatch\Hook\Admin;
 
 use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Comparator\DashboardPresenter;
+use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Comparator\ProductCardPresenter;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
@@ -42,6 +43,7 @@ class PriceWatchAdminHook extends BaseHook
         private readonly UsagePresenter $usage,
         private readonly RunStatus $runStatus,
         private readonly DashboardPresenter $dashboard,
+        private readonly CatalogVariantRepository $catalog,
         private readonly RequestStack $requestStack,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly Environment $twig,
@@ -58,6 +60,9 @@ class PriceWatchAdminHook extends BaseHook
             'module.configuration' => [['type' => 'back', 'method' => 'onModuleConfiguration']],
             'product.tab-content' => [['type' => 'back', 'method' => 'onProductTabContent']],
             'home.block' => [['type' => 'back', 'method' => 'onHomeBlock']],
+            // The catalogue's product table: one extra column, header and rows.
+            'products.header' => [['type' => 'back', 'method' => 'onProductsHeader']],
+            'products.row' => [['type' => 'back', 'method' => 'onProductsRow']],
         ];
     }
 
@@ -87,6 +92,44 @@ class PriceWatchAdminHook extends BaseHook
             'url' => $this->urlGenerator->generate('pricewatch_competitors'),
             'title' => $this->trans('Price watch: competitors', [], AdminRequestGuard::MODULE_CODE),
         ]);
+    }
+
+    public function onProductsHeader(HookRenderEvent $event): void
+    {
+        if (!$this->canView()) {
+            return;
+        }
+
+        $event->add('<th scope="col" class="text-nowrap">'.htmlspecialchars($this->trans('Price watch', [], AdminRequestGuard::MODULE_CODE)).'</th>');
+    }
+
+    /**
+     * One cell per product row, called with product_id by the table. Same
+     * permission as the header, so columns always line up.
+     */
+    public function onProductsRow(HookRenderEvent $event): void
+    {
+        $productId = (int) $event->getArgument('product_id');
+
+        if ($productId <= 0 || !$this->canView()) {
+            return;
+        }
+
+        $query = $this->requestStack->getCurrentRequest()?->query->all() ?? [];
+
+        $event->add($this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/product-row-cell.html.twig', [
+            'productId' => $productId,
+            'state' => $this->catalog->watchState($productId),
+            'canChange' => $this->securityContext->isGranted(['ADMIN'], [], [AdminRequestGuard::MODULE_CODE], [AccessManager::UPDATE]),
+            'csrfToken' => $this->guard->token(),
+            // Raw here, validated by ReturnTo on the way back.
+            'returnQuery' => http_build_query(array_intersect_key($query, ['category_id' => true, 'page' => true])),
+        ]));
+    }
+
+    private function canView(): bool
+    {
+        return $this->securityContext->isGranted(['ADMIN'], [], [AdminRequestGuard::MODULE_CODE], [AccessManager::VIEW]);
     }
 
     /**

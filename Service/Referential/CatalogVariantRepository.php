@@ -76,6 +76,26 @@ final readonly class CatalogVariantRepository
             ->count();
     }
 
+    /**
+     * none: not in the referential; watched: at least one variant watched;
+     * paused: in the referential, every variant paused.
+     */
+    public function watchState(int $productId): string
+    {
+        $row = PwProductIdentityQuery::create()
+            ->filterByProductId($productId)
+            ->withColumn('COUNT(*)', 'identities')
+            ->withColumn('COALESCE(SUM(monitored = 1), 0)', 'watched')
+            ->select(['identities', 'watched'])
+            ->findOne();
+
+        return match (true) {
+            (int) ($row['identities'] ?? 0) === 0 => 'none',
+            (int) ($row['watched'] ?? 0) > 0 => 'watched',
+            default => 'paused',
+        };
+    }
+
     public function productRef(int $productId): ?string
     {
         return ProductQuery::create()->findPk($productId)?->getRef();

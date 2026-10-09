@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Controller\Admin;
 
 use PriceWatch\Service\Admin\AdminRequestGuard;
+use PriceWatch\Service\Admin\ReturnTo;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Run\ManualRun;
@@ -57,7 +58,7 @@ final readonly class RunController
             return $denied;
         }
 
-        $back = WatchedController::returnUrl($request, $this->urlGenerator)
+        $back = ReturnTo::url($request, $this->urlGenerator)
             ?? $this->urlGenerator->generate('admin.products.update', ['product_id' => $productId, 'current_tab' => 'modules']);
         $ref = $this->catalog->productRef($productId);
         $variants = $this->catalog->collectableVariantCount($productId);

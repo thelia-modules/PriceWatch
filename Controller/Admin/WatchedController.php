@@ -10,7 +10,6 @@ use PriceWatch\Service\Watched\WatchedPresenter;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Twig\Environment;
 
 /**
@@ -36,21 +35,5 @@ final readonly class WatchedController
             ...$this->presenter->present(WatchedFilters::fromRequest($request), $request->getLocale()),
             'csrfToken' => $this->guard->token(),
         ]));
-    }
-
-    /**
-     * Where an action started from the list goes back to: the list, with
-     * the filters it had. Rebuilt from the list's own filters, never taken
-     * as given, so the form cannot redirect anywhere else.
-     */
-    public static function returnUrl(Request $request, UrlGeneratorInterface $urlGenerator): ?string
-    {
-        if ($request->request->get('back') !== 'watched') {
-            return null;
-        }
-
-        parse_str((string) $request->request->get('return', ''), $query);
-
-        return $urlGenerator->generate('pricewatch_watched', WatchedFilters::fromRequest(new Request(\is_array($query) ? $query : []))->toQueryParams());
     }
 }
