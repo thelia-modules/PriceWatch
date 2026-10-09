@@ -1,0 +1,52 @@
+<div data-testid="pricewatch-product-card">
+    <h3 class="h6 mb-2">{{ 'Price watch'|trans({}, 'pricewatch') }}</h3>
+    {% if not inReferential %}
+        <p class="text-muted mb-0" data-testid="pw-card-empty">
+            {{ 'This product is not in the price watch referential: no competitor price is collected for it.'|trans({}, 'pricewatch') }}
+        </p>
+    {% else %}
+        <p class="mb-2">
+            {{ '%compared% offer(s) compared, %cheaper% where the competitor is cheaper, %review% waiting for your review.'|trans({'%compared%': totals.compared, '%cheaper%': totals.cheaper, '%review%': totals.review}, 'pricewatch') }}
+            <a href="{{ comparatorUrl }}" class="ms-1">{{ 'Open in the comparator'|trans({}, 'pricewatch') }}</a>
+            {% if totals.review > 0 %}· <a href="{{ reviewUrl }}">{{ 'Review'|trans({}, 'pricewatch') }}</a>{% endif %}
+        </p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th scope="col">{{ 'Variant'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">GTIN</th>
+                        <th scope="col" class="text-end">{{ 'Offers compared'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'Best gap'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'To review'|trans({}, 'pricewatch') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for variant in variants %}
+                    <tr>
+                        <td>
+                            {{ variant.size ?: '–' }}{% if variant.color %} · {{ variant.color }}{% endif %}
+                            <div class="small text-muted">{{ variant.ref }}{% if not variant.monitored %} · {{ 'not monitored'|trans({}, 'pricewatch') }}{% endif %}</div>
+                        </td>
+                        <td class="text-nowrap">
+                            {% if variant.gtin %}
+                                <span class="font-monospace">{{ variant.gtin }}</span>
+                                {% if not variant.gtinValid %}<span class="badge text-bg-secondary">{{ 'invalid'|trans({}, 'pricewatch') }}</span>
+                                {% elseif variant.gtinShared %}<span class="badge text-bg-warning">{{ 'shared'|trans({}, 'pricewatch') }}</span>{% endif %}
+                            {% else %}<span class="text-muted">{{ 'none'|trans({}, 'pricewatch') }}</span>{% endif %}
+                        </td>
+                        <td class="text-end">{{ variant.compared }}</td>
+                        <td>
+                            {% if variant.best %}
+                                <span class="fw-semibold {{ variant.best.trend == 'cheaper' ? 'text-danger' : (variant.best.trend == 'dearer' ? 'text-success' : '') }}">{{ variant.best.gap }}</span>
+                                <span class="small text-muted">{{ variant.best.competitor }}</span>
+                            {% else %}<span class="text-muted">–</span>{% endif %}
+                        </td>
+                        <td class="text-end">{{ variant.review ?: '' }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</div>

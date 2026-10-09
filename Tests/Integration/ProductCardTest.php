@@ -1,0 +1,131 @@
+<?php
+
+declare(strict_types=1);
+
+namespace PriceWatch\Tests\Integration;
+
+use PriceWatch\Model\PwCompetitor;
+use PriceWatch\Model\PwCompetitorOffer;
+use PriceWatch\Model\PwCompetitorQuery;
+use PriceWatch\Model\PwProductIdentity;
+use PriceWatch\Model\PwProductIdentityQuery;
+use PriceWatch\Service\Comparator\ComparatorRepository;
+use PriceWatch\Service\Comparator\ProductCardPresenter;
+use PriceWatch\Service\Competitor\CompetitorRepository;
+use PriceWatch\Service\Competitor\CompetitorStatus;
+use Symfony\Component\Routing\Generator\UrlGenerator;
+use Symfony\Component\Routing\RequestContext;
+use Symfony\Component\Routing\Route;
+use Symfony\Component\Routing\RouteCollection;
+use Thelia\Model\Product;
+use Thelia\Model\ProductSaleElements;
+use Thelia\Model\ProductSaleElementsQuery;
+
+final class ProductCardTest extends PriceWatchIntegrationTestCase
+{
+    private PwCompetitor $first;
+    private PwCompetitor $second;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        PwCompetitorQuery::create()
+            ->filterByStatus([CompetitorStatus::Watched->value, CompetitorStatus::Paused->value])
+            ->update(['Status' => CompetitorStatus::Proposed->value]);
+
+        $tag = bin2hex(random_bytes(4));
+        $competitors = new CompetitorRepository();
+        $this->first = $competitors->create('first-'.$tag.'.example', CompetitorStatus::Watched, 'manual');
+        $this->second = $competitors->create('second-'.$tag.'.example', CompetitorStatus::Watched, 'manual');
+    }
+
+    public function testOneLinePerVariantWithTheCheapestComparableOfferFirst(): void
+    {
+        $product = $this->product();
+        $small = $this->variant($product, 'S', '3660600123454');
+        $this->variant($product, 'M', null);
+        $this->offer($small, $this->first, 'matched_judged', true, '-8.000');
+        $this->offer($small, $this->second, 'matched_manual', true, '3.000');
+        $this->offer($small, $this->second, 'needs_review', false, '-30.000');
+        $blacklisted = (new CompetitorRepository())->create('black-'.bin2hex(random_bytes(4)).'.example', CompetitorStatus::Rejected, 'manual');
+        $this->offer($small, $blacklisted, 'matched_judged', true, '-50.000');
+
+        $card = $this->presenter()->present((int) $product->getId(), 'fr_FR');
+
+        self::assertTrue($card['inReferential']);
+        self::assertSame(['compared' => 2, 'review' => 1, 'cheaper' => 1], $card['totals'], 'the blacklisted offer counts nowhere');
+        self::assertCount(2, $card['variants']);
+        self::assertSame('S', $card['variants'][0]['size']);
+        self::assertSame('3660600123454', $card['variants'][0]['gtin'], 'shown as published, without the storage padding');
+        self::assertSame($this->first->getDomain(), $card['variants'][0]['best']['competitor']);
+        self::assertSame('cheaper', $card['variants'][0]['best']['trend']);
+        self::assertStringContainsString('8,0', $card['variants'][0]['best']['gap']);
+        self::assertNull($card['variants'][1]['best']);
+        self::assertStringContainsString('q='.urlencode((string) $product->getRef()), $card['comparatorUrl'], 'the comparator opens on this product');
+    }
+
+    public function testAProductOutsideTheReferentialSaysSo(): void
+    {
+        $card = $this->presenter()->present((int) $this->product()->getId(), 'fr_FR');
+
+        self::assertFalse($card['inReferential']);
+        self::assertSame([], $card['variants']);
+    }
+
+    // ------------------------------------------------------------------
+
+    private function presenter(): ProductCardPresenter
+    {
+        $routes = new RouteCollection();
+        $routes->add('pricewatch_comparator', new Route('/admin/module/pricewatch/comparator'));
+
+        return new ProductCardPresenter(new ComparatorRepository(), new UrlGenerator($routes, new RequestContext()));
+    }
+
+    private function product(): Product
+    {
+        $factory = $this->createFixtureFactory();
+
+        return $factory->product($factory->category(), $factory->taxRule(), $factory->currency());
+    }
+
+    private function variant(Product $product, string $size, ?string $gtin): ProductSaleElements
+    {
+        // The product's default variant first, then new ones.
+        $saleElement = ProductSaleElementsQuery::create()->filterByProductId($product->getId())->findOne();
+
+        if ($saleElement === null || PwProductIdentityQuery::create()->filterByProductSaleElementsId($saleElement->getId())->count() > 0) {
+            $saleElement = (new ProductSaleElements())
+                ->setProductId($product->getId())
+                ->setRef('PW-CARD-'.bin2hex(random_bytes(4)))
+                ->setQuantity(1)
+                ->setIsDefault(false);
+            $saleElement->save();
+        }
+
+        (new PwProductIdentity())
+            ->setProductSaleElementsId($saleElement->getId())
+            ->setProductId($product->getId())
+            ->setSizeLabel($size)
+            ->setGtin($gtin === null ? null : str_pad($gtin, 14, '0', \STR_PAD_LEFT))
+            ->setGtinValid($gtin === null ? 0 : 1)
+            ->setMonitored(1)
+            ->save();
+
+        return $saleElement;
+    }
+
+    private function offer(ProductSaleElements $variant, PwCompetitor $competitor, string $state, bool $comparable, string $deltaPct): void
+    {
+        (new PwCompetitorOffer())
+            ->setCompetitorId($competitor->getId())
+            ->setProductSaleElementsId($variant->getId())
+            ->setOfferKey('card-'.bin2hex(random_bytes(5)))
+            ->setMatchState($state)
+            ->setLastComparable($comparable ? 1 : 0)
+            ->setLastDeltaPct($deltaPct)
+            ->setActive(1)
+            ->save();
+    }
+}

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace PriceWatch\Hook\Admin;
 
 use PriceWatch\Service\Admin\AdminRequestGuard;
+use PriceWatch\Service\Comparator\ProductCardPresenter;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\ReasoningEffort;
 use PriceWatch\Service\Settings\SecretName;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Thelia\Core\Event\Hook\HookRenderBlockEvent;
 use Thelia\Core\Event\Hook\HookRenderEvent;
@@ -20,7 +22,7 @@ use Thelia\Core\Template\ParserResolver;
 use Twig\Environment;
 
 /**
- * Both hook points were checked present in the hook table before subscribing:
+ * Every hook point was checked present in the hook table before subscribing:
  * a hook missing from that table is dropped silently, with no error and no
  * output. main.top-menu-catalog is a block hook, hence HookRenderBlockEvent as
  * first parameter; a wrong type there disables the subscription silently too.
@@ -31,6 +33,8 @@ class PriceWatchAdminHook extends BaseHook
         private readonly SecurityContext $securityContext,
         private readonly PriceWatchSettings $settings,
         private readonly AdminRequestGuard $guard,
+        private readonly ProductCardPresenter $productCard,
+        private readonly RequestStack $requestStack,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly Environment $twig,
         ?EventDispatcherInterface $dispatcher = null,
@@ -44,6 +48,7 @@ class PriceWatchAdminHook extends BaseHook
         return [
             'main.top-menu-catalog' => [['type' => 'back', 'method' => 'onCatalogMenu']],
             'module.configuration' => [['type' => 'back', 'method' => 'onModuleConfiguration']],
+            'product.tab-content' => [['type' => 'back', 'method' => 'onProductTabContent']],
         ];
     }
 
@@ -66,6 +71,22 @@ class PriceWatchAdminHook extends BaseHook
             'url' => $this->urlGenerator->generate('pricewatch_competitors'),
             'title' => $this->trans('Price watch: competitors', [], AdminRequestGuard::MODULE_CODE),
         ]);
+    }
+
+    /**
+     * Rendered in the product page's Modules tab, framed by hook_cards.
+     */
+    public function onProductTabContent(HookRenderEvent $event): void
+    {
+        $productId = (int) $event->getArgument('product');
+
+        if ($productId <= 0 || !$this->securityContext->isGranted(['ADMIN'], [], [AdminRequestGuard::MODULE_CODE], [AccessManager::VIEW])) {
+            return;
+        }
+
+        $locale = $this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR';
+
+        $event->add($this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/product-card.html.twig', $this->productCard->present($productId, $locale)));
     }
 
     public function onModuleConfiguration(HookRenderEvent $event): void

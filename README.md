@@ -50,6 +50,13 @@ comparing row counts around the run.
 **Never run `bin/test-prepare` against this install.** It calls
 `createDatabase()` on `DATABASE_NAME`, which here is the development database.
 
+**Never run a statement that commits implicitly in a test** (`ANALYZE TABLE`,
+`OPTIMIZE`, any DDL). It ends the transaction behind Propel's back and
+everything the test wrote stays in the development database. The base class
+writes a sentinel row at the start of each test and fails the test if the row
+survives the rollback, so such a test cannot go unnoticed, but the rows it
+wrote still have to be removed by hand.
+
 ### Why not `Thelia\Test\IntegrationTestCase`
 
 It extends `KernelTestCase`, which needs `framework.test: true`, which only

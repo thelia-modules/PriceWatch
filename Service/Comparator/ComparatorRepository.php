@@ -10,6 +10,7 @@ use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Model\PwCompetitorQuery;
 use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwPriceQuoteQuery;
+use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use Propel\Runtime\ActiveQuery\Criteria;
@@ -191,6 +192,46 @@ final readonly class ComparatorRepository
         }
 
         return $identities;
+    }
+
+    /**
+     * @return list<PwProductIdentity> the product's variants in the referential
+     */
+    public function identitiesOfProduct(int $productId): array
+    {
+        return PwProductIdentityQuery::create()
+            ->filterByProductId($productId)
+            ->joinWithProductSaleElements()
+            ->orderByProductSaleElementsId()
+            ->find()
+            ->getData();
+    }
+
+    /**
+     * @param list<int> $saleElementIds
+     *
+     * @return list<PwCompetitorOffer> active offers of whitelisted competitors
+     */
+    public function offersOfVariants(array $saleElementIds): array
+    {
+        $competitors = array_keys($this->competitors());
+
+        if ($saleElementIds === [] || $competitors === []) {
+            return [];
+        }
+
+        return PwCompetitorOfferQuery::create()
+            ->filterByProductSaleElementsId($saleElementIds, Criteria::IN)
+            ->filterByCompetitorId($competitors, Criteria::IN)
+            ->filterByActive(1)
+            ->orderByLastDeltaPct()
+            ->find()
+            ->getData();
+    }
+
+    public function productRef(int $productId): ?string
+    {
+        return ProductQuery::create()->findPk($productId)?->getRef();
     }
 
     public function find(int $offerId): ?PwCompetitorOffer

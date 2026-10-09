@@ -215,4 +215,16 @@ return [
     'Offer confirmed: same product, same size. It will not be judged again.' => 'Offre confirmée : même produit, même taille. Elle ne sera plus rejugée.',
     'Offer excluded: it will not count in the gap.' => 'Offre écartée : elle ne compte plus dans l\'écart.',
     'Offer sent back to review.' => 'Offre remise à vérifier.',
+
+    // Product card
+    'This product is not in the price watch referential: no competitor price is collected for it.' => 'Ce produit n\'est pas dans le référentiel de veille : aucun prix concurrent n\'est relevé pour lui.',
+    '%compared% offer(s) compared, %cheaper% where the competitor is cheaper, %review% waiting for your review.' => '%compared% offre(s) comparée(s), dont %cheaper% où le concurrent est moins cher, %review% en attente de votre vérification.',
+    'Open in the comparator' => 'Ouvrir dans le comparateur',
+    'Review' => 'Vérifier',
+    'Variant' => 'Déclinaison',
+    'Best gap' => 'Meilleur écart',
+    'not monitored' => 'non surveillée',
+    'invalid' => 'invalide',
+    'shared' => 'partagé',
+    'none' => 'aucun',
 ];
