@@ -1,0 +1,175 @@
+{#
+    Secret fields are write-only: they are always rendered empty. The badge
+    says where the key comes from and when it was saved, never any part of it.
+#}
+{% macro secret_field(secret, label, help, testForm) %}
+    <div class="mb-3" data-testid="pw-secret-{{ secret.field }}">
+        <div class="d-flex align-items-center gap-2 mb-1">
+            <label class="form-label mb-0 fw-semibold" for="pw-{{ secret.field }}">{{ label }}</label>
+            {% if secret.source == 'environment' %}
+                <span class="badge text-bg-secondary">{{ 'Set by the server environment'|trans({}, 'pricewatch') }}</span>
+            {% elseif secret.source == 'admin' %}
+                <span class="badge text-bg-success">{{ 'Saved'|trans({}, 'pricewatch') }}{% if secret.updatedAt %} {{ secret.updatedAt }}{% endif %}</span>
+            {% elseif secret.source == 'unreadable' %}
+                <span class="badge text-bg-danger">{{ 'Unreadable, enter it again'|trans({}, 'pricewatch') }}</span>
+            {% else %}
+                <span class="badge text-bg-warning">{{ 'Not set'|trans({}, 'pricewatch') }}</span>
+            {% endif %}
+        </div>
+        <div class="input-group">
+            <input type="password" class="form-control" id="pw-{{ secret.field }}" name="{{ secret.field }}"
+                   autocomplete="new-password" spellcheck="false"
+                   {% if secret.source == 'environment' %}disabled placeholder="{{ secret.environmentVariable }}"
+                   {% elseif secret.source == 'admin' %}placeholder="{{ 'Leave empty to keep the saved key'|trans({}, 'pricewatch') }}"{% endif %}>
+            {% if testForm %}
+                <button type="submit" class="btn btn-outline-secondary" form="{{ testForm }}"
+                        {% if secret.source in ['missing', 'unreadable'] %}disabled{% endif %}>{{ 'Test'|trans({}, 'pricewatch') }}</button>
+            {% endif %}
+        </div>
+        {% if help %}<div class="form-text">{{ help }}</div>{% endif %}
+        {% if secret.source in ['admin', 'unreadable'] %}
+            <div class="form-check mt-1">
+                <input class="form-check-input" type="checkbox" value="1" id="pw-{{ secret.field }}-clear" name="{{ secret.field }}_clear">
+                <label class="form-check-label small" for="pw-{{ secret.field }}-clear">{{ 'Delete the saved key'|trans({}, 'pricewatch') }}</label>
+            </div>
+        {% endif %}
+    </div>
+{% endmacro %}
+
+<div class="container-fluid px-0" data-testid="pricewatch-configuration">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h2 class="h4 mb-1">{{ 'Price watch settings'|trans({}, 'pricewatch') }}</h2>
+            <p class="text-muted mb-0">{{ 'Keys are stored encrypted. A key defined in the server environment takes precedence and cannot be changed here.'|trans({}, 'pricewatch') }}</p>
+        </div>
+        <a class="btn btn-outline-primary" href="{{ path('pricewatch_competitors') }}">{{ 'Manage competitors'|trans({}, 'pricewatch') }}</a>
+    </div>
+
+    <form id="pw-settings-form" method="post" action="{{ path('pricewatch_settings_save') }}">
+        <input type="hidden" name="_token" value="{{ csrfToken }}">
+
+        <div class="row g-3">
+            <div class="col-12 col-xl-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span class="fw-semibold">{{ 'Jev controls'|trans({}, 'pricewatch') }}</span>
+                        <span class="badge {{ jevReady ? 'text-bg-success' : 'text-bg-warning' }}">{{ jevReady ? 'Ready'|trans({}, 'pricewatch') : 'Not ready'|trans({}, 'pricewatch') }}</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small">{{ 'Jev checks that a competitor offer is the same product, the same variant, and that its price is comparable.'|trans({}, 'pricewatch') }}</p>
+                        <fieldset class="mb-3">
+                            <legend class="form-label fw-semibold fs-6">{{ 'Reach Jev through'|trans({}, 'pricewatch') }}</legend>
+                            {% for provider in jevProviders %}
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="jev_provider" id="pw-jev-{{ provider }}" value="{{ provider }}" {% if provider == jevProvider %}checked{% endif %}>
+                                    <label class="form-check-label" for="pw-jev-{{ provider }}">
+                                        {{ provider == 'typesafe' ? 'TypeSafe, directly'|trans({}, 'pricewatch') : 'OpenRouter, with the OpenRouter key below'|trans({}, 'pricewatch') }}
+                                    </label>
+                                </div>
+                            {% endfor %}
+                        </fieldset>
+                        {{ _self.secret_field(secrets.typesafe_api_key, 'TypeSafe API key'|trans({}, 'pricewatch'), null, 'pw-test-typesafe') }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-xl-6">
+                <div class="card h-100">
+                    <div class="card-header fw-semibold">OpenRouter</div>
+                    <div class="card-body">
+                        <p class="text-muted small">{{ 'Used by the reasoning model, and by Jev when Jev is reached through OpenRouter.'|trans({}, 'pricewatch') }}</p>
+                        {{ _self.secret_field(secrets.openrouter_api_key, 'OpenRouter API key'|trans({}, 'pricewatch'), null, 'pw-test-openrouter') }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span class="fw-semibold">{{ 'Reasoning model for competitor search'|trans({}, 'pricewatch') }}</span>
+                        <span class="badge {{ llmReady ? 'text-bg-success' : 'text-bg-warning' }}">{{ llmReady ? 'Ready'|trans({}, 'pricewatch') : 'Not ready'|trans({}, 'pricewatch') }}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-6">
+                                <label class="form-label fw-semibold" for="pw-llm-model">{{ 'Model'|trans({}, 'pricewatch') }}</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control font-monospace" id="pw-llm-model" name="llm_model" list="pw-model-list"
+                                           value="{{ llmModel }}" placeholder="vendor/model" spellcheck="false" autocomplete="off">
+                                    <button type="submit" class="btn btn-outline-secondary" form="pw-refresh-models"
+                                            {% if secrets.openrouter_api_key.source not in ['admin', 'environment'] %}disabled{% endif %}>{{ 'Load the model list'|trans({}, 'pricewatch') }}</button>
+                                </div>
+                                <datalist id="pw-model-list">
+                                    {% for model in modelList %}
+                                        <option value="{{ model.id }}">{{ model.name }}{% if model.reasoning %} ({{ 'reasoning'|trans({}, 'pricewatch') }}){% endif %}</option>
+                                    {% endfor %}
+                                </datalist>
+                                <div class="form-text">
+                                    {% if modelList is empty %}
+                                        {{ 'Save the OpenRouter key, then load the list of available models.'|trans({}, 'pricewatch') }}
+                                    {% else %}
+                                        {{ '%count% models available. Models that support reasoning are listed first.'|trans({'%count%': modelList|length}, 'pricewatch') }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-12 col-sm-6 col-lg-3">
+                                <label class="form-label fw-semibold" for="pw-llm-effort">{{ 'Reasoning effort'|trans({}, 'pricewatch') }}</label>
+                                <select class="form-select" id="pw-llm-effort" name="llm_reasoning_effort">
+                                    {% for effort in reasoningEfforts %}
+                                        <option value="{{ effort }}" {% if effort == reasoningEffort %}selected{% endif %}>{{ ('effort.' ~ effort)|trans({}, 'pricewatch') }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-12 col-sm-6 col-lg-3 d-flex align-items-end">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" value="1" id="pw-llm-web" name="llm_web_search" {% if webSearch %}checked{% endif %}>
+                                    <label class="form-check-label" for="pw-llm-web">{{ 'Search the web'|trans({}, 'pricewatch') }}</label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-semibold" for="pw-shop-description">{{ 'About the shop'|trans({}, 'pricewatch') }}</label>
+                                <textarea class="form-control" id="pw-shop-description" name="shop_description" rows="2" maxlength="500">{{ shopDescription }}</textarea>
+                                <div class="form-text">{{ 'Optional. One or two sentences on what you sell and to whom, to help the model find direct competitors.'|trans({}, 'pricewatch') }}</div>
+                            </div>
+                        </div>
+                        <p class="text-muted small mt-3 mb-0">{{ 'Without web search, suggestions rely on what the model learned in training: they may be dated, and some shops may not exist.'|trans({}, 'pricewatch') }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header fw-semibold">DataForSEO</div>
+                    <div class="card-body">
+                        <p class="text-muted small">{{ 'Source of competitor prices through Google Shopping.'|trans({}, 'pricewatch') }}</p>
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-6">
+                                <label class="form-label fw-semibold" for="pw-dataforseo-login">{{ 'Login'|trans({}, 'pricewatch') }}</label>
+                                <input type="text" class="form-control" id="pw-dataforseo-login" name="dataforseo_login" autocomplete="off" spellcheck="false"
+                                       value="{{ dataforseoLogin }}" {% if dataforseoLoginFromEnvironment %}disabled placeholder="DATAFORSEO_USERNAME"{% endif %}>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                {{ _self.secret_field(secrets.dataforseo_password, 'Password'|trans({}, 'pricewatch'), null, 'pw-test-dataforseo') }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-3 d-flex align-items-center gap-3">
+            <button type="submit" class="btn btn-primary">{{ 'Save'|trans({}, 'pricewatch') }}</button>
+            <span class="small text-muted">{{ 'The Test buttons check the saved key: save a newly typed key first.'|trans({}, 'pricewatch') }}</span>
+        </div>
+    </form>
+
+    {# Separate forms: HTML forms cannot nest, the buttons above point here through their form attribute. #}
+    {% for service in ['openrouter', 'typesafe', 'dataforseo'] %}
+        <form id="pw-test-{{ service }}" method="post" action="{{ path('pricewatch_settings_test', {service: service}) }}" class="d-none">
+            <input type="hidden" name="_token" value="{{ csrfToken }}">
+        </form>
+    {% endfor %}
+    <form id="pw-refresh-models" method="post" action="{{ path('pricewatch_settings_models') }}" class="d-none">
+        <input type="hidden" name="_token" value="{{ csrfToken }}">
+    </form>
+</div>

@@ -1,0 +1,164 @@
+<?php
+
+declare(strict_types=1);
+
+namespace PriceWatch\Controller\Admin;
+
+use PriceWatch\Service\Admin\AdminRequestGuard;
+use PriceWatch\Service\Llm\LlmException;
+use PriceWatch\Service\Llm\OpenRouterClient;
+use PriceWatch\Service\Settings\ConnectionCheck;
+use PriceWatch\Service\Settings\InvalidSettingException;
+use PriceWatch\Service\Settings\JevProvider;
+use PriceWatch\Service\Settings\PriceWatchSettings;
+use PriceWatch\Service\Settings\ReasoningEffort;
+use PriceWatch\Service\Settings\SecretName;
+use PriceWatch\Service\Settings\SecretSource;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
+
+final readonly class SettingsController
+{
+    public function __construct(
+        private AdminRequestGuard $guard,
+        private PriceWatchSettings $settings,
+        private ConnectionCheck $connectionCheck,
+        private OpenRouterClient $openRouter,
+        private UrlGeneratorInterface $urlGenerator,
+        private TranslatorInterface $translator,
+    ) {
+    }
+
+    #[Route('/admin/module/pricewatch/settings/save', name: 'pricewatch_settings_save', methods: ['POST'])]
+    public function save(Request $request): Response
+    {
+        if ($denied = $this->guard->denyChange($request)) {
+            return $denied;
+        }
+
+        $errors = [];
+        $attempt = function (callable $change) use (&$errors): void {
+            try {
+                $change();
+            } catch (InvalidSettingException $error) {
+                $errors[] = $error->getMessage();
+            }
+        };
+
+        $provider = JevProvider::tryFrom((string) $request->request->get('jev_provider'));
+        if ($provider !== null) {
+            $this->settings->setJevProvider($provider);
+        }
+
+        foreach (SecretName::cases() as $name) {
+            // A key provisioned by the server environment is not editable here.
+            if ($this->settings->secretSource($name) === SecretSource::Environment) {
+                continue;
+            }
+
+            if ($request->request->get($name->value.'_clear') === '1') {
+                $this->settings->clearSecret($name);
+                continue;
+            }
+
+            $value = (string) $request->request->get($name->value, '');
+
+            // Empty means "keep what is stored": the field never shows the key.
+            if (trim($value) !== '') {
+                $attempt(fn () => $this->settings->storeSecret($name, $value));
+            }
+        }
+
+        if (!$this->settings->dataforseoLoginFromEnvironment()) {
+            $attempt(fn () => $this->settings->setDataforseoLogin((string) $request->request->get('dataforseo_login', '')));
+        }
+
+        $attempt(fn () => $this->settings->setLlmModel((string) $request->request->get('llm_model', '')));
+        $attempt(fn () => $this->settings->setShopDescription((string) $request->request->get('shop_description', '')));
+
+        $effort = ReasoningEffort::tryFrom((string) $request->request->get('llm_reasoning_effort'));
+        if ($effort !== null) {
+            $this->settings->setReasoningEffort($effort);
+        }
+
+        $this->settings->setWebSearchEnabled($request->request->get('llm_web_search') === '1');
+
+        foreach ($errors as $error) {
+            $this->flash($request, 'danger', $error);
+        }
+
+        if ($errors === []) {
+            $this->flash($request, 'success', 'Settings saved.');
+        }
+
+        return $this->backToSettings();
+    }
+
+    #[Route(
+        '/admin/module/pricewatch/settings/test/{service}',
+        name: 'pricewatch_settings_test',
+        requirements: ['service' => 'openrouter|typesafe|dataforseo'],
+        methods: ['POST'],
+    )]
+    public function test(Request $request, string $service): Response
+    {
+        if ($denied = $this->guard->denyChange($request)) {
+            return $denied;
+        }
+
+        $result = match ($service) {
+            'openrouter' => $this->connectionCheck->openRouter(),
+            'typesafe' => $this->connectionCheck->typesafe(),
+            'dataforseo' => $this->connectionCheck->dataforseo(),
+        };
+
+        // ConnectionCheck never puts a key in its messages; fixed ones are
+        // translated, those carrying a status code stay as they are.
+        $this->flash($request, $result['ok'] ? 'success' : 'danger', $result['message']);
+
+        return $this->backToSettings();
+    }
+
+    #[Route('/admin/module/pricewatch/settings/models', name: 'pricewatch_settings_models', methods: ['POST'])]
+    public function refreshModels(Request $request): Response
+    {
+        if ($denied = $this->guard->denyChange($request)) {
+            return $denied;
+        }
+
+        try {
+            $models = $this->openRouter->listModels();
+        } catch (LlmException $error) {
+            $this->flash($request, 'danger', $error->getMessage());
+
+            return $this->backToSettings();
+        }
+
+        $this->settings->storeModelList($models);
+        $reasoning = \count(array_filter($models, static fn (array $model): bool => $model['reasoning']));
+
+        $this->flash($request, 'success', '%count% models loaded, %reasoning% of them support reasoning.', [
+            '%count%' => \count($models),
+            '%reasoning%' => $reasoning,
+        ]);
+
+        return $this->backToSettings();
+    }
+
+    /**
+     * @param array<string, int|string> $parameters
+     */
+    private function flash(Request $request, string $type, string $message, array $parameters = []): void
+    {
+        $request->getSession()->getFlashBag()->add($type, $this->translator->trans($message, $parameters, AdminRequestGuard::MODULE_CODE));
+    }
+
+    private function backToSettings(): RedirectResponse
+    {
+        return new RedirectResponse($this->urlGenerator->generate('admin.module.configure', ['module_code' => 'PriceWatch']));
+    }
+}

@@ -179,6 +179,23 @@ final class PriceWatchSettingsTest extends TestCase
         self::assertSame([], $settings->modelList());
     }
 
+    public function testShopDescriptionIsTrimmedAndCapped(): void
+    {
+        $settings = $this->settings();
+        $settings->setShopDescription("  Équipement moto néo-rétro.  ");
+
+        self::assertSame('Équipement moto néo-rétro.', $settings->shopDescription());
+
+        $settings->setShopDescription('');
+        self::assertNull($settings->shopDescription());
+
+        $settings->setShopDescription(str_repeat('é', 500));
+        self::assertSame(500, mb_strlen((string) $settings->shopDescription()), 'the cap counts characters, not bytes');
+
+        $this->expectException(InvalidSettingException::class);
+        $settings->setShopDescription(str_repeat('a', 501));
+    }
+
     public function testDataforseoLoginFromEnvironmentWins(): void
     {
         $settings = $this->settings(['DATAFORSEO_USERNAME' => 'ops@example.com']);
