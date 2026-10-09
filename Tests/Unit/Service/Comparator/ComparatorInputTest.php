@@ -25,6 +25,28 @@ final class ComparatorInputTest extends TestCase
         self::assertNull(ComparatorPresenter::safeUrl(null));
     }
 
+    public function testLinksFromTheMostToTheLeastDirect(): void
+    {
+        $links = ComparatorPresenter::links(
+            'https://www.motoblouz.com/vente-blouson-moto-helstons-indy-cuir-rag-241159.html?size=S',
+            'https://google.fr/search?ibp=oshop&q=cid%3A5363984672087245351',
+            'motoblouz.com',
+            'Blouson Helstons Indy cuir noir',
+        );
+
+        self::assertSame('https://www.motoblouz.com/vente-blouson-moto-helstons-indy-cuir-rag-241159.html?size=S', $links['product']);
+        self::assertSame('https://google.fr/search?ibp=oshop&q=cid%3A5363984672087245351', $links['google']);
+        self::assertSame('https://www.google.com/search?q=site%3Amotoblouz.com+Blouson+Helstons+Indy+cuir+noir', $links['search']);
+        self::assertSame('https://motoblouz.com', $links['site']);
+    }
+
+    public function testNoLinkIsBuiltFromSomethingThatIsNotADomain(): void
+    {
+        $links = ComparatorPresenter::links('file:///goto%3Furl=CAES', 'javascript:alert(1)', 'evil.example/"><script>', 'x');
+
+        self::assertSame(['product' => null, 'google' => null, 'search' => null, 'site' => null], $links);
+    }
+
     public function testUnknownOrHostileQueryValuesFallBackToTheDefaults(): void
     {
         $filters = ComparatorFilters::fromRequest(new Request([

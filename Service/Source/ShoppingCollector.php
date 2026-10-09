@@ -75,6 +75,7 @@ final readonly class ShoppingCollector
         $run->save();
 
         $watched = $this->watchedCompetitors();
+        $domainsById = array_flip($watched);
         $sellers = new SellerMatcher($watched, $this->domains, $this->text);
         $identities = $this->identities($limit, $productRefs, $onePerProduct);
         $errors = [];
@@ -165,7 +166,8 @@ final readonly class ShoppingCollector
 
                 foreach ($this->waitFor('sellers', $postedSellers['tasks'], $maxWaitSeconds, $sandbox) as $productId => $taskId) {
                     try {
-                        $offers = $this->client->sellerOffers($taskId, $sandbox)['offers'];
+                        $listing = $this->client->sellerOffers($taskId, $sandbox);
+                        $offers = $listing['offers'];
                     } catch (DataForSeoException $error) {
                         $errors[] = \sprintf('sellers of card %s: %s', $productId, $error->getMessage());
                         continue;
@@ -185,7 +187,12 @@ final readonly class ShoppingCollector
                                 continue;
                             }
 
-                            if ($this->record($identity, $competitorId, $cards[$tag], $searchedBy[$tag], $offer, $ourPrice, (int) $run->getId())) {
+                            $links = [
+                                'merchant' => $this->merchantUrl($listing['pageUrl'], $domainsById[$competitorId] ?? null),
+                                'google' => $listing['googleUrl'] ?? $cards[$tag]->googleUrl,
+                            ];
+
+                            if ($this->record($identity, $competitorId, $cards[$tag], $searchedBy[$tag], $offer, $links, $ourPrice, (int) $run->getId())) {
                                 ++$counts['written'];
                             }
                         }
@@ -384,7 +391,28 @@ final readonly class ShoppingCollector
         return $identities;
     }
 
-    private function record(PwProductIdentity $identity, int $competitorId, ShoppingCard $card, string $searchedBy, SellerOffer $offer, ?string $ourPrice, int $runId): bool
+    /**
+     * The result's product page is the one of the seller Google lists first:
+     * it is this competitor's page only if it is on this competitor's domain.
+     */
+    private function merchantUrl(?string $pageUrl, ?string $competitorDomain): ?string
+    {
+        if ($competitorDomain === null || !self::isWebUrl($pageUrl)) {
+            return null;
+        }
+
+        return $this->domains->registrableDomain($pageUrl) === $competitorDomain ? $pageUrl : null;
+    }
+
+    private static function isWebUrl(?string $url): bool
+    {
+        return \is_string($url) && preg_match('#^https?://[^\s"\'<>]+$#i', $url) === 1;
+    }
+
+    /**
+     * @param array{merchant: ?string, google: ?string} $links
+     */
+    private function record(PwProductIdentity $identity, int $competitorId, ShoppingCard $card, string $searchedBy, SellerOffer $offer, array $links, ?string $ourPrice, int $runId): bool
     {
         $saleElementId = (int) $identity->getProductSaleElementsId();
         $offerKey = 'shopping:'.$saleElementId;
@@ -421,7 +449,10 @@ final readonly class ShoppingCollector
         $delta = $price !== null && $ourPrice !== null ? (float) $price - (float) $ourPrice : null;
 
         $model
-            ->setUrl($offer->url)
+            // A link found on an earlier day stays: Google lists a different
+            // seller first from one day to the next. Its own redirect token
+            // ("file:///goto?url=...") is no link at all.
+            ->setUrl($links['merchant'] ?? (self::isWebUrl($model->getUrl()) ? $model->getUrl() : null))
             ->setRemoteTitle(mb_substr($card->title, 0, 255))
             ->setRemoteVariantLabel($offer->details === null ? null : mb_substr($offer->details, 0, 190))
             ->setRemoteCondition($offer->condition === null ? null : mb_substr($offer->condition, 0, 20))
@@ -463,7 +494,7 @@ final readonly class ShoppingCollector
             ->setComparable($comparable ? 1 : 0)
             ->setExclusionReason($comparable ? null : $model->getExclusionReason())
             ->setExtractionMethod('dataforseo_sellers')
-            ->setRawPayloadJson(json_encode(['searched_by' => $searchedBy, 'card' => (array) $card, 'offer' => (array) $offer],\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
+            ->setRawPayloadJson(json_encode(['searched_by' => $searchedBy, 'google_url' => $links['google'], 'card' => (array) $card, 'offer' => (array) $offer],\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
             ->setCollectRunId($runId)
             ->save();
 

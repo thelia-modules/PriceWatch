@@ -132,6 +132,8 @@ final readonly class DataForSeoClient
                 seller: \is_string($item['seller'] ?? null) ? $item['seller'] : null,
                 domain: \is_string($item['domain'] ?? null) ? $item['domain'] : null,
                 rank: (int) ($item['rank_absolute'] ?? 0),
+                googleUrl: \is_string($item['shopping_url'] ?? null) ? $item['shopping_url'] : null,
+                image: \is_string($item['product_images'][0] ?? null) ? $item['product_images'][0] : null,
             );
         }
 
@@ -139,13 +141,18 @@ final readonly class DataForSeoClient
     }
 
     /**
-     * @return array{tag: ?string, offers: list<SellerOffer>}
+     * Seller items carry no merchant link, only a Google redirect token that
+     * cannot be decoded. The result itself does (recorded live, 2026-10-09):
+     * url is the product page of the seller Google lists first, check_url
+     * the Google Shopping page listing them all.
+     *
+     * @return array{tag: ?string, offers: list<SellerOffer>, pageUrl: ?string, googleUrl: ?string}
      *
      * @throws DataForSeoException
      */
     public function sellerOffers(string $taskId, bool $sandbox = false): array
     {
-        [$tag, $items] = $this->resultItems('/merchant/google/sellers/task_get/advanced/'.$taskId, $sandbox);
+        [$tag, $items, $result] = $this->resultItems('/merchant/google/sellers/task_get/advanced/'.$taskId, $sandbox);
         $offers = [];
 
         foreach ($items as $item) {
@@ -173,7 +180,12 @@ final readonly class DataForSeoClient
             );
         }
 
-        return ['tag' => $tag, 'offers' => $offers];
+        return [
+            'tag' => $tag,
+            'offers' => $offers,
+            'pageUrl' => \is_string($result['url'] ?? null) ? $result['url'] : null,
+            'googleUrl' => \is_string($result['check_url'] ?? null) ? $result['check_url'] : null,
+        ];
     }
 
     /**
@@ -209,7 +221,7 @@ final readonly class DataForSeoClient
     }
 
     /**
-     * @return array{0: ?string, 1: list<array<string, mixed>>}
+     * @return array{0: ?string, 1: list<array<string, mixed>>, 2: array<string, mixed>} tag, items, the result itself
      *
      * @throws DataForSeoException
      */
@@ -219,7 +231,7 @@ final readonly class DataForSeoClient
         $task = $payload['tasks'][0] ?? null;
 
         if (!\is_array($task)) {
-            return [null, []];
+            return [null, [], []];
         }
 
         $status = (int) ($task['status_code'] ?? 0);
@@ -229,9 +241,10 @@ final readonly class DataForSeoClient
         }
 
         $tag = \is_string($task['data']['tag'] ?? null) ? $task['data']['tag'] : null;
-        $items = $task['result'][0]['items'] ?? [];
+        $result = \is_array($task['result'][0] ?? null) ? $task['result'][0] : [];
+        $items = $result['items'] ?? [];
 
-        return [$tag, \is_array($items) ? array_values(array_filter($items, \is_array(...))) : []];
+        return [$tag, \is_array($items) ? array_values(array_filter($items, \is_array(...))) : [], $result];
     }
 
     /**

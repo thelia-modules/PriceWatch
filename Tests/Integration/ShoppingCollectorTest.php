@@ -216,6 +216,46 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, $today?->getComparable(), 'today\'s reading counts as yesterday\'s did');
     }
 
+    public function testTheProductPageIsKeptWhenItIsOnThisCompetitorsSite(): void
+    {
+        $identity = $this->identity('3660600123454');
+
+        $this->collector($this->answers([$this->watched, null, null], 'https://www.'.$this->watched.'/casque-123.html?size=M'))->collect(10, 1, 60, [], true);
+
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
+        self::assertSame('https://www.'.$this->watched.'/casque-123.html?size=M', $offer?->getUrl());
+        $payload = json_decode((string) PwPriceQuoteQuery::create()->filterByOfferId($offer?->getId())->findOne()?->getRawPayloadJson(), true);
+        self::assertStringStartsWith('https://google.com/search?ibp=oshop', (string) $payload['google_url'], 'the Google Shopping page lists every seller with a working link');
+        self::assertStringStartsWith('https://encrypted-tbn', (string) $payload['card']['image']);
+    }
+
+    public function testAnotherSellersPageIsNeverTakenForThisCompetitors(): void
+    {
+        $identity = $this->identity('3660600123454');
+
+        // The recorded answer's page is walmart.com: not our competitor.
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
+        self::assertNotNull($offer);
+        self::assertNull($offer->getUrl(), 'and the seller\'s Google redirect token is no link either');
+    }
+
+    public function testALinkFoundOnAnEarlierDayStays(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $this->collector($this->answers([$this->watched, null, null], 'https://www.'.$this->watched.'/casque-123.html'))->collect(10, 1, 60, [], true);
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
+        self::assertNotNull($offer);
+        PwPriceQuoteQuery::create()->filterByOfferId($offer->getId())->update(['CollectedDay' => new \DateTime('yesterday')]);
+
+        // Today Google lists another seller first.
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        $offer->reload();
+        self::assertSame('https://www.'.$this->watched.'/casque-123.html', $offer->getUrl());
+    }
+
     public function testSamplingTakesOneVariantPerProduct(): void
     {
         $first = $this->identity('3660600123454');
@@ -333,9 +373,15 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
      *
      * @return array<string, array<string, mixed>>
      */
-    private function answers(array $sellerDomains): array
+    private function answers(array $sellerDomains, ?string $pageUrl = null): array
     {
         $sellers = $this->fixture('sellers-task_get_advanced');
+
+        if ($pageUrl !== null) {
+            // The product page Google gives with the result: the first seller's.
+            $sellers['tasks'][0]['result'][0]['url'] = $pageUrl;
+        }
+
         $items = \array_slice($sellers['tasks'][0]['result'][0]['items'], 0, \count($sellerDomains));
 
         foreach ($sellerDomains as $index => $domain) {

@@ -76,4 +76,16 @@ return [
     'position.dearer' => 'We are dearer',
     'position.equal' => 'Same price',
     'position.unknown' => 'Unknown gap',
+
+    'confidence.high' => 'High reliability',
+    'confidence.medium' => 'Medium reliability',
+    'confidence.low' => 'Low reliability',
+    'confidence.human' => 'Human decision',
+    'confidence.rule' => 'Automatic rule',
+    'confidence.none' => 'Not judged',
+    'found_by.gtin' => 'GTIN',
+    'found_by.title' => 'Title',
+    'gauge.same_product' => 'Product',
+    'gauge.same_variant' => 'Size',
+    'gauge.price_comparability' => 'Price',
 ];

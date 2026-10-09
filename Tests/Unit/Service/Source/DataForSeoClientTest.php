@@ -75,6 +75,8 @@ final class DataForSeoClientTest extends TestCase
         self::assertSame('1199.00', $first->price, 'prices become strings for the DECIMAL setters');
         self::assertSame('USD', $first->currency);
         self::assertSame(1, $first->rank);
+        self::assertStringStartsWith('https://google.com/search?ibp=oshop', (string) $first->googleUrl);
+        self::assertStringStartsWith('https://encrypted-tbn3.gstatic.com/shopping', (string) $first->image);
     }
 
     public function testSellerOffersFromARecordedAnswer(): void
@@ -88,6 +90,17 @@ final class DataForSeoClientTest extends TestCase
         self::assertSame('124.99', $first->priceExcludingShipping());
         self::assertSame('in_stock', $first->availability);
         self::assertSame('Refurbished', $result['offers'][2]->condition, 'condition is carried through for the prefilter');
+        self::assertStringStartsWith('https://www.walmart.com/ip/', (string) $result['pageUrl'], 'the result carries the first seller\'s product page');
+        self::assertStringStartsWith('https://google.com/search?ibp=oshop', (string) $result['googleUrl']);
+    }
+
+    public function testOnlyTheResultCarriesAMerchantLinkInALiveAnswer(): void
+    {
+        $result = $this->client([new MockResponse((string) file_get_contents(self::FIXTURES.'dataforseo-live-sellers-task_get_advanced.json'))])->sellerOffers('any');
+
+        self::assertSame('https://www.motoblouz.com/vente-blouson-moto-helstons-indy-cuir-rag-241159.html?color=Noir%2FNoir&size=S', $result['pageUrl']);
+        self::assertSame('Motoblouz.com', $result['offers'][0]->sellerName, 'and it is the page of the seller listed first');
+        self::assertStringStartsWith('file:///goto', (string) $result['offers'][0]->url, 'sellers only carry a Google redirect token');
     }
 
     public function testItemisedTaxIsAddedToThePriceShownBeforeDelivery(): void

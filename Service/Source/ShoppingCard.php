@@ -19,6 +19,10 @@ final readonly class ShoppingCard
         public ?string $seller,
         public ?string $domain,
         public int $rank,
+        /** The Google Shopping page of the card, where every seller is listed. */
+        public ?string $googleUrl = null,
+        /** First product picture: lets a human see at a glance what was matched. */
+        public ?string $image = null,
     ) {
     }
 }

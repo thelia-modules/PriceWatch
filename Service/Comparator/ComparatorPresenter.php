@@ -6,7 +6,6 @@ namespace PriceWatch\Service\Comparator;
 
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwPriceQuote;
-use PriceWatch\Service\Jev\OfferQuestions;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
@@ -91,6 +90,26 @@ final readonly class ComparatorPresenter
      * Gaps are stored in percent (-12.5 for -12.5 %); the sign is always
      * shown, since it says who is cheaper.
      */
+    /**
+     * From the most to the least direct: the product page itself when Google
+     * gave it for this competitor, the Google Shopping page listing every
+     * seller with a working link, and a search restricted to the
+     * competitor's site, which always exists.
+     *
+     * @return array{product: ?string, google: ?string, search: ?string, site: ?string}
+     */
+    public static function links(?string $productUrl, mixed $googleUrl, string $competitorDomain, string $productTitle): array
+    {
+        $domain = preg_match('/^[a-z0-9.-]+\.[a-z]{2,}$/', $competitorDomain) === 1 ? $competitorDomain : null;
+
+        return [
+            'product' => self::safeUrl($productUrl),
+            'google' => self::safeUrl(\is_string($googleUrl) ? $googleUrl : null),
+            'search' => $domain === null ? null : 'https://www.google.com/search?'.http_build_query(['q' => 'site:'.$domain.' '.$productTitle]),
+            'site' => $domain === null ? null : 'https://'.$domain,
+        ];
+    }
+
     private static function percent(float $value, \NumberFormatter $percent): string
     {
         return ($value > 0 ? '+' : '').$percent->format($value / 100);
@@ -130,7 +149,8 @@ final readonly class ComparatorPresenter
             'competitor' => $competitor,
             'remoteTitle' => (string) $offer->getRemoteTitle(),
             'remoteVariant' => $offer->getRemoteVariantLabel(),
-            'url' => self::safeUrl($offer->getUrl()),
+            'links' => self::links($offer->getUrl(), \is_array($payload) ? ($payload['google_url'] ?? null) : null, $competitor, $product['title'] ?? ''),
+            'image' => \is_array($payload) ? self::safeUrl(\is_string($payload['card']['image'] ?? null) ? $payload['card']['image'] : null) : null,
             'theirs' => $theirs === null ? null : $money->formatCurrency((float) $theirs, (string) ($offer->getLastCurrencyCode() ?? 'EUR')),
             'ours' => $ours === null ? null : $money->formatCurrency((float) $ours, 'EUR'),
             'shipping' => $quote?->getShippingPrice() === null ? null : $money->formatCurrency((float) $quote->getShippingPrice(), (string) ($quote->getCurrencyCode() ?? 'EUR')),
@@ -141,44 +161,13 @@ final readonly class ComparatorPresenter
             'seenAt' => $offer->getLastSeenAt()?->format('d/m/Y H:i'),
             'searchedBy' => \is_array($payload) && \is_string($payload['searched_by'] ?? null) ? $payload['searched_by'] : null,
             'extraction' => $quote?->getExtractionMethod(),
-            'jev' => $this->judgment(\is_array($judgment) ? $judgment : []),
+            'confidence' => MatchConfidence::of($offer->getMatchMethod(), \is_array($judgment) ? $judgment : []),
             'actions' => [
                 'confirm' => \in_array($state, ['needs_review', 'rejected', 'candidate'], true) || ($state !== OfferReview::HUMAN_MATCH && \in_array($state, ComparatorView::MATCHED_STATES, true) && (int) $offer->getLastComparable() === 0),
                 'reject' => $state !== 'rejected',
                 'reopen' => $state !== 'needs_review',
             ],
         ];
-    }
-
-    /**
-     * @param array<string, mixed> $judgment
-     *
-     * @return list<array{question: string, band: string, probability: ?string, choice: ?string}>
-     */
-    private function judgment(array $judgment): array
-    {
-        $lines = [];
-
-        foreach ([OfferQuestions::SAME_PRODUCT, OfferQuestions::SAME_VARIANT, OfferQuestions::PRICE_COMPARABILITY] as $question) {
-            $answer = $judgment[$question] ?? null;
-
-            if (!\is_array($answer)) {
-                continue;
-            }
-
-            $value = $answer['value'] ?? '';
-            $confidence = \is_numeric($answer['confidence'] ?? null) ? number_format((float) $answer['confidence'] * 100, 0).' %' : null;
-            $lines[] = [
-                'question' => $question,
-                'band' => (string) ($answer['band'] ?? ''),
-                // A probability for yes/no questions; the chosen option and
-                // its confidence for the price question.
-                'probability' => \is_numeric($value) ? number_format((float) $value * 100, 0).' %' : $confidence,
-                'choice' => \is_numeric($value) ? null : (string) $value,
-            ];
-        }
-
-        return $lines;
     }
 
     private function url(ComparatorFilters $filters): string

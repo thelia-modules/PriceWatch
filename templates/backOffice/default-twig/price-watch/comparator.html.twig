@@ -27,6 +27,37 @@
     {% if row.exclusion and row.state != 'rejected' %}<div class="small text-muted">{{ ('exclusion.' ~ row.exclusion)|trans({}, 'pricewatch') }}</div>{% endif %}
 {% endmacro %}
 
+{# How far the match can be trusted: a level, then one gauge per Jev
+   question, coloured by its band. The level is the weakest gauge. #}
+{% macro confidence(row) %}
+    {% set levels = {
+        high: 'bg-success-subtle text-success-emphasis border-success-subtle',
+        medium: 'bg-warning-subtle text-warning-emphasis border-warning-subtle',
+        low: 'bg-danger-subtle text-danger-emphasis border-danger-subtle',
+        human: 'bg-primary-subtle text-primary-emphasis border-primary-subtle',
+        rule: 'bg-body-secondary text-body border',
+        none: 'bg-body-tertiary text-muted border'
+    } %}
+    {% set bands = {yes: 'bg-success', act: 'bg-success', review: 'bg-warning', no: 'bg-danger'} %}
+    <div class="mt-2" data-testid="pw-confidence-{{ row.id }}" data-level="{{ row.confidence.level }}">
+        <span class="badge border {{ levels[row.confidence.level] ?? levels.none }}">
+            {{ ('confidence.' ~ row.confidence.level)|trans({}, 'pricewatch') }}{% if row.confidence.score is not null and row.confidence.level in ['high', 'medium', 'low'] %} · {{ row.confidence.score }} %{% endif %}
+        </span>
+        {% if row.searchedBy %}
+            <span class="badge border bg-body-tertiary text-body" title="{{ ('searched_by.' ~ row.searchedBy)|trans({}, 'pricewatch') }}">{{ ('found_by.' ~ row.searchedBy)|trans({}, 'pricewatch') }}</span>
+        {% endif %}
+        {% for gauge in row.confidence.gauges %}
+            <div class="d-flex align-items-center gap-2 mt-1 small" title="{{ ('jev.' ~ gauge.question)|trans({}, 'pricewatch') }}{% if gauge.choice %} : {{ ('price.' ~ gauge.choice)|trans({}, 'pricewatch') }}{% endif %}">
+                <span class="text-muted text-nowrap" style="width: 3.6rem">{{ ('gauge.' ~ gauge.question)|trans({}, 'pricewatch') }}</span>
+                <div class="progress flex-grow-1" style="height: .4rem" role="progressbar" aria-valuenow="{{ gauge.percent }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ ('jev.' ~ gauge.question)|trans({}, 'pricewatch') }}">
+                    <div class="progress-bar {{ bands[gauge.band] ?? 'bg-secondary' }}" style="width: {{ gauge.percent }}%"></div>
+                </div>
+                <span class="text-nowrap" style="width: 2.4rem; text-align: right">{{ gauge.percent }} %</span>
+            </div>
+        {% endfor %}
+    </div>
+{% endmacro %}
+
 {% macro review_form(row, action, label, style, csrfToken, returnQuery) %}
     <form method="post" action="{{ path('pricewatch_comparator_review', {id: row.id, action: action}) }}" class="d-inline">
         <input type="hidden" name="_token" value="{{ csrfToken }}">
@@ -142,7 +173,7 @@
                         <th scope="col" class="text-end">{{ 'Their price'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Our price'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Gap'|trans({}, 'pricewatch') }}</th>
-                        <th scope="col">{{ 'Check'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'Check and confidence'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Decision'|trans({}, 'pricewatch') }}</th>
                     </tr>
                 </thead>
@@ -157,8 +188,25 @@
                             </div>
                         </td>
                         <td class="text-break" style="min-width: 14rem; max-width: 18rem; white-space: normal">
-                            <div class="fw-semibold">{{ row.competitor }}</div>
-                            <div class="small">{{ row.remoteVariant ?: row.remoteTitle }}</div>
+                            <div class="d-flex gap-2">
+                                {% if row.image %}
+                                    <img src="{{ row.image }}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer" class="rounded border flex-shrink-0" style="object-fit: contain; background: #fff" data-testid="pw-image-{{ row.id }}">
+                                {% endif %}
+                                <div>
+                                    <div class="fw-semibold">{{ row.competitor }}</div>
+                                    <div class="small">{{ row.remoteVariant ?: row.remoteTitle }}</div>
+                                </div>
+                            </div>
+                            <div class="d-flex flex-wrap gap-1 mt-1" data-testid="pw-links-{{ row.id }}">
+                                {% if row.links.product %}
+                                    <a class="btn btn-sm btn-outline-primary py-0" href="{{ row.links.product }}" target="_blank" rel="noopener noreferrer nofollow" data-testid="pw-link-product-{{ row.id }}"><i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>{{ 'See the product'|trans({}, 'pricewatch') }}</a>
+                                {% elseif row.links.search %}
+                                    <a class="btn btn-sm btn-outline-secondary py-0" href="{{ row.links.search }}" target="_blank" rel="noopener noreferrer nofollow" data-testid="pw-link-search-{{ row.id }}"><i class="bi bi-search me-1" aria-hidden="true"></i>{{ 'Search on the site'|trans({}, 'pricewatch') }}</a>
+                                {% endif %}
+                                {% if row.links.google %}
+                                    <a class="btn btn-sm btn-outline-secondary py-0" href="{{ row.links.google }}" target="_blank" rel="noopener noreferrer nofollow" data-testid="pw-link-google-{{ row.id }}"><i class="bi bi-shop me-1" aria-hidden="true"></i>Google Shopping</a>
+                                {% endif %}
+                            </div>
                             <details class="small mt-1" data-testid="pw-proof-{{ row.id }}">
                                 <summary class="text-primary">{{ 'Proof'|trans({}, 'pricewatch') }}</summary>
                                 <dl class="row mb-0 mt-1">
@@ -166,16 +214,15 @@
                                     <dd class="col-7 mb-1">{{ row.remoteTitle }}</dd>
                                     <dt class="col-5 fw-normal text-muted">{{ 'Seller listing'|trans({}, 'pricewatch') }}</dt>
                                     <dd class="col-7 mb-1">{{ row.remoteVariant ?: '–' }}</dd>
-                                    <dt class="col-5 fw-normal text-muted">{{ 'Link'|trans({}, 'pricewatch') }}</dt>
-                                    <dd class="col-7 mb-1">
-                                        {% if row.url %}<a href="{{ row.url }}" target="_blank" rel="noopener noreferrer nofollow">{{ 'Open the page'|trans({}, 'pricewatch') }}</a>
-                                        {% else %}<span class="text-muted">{{ 'Not provided by Google Shopping'|trans({}, 'pricewatch') }}</span>{% endif %}
-                                    </dd>
+                                    <dt class="col-5 fw-normal text-muted">{{ 'Competitor site'|trans({}, 'pricewatch') }}</dt>
+                                    <dd class="col-7 mb-1">{% if row.links.site %}<a href="{{ row.links.site }}" target="_blank" rel="noopener noreferrer nofollow">{{ row.competitor }}</a>{% else %}–{% endif %}</dd>
+                                    <dt class="col-5 fw-normal text-muted">{{ 'Product page'|trans({}, 'pricewatch') }}</dt>
+                                    <dd class="col-7 mb-1">{{ row.links.product ? 'Given by Google Shopping'|trans({}, 'pricewatch') : 'Not given by Google Shopping for this seller'|trans({}, 'pricewatch') }}</dd>
                                     <dt class="col-5 fw-normal text-muted">{{ 'Found by'|trans({}, 'pricewatch') }}</dt>
                                     <dd class="col-7 mb-1">{{ row.searchedBy ? ('searched_by.' ~ row.searchedBy)|trans({}, 'pricewatch') : '–' }}</dd>
-                                    {% for line in row.jev %}
-                                        <dt class="col-5 fw-normal text-muted">{{ ('jev.' ~ line.question)|trans({}, 'pricewatch') }}</dt>
-                                        <dd class="col-7 mb-1">{% if line.choice %}{{ ('price.' ~ line.choice)|trans({}, 'pricewatch') }}, {% endif %}{{ line.probability }} <span class="text-muted">({{ ('band.' ~ line.band)|trans({}, 'pricewatch') }})</span></dd>
+                                    {% for gauge in row.confidence.gauges %}
+                                        <dt class="col-5 fw-normal text-muted">{{ ('jev.' ~ gauge.question)|trans({}, 'pricewatch') }}</dt>
+                                        <dd class="col-7 mb-1">{% if gauge.choice %}{{ ('price.' ~ gauge.choice)|trans({}, 'pricewatch') }}, {% endif %}{{ gauge.percent }} % <span class="text-muted">({{ ('band.' ~ gauge.band)|trans({}, 'pricewatch') }})</span></dd>
                                     {% endfor %}
                                     {% if row.reviewedBy %}
                                         <dt class="col-5 fw-normal text-muted">{{ 'Decided by'|trans({}, 'pricewatch') }}</dt>
@@ -194,7 +241,7 @@
                         <td class="text-end" style="min-width: 7rem; max-width: 9rem; white-space: normal" data-testid="pw-gap-{{ row.id }}">
                             {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_gap.html.twig' with {position: row.position, pct: row.deltaPct, amount: row.delta, with_label: true} only %}
                         </td>
-                        <td style="min-width: 9rem; max-width: 13rem; white-space: normal">{{ _self.state_badge(row) }}</td>
+                        <td style="min-width: 11rem; max-width: 14rem; white-space: normal">{{ _self.state_badge(row) }}{{ _self.confidence(row) }}</td>
                         <td>
                             <div class="d-flex flex-column align-items-end gap-1">
                             {% if row.actions.confirm %}{{ _self.review_form(row, 'confirm', 'Confirm'|trans({}, 'pricewatch'), 'btn-success', csrfToken, returnQuery) }}{% endif %}
