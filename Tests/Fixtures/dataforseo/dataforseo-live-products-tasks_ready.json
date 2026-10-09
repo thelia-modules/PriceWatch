@@ -1,0 +1,33 @@
+{
+    "version": "0.1.20260917",
+    "status_code": 20000,
+    "status_message": "Ok.",
+    "time": "0.0599 sec.",
+    "cost": 0,
+    "tasks_count": 1,
+    "tasks_error": 0,
+    "tasks": [
+        {
+            "id": "10090820-2751-0180-0000-be8f4ea77f36",
+            "status_code": 20000,
+            "status_message": "Ok.",
+            "time": "0.0543 sec.",
+            "cost": 0,
+            "result_count": 0,
+            "path": [
+                "v3",
+                "merchant",
+                "google",
+                "products",
+                "tasks_ready"
+            ],
+            "data": {
+                "se_type": "products",
+                "se": "google",
+                "api": "merchant",
+                "function": "products"
+            },
+            "result": null
+        }
+    ]
+}

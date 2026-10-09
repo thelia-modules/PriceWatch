@@ -1,0 +1,38 @@
+{
+    "version": "0.1.20260917",
+    "status_code": 20000,
+    "status_message": "Ok.",
+    "time": "0 sec.",
+    "cost": 0,
+    "tasks_count": 1,
+    "tasks_error": 0,
+    "tasks": [
+        {
+            "id": "10090816-2751-0183-2000-120c77df6693",
+            "status_code": 20100,
+            "status_message": "Task Created.",
+            "time": "0 sec.",
+            "cost": 0,
+            "result_count": 0,
+            "path": [
+                "v3",
+                "merchant",
+                "google",
+                "sellers",
+                "task_post"
+            ],
+            "data": {
+                "api": "merchant",
+                "function": "sellers",
+                "product_id": "3266006740984157066",
+                "location_name": "France",
+                "language_code": "fr",
+                "priority": 2,
+                "tag": "capture",
+                "se_type": "sellers",
+                "se": "google"
+            },
+            "result": null
+        }
+    ]
+}

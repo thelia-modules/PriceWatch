@@ -1,0 +1,41 @@
+{
+    "version": "0.1.20260917",
+    "status_code": 20000,
+    "status_message": "Ok.",
+    "time": "0.0656 sec.",
+    "cost": 0.002,
+    "tasks_count": 1,
+    "tasks_error": 0,
+    "tasks": [
+        {
+            "id": "10090816-2751-0179-0000-3b4f6b0c7622",
+            "status_code": 20100,
+            "status_message": "Task Created.",
+            "time": "0.0037 sec.",
+            "cost": 0.002,
+            "result_count": 0,
+            "path": [
+                "v3",
+                "merchant",
+                "google",
+                "products",
+                "task_post"
+            ],
+            "data": {
+                "api": "merchant",
+                "function": "products",
+                "keyword": "3664191100832",
+                "location_name": "France",
+                "language_code": "fr",
+                "priority": 2,
+                "depth": 40,
+                "tag": "capture",
+                "se_type": "products",
+                "se": "google",
+                "device": "desktop",
+                "os": "windows"
+            },
+            "result": null
+        }
+    ]
+}

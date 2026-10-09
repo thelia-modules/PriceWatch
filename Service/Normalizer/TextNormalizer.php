@@ -29,10 +29,17 @@ final readonly class TextNormalizer
 
     public function normalize(?string $raw): string
     {
-        $text = mb_strtolower(trim((string) $raw), 'UTF-8');
-        $text = strtr($text, self::ACCENT_FOLDING);
-        $text = preg_replace('/[^a-z0-9]+/u', ' ', $text) ?? '';
+        $text = preg_replace('/[^a-z0-9]+/u', ' ', $this->foldAccents($raw)) ?? '';
 
         return trim(preg_replace('/\s+/', ' ', $text) ?? '');
+    }
+
+    /**
+     * Lower case without accents, punctuation kept: "Son-Vidéo.com" becomes
+     * "son-video.com", still readable as a domain.
+     */
+    public function foldAccents(?string $raw): string
+    {
+        return strtr(mb_strtolower(trim((string) $raw), 'UTF-8'), self::ACCENT_FOLDING);
     }
 }

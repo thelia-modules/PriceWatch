@@ -1,0 +1,282 @@
+<?php
+
+declare(strict_types=1);
+
+namespace PriceWatch\Service\Source;
+
+use PriceWatch\Service\Settings\PriceWatchSettings;
+use PriceWatch\Service\Settings\SecretName;
+use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+
+/**
+ * Google Shopping through the DataForSEO Merchant API.
+ *
+ * Shapes are those of answers recorded on this account (sandbox, 2026-10-09,
+ * Tests/Fixtures/dataforseo): an envelope with status_code 20000, one entry per
+ * task with status_code 20100 "Task Created" on post, and result[0].items on
+ * read. The Merchant API has no live mode: post, wait for tasks_ready, read.
+ * Posting is what costs money; reading is free for 30 days.
+ *
+ * Only task_post echoes the tag in tasks[].data; task_get does not. The
+ * tag => task id map returned by the post methods is therefore the only link
+ * between a task and what it was posted for: keep it.
+ */
+final readonly class DataForSeoClient
+{
+    public const BASE_URL = 'https://api.dataforseo.com/v3';
+    public const SANDBOX_URL = 'https://sandbox.dataforseo.com/v3';
+
+    private const MAX_TASKS_PER_POST = 100;
+    private const LOCATION = 'France';
+    private const LANGUAGE = 'fr';
+
+    public function __construct(
+        private HttpClientInterface $httpClient,
+        private PriceWatchSettings $settings,
+    ) {
+    }
+
+    /**
+     * @param array<string, string> $keywordsByTag tag => keyword (a GTIN, typically)
+     *
+     * @return array{tasks: array<string, string>, costUsd: float} tag => task id
+     *
+     * @throws DataForSeoException
+     */
+    public function postProductSearches(array $keywordsByTag, int $priority, bool $sandbox = false): array
+    {
+        $tasks = [];
+
+        foreach ($keywordsByTag as $tag => $keyword) {
+            $tasks[] = [
+                'keyword' => $keyword,
+                'location_name' => self::LOCATION,
+                'language_code' => self::LANGUAGE,
+                'priority' => $priority,
+                // Billed per 40 results: 40 is one unit and plenty for a GTIN query.
+                'depth' => 40,
+                'tag' => (string) $tag,
+            ];
+        }
+
+        return $this->post('/merchant/google/products/task_post', $tasks, $sandbox);
+    }
+
+    /**
+     * @param array<string, string> $productIdsByTag tag => Google product_id
+     *
+     * @return array{tasks: array<string, string>, costUsd: float}
+     *
+     * @throws DataForSeoException
+     */
+    public function postSellerLookups(array $productIdsByTag, int $priority, bool $sandbox = false): array
+    {
+        $tasks = [];
+
+        foreach ($productIdsByTag as $tag => $productId) {
+            $tasks[] = [
+                'product_id' => $productId,
+                'location_name' => self::LOCATION,
+                'language_code' => self::LANGUAGE,
+                'priority' => $priority,
+                'tag' => (string) $tag,
+            ];
+        }
+
+        return $this->post('/merchant/google/sellers/task_post', $tasks, $sandbox);
+    }
+
+    /**
+     * @return list<string> ids of tasks whose results can be read
+     *
+     * @throws DataForSeoException
+     */
+    public function readyTaskIds(string $function, bool $sandbox = false): array
+    {
+        $payload = $this->request('GET', '/merchant/google/'.$function.'/tasks_ready', null, $sandbox);
+        $ids = [];
+
+        foreach ($payload['tasks'] ?? [] as $task) {
+            foreach (\is_array($task['result'] ?? null) ? $task['result'] : [] as $entry) {
+                if (\is_string($entry['id'] ?? null)) {
+                    $ids[] = $entry['id'];
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return array{tag: ?string, cards: list<ShoppingCard>}
+     *
+     * @throws DataForSeoException
+     */
+    public function productCards(string $taskId, bool $sandbox = false): array
+    {
+        [$tag, $items] = $this->resultItems('/merchant/google/products/task_get/advanced/'.$taskId, $sandbox);
+        $cards = [];
+
+        foreach ($items as $item) {
+            if (($item['type'] ?? null) !== 'google_shopping_serp' || !\is_string($item['product_id'] ?? null) || $item['product_id'] === '') {
+                continue;
+            }
+
+            $cards[] = new ShoppingCard(
+                productId: $item['product_id'],
+                title: (string) ($item['title'] ?? ''),
+                price: self::decimal($item['price'] ?? null),
+                oldPrice: self::decimal($item['old_price'] ?? null),
+                currency: \is_string($item['currency'] ?? null) ? $item['currency'] : null,
+                seller: \is_string($item['seller'] ?? null) ? $item['seller'] : null,
+                domain: \is_string($item['domain'] ?? null) ? $item['domain'] : null,
+                rank: (int) ($item['rank_absolute'] ?? 0),
+            );
+        }
+
+        return ['tag' => $tag, 'cards' => $cards];
+    }
+
+    /**
+     * @return array{tag: ?string, offers: list<SellerOffer>}
+     *
+     * @throws DataForSeoException
+     */
+    public function sellerOffers(string $taskId, bool $sandbox = false): array
+    {
+        [$tag, $items] = $this->resultItems('/merchant/google/sellers/task_get/advanced/'.$taskId, $sandbox);
+        $offers = [];
+
+        foreach ($items as $item) {
+            if (($item['type'] ?? null) !== 'shops_list') {
+                continue;
+            }
+
+            $sellerName = (string) ($item['seller_name'] ?? $item['title'] ?? '');
+
+            $offers[] = new SellerOffer(
+                domain: \is_string($item['domain'] ?? null) ? $item['domain'] : null,
+                sellerName: $sellerName,
+                title: (string) ($item['title'] ?? $sellerName),
+                url: \is_string($item['url'] ?? null) ? $item['url'] : null,
+                details: \is_string($item['details'] ?? null) ? $item['details'] : null,
+                basePrice: self::decimal($item['base_price'] ?? null),
+                tax: self::decimal($item['tax'] ?? null),
+                shippingPrice: self::decimal($item['shipping_price'] ?? null),
+                totalPrice: self::decimal($item['total_price'] ?? null),
+                currency: \is_string($item['currency'] ?? null) ? $item['currency'] : null,
+                condition: \is_string($item['product_condition'] ?? null) ? $item['product_condition'] : null,
+                annotation: \is_string($item['product_annotation'] ?? null) ? $item['product_annotation'] : null,
+                availability: \is_string($item['product_availability'] ?? null) ? $item['product_availability'] : null,
+                rank: (int) ($item['rank_absolute'] ?? 0),
+            );
+        }
+
+        return ['tag' => $tag, 'offers' => $offers];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $tasks
+     *
+     * @return array{tasks: array<string, string>, costUsd: float}
+     *
+     * @throws DataForSeoException
+     */
+    private function post(string $path, array $tasks, bool $sandbox): array
+    {
+        $ids = [];
+        $cost = 0.0;
+
+        foreach (array_chunk($tasks, self::MAX_TASKS_PER_POST) as $chunk) {
+            $payload = $this->request('POST', $path, $chunk, $sandbox);
+            $cost += (float) ($payload['cost'] ?? 0);
+
+            foreach ($payload['tasks'] ?? [] as $task) {
+                if ((int) ($task['status_code'] ?? 0) !== 20100 || !\is_string($task['id'] ?? null)) {
+                    continue;
+                }
+
+                $tag = $task['data']['tag'] ?? null;
+
+                if (\is_string($tag)) {
+                    $ids[$tag] = $task['id'];
+                }
+            }
+        }
+
+        return ['tasks' => $ids, 'costUsd' => $cost];
+    }
+
+    /**
+     * @return array{0: ?string, 1: list<array<string, mixed>>}
+     *
+     * @throws DataForSeoException
+     */
+    private function resultItems(string $path, bool $sandbox): array
+    {
+        $payload = $this->request('GET', $path, null, $sandbox);
+        $task = $payload['tasks'][0] ?? null;
+
+        if (!\is_array($task)) {
+            return [null, []];
+        }
+
+        $status = (int) ($task['status_code'] ?? 0);
+
+        if ($status !== 20000) {
+            throw DataForSeoException::fromStatus($status, (string) ($task['status_message'] ?? ''));
+        }
+
+        $tag = \is_string($task['data']['tag'] ?? null) ? $task['data']['tag'] : null;
+        $items = $task['result'][0]['items'] ?? [];
+
+        return [$tag, \is_array($items) ? array_values(array_filter($items, \is_array(...))) : []];
+    }
+
+    /**
+     * @param list<array<string, mixed>>|null $json
+     *
+     * @return array<string, mixed>
+     *
+     * @throws DataForSeoException
+     */
+    private function request(string $method, string $path, ?array $json, bool $sandbox): array
+    {
+        $login = $this->settings->dataforseoLogin();
+        $password = $this->settings->secret(SecretName::DataforseoPassword);
+
+        if ($login === null || $password === null) {
+            throw new DataForSeoException('The DataForSEO login and password are not configured.');
+        }
+
+        try {
+            $response = $this->httpClient->request($method, ($sandbox ? self::SANDBOX_URL : self::BASE_URL).$path, [
+                'auth_basic' => [$login, $password],
+                'timeout' => 60,
+            ] + ($json === null ? [] : ['json' => $json]));
+            $content = $response->getContent(false);
+        } catch (ExceptionInterface $error) {
+            throw new DataForSeoException('DataForSEO could not be reached ('.$error::class.').', 0, $error);
+        }
+
+        $payload = json_decode($content, true);
+
+        if (!\is_array($payload)) {
+            throw new DataForSeoException('DataForSEO answered something that is not JSON.');
+        }
+
+        $status = (int) ($payload['status_code'] ?? 0);
+
+        if ($status !== 20000) {
+            throw DataForSeoException::fromStatus($status, (string) ($payload['status_message'] ?? ''));
+        }
+
+        return $payload;
+    }
+
+    private static function decimal(mixed $value): ?string
+    {
+        return is_numeric($value) ? number_format((float) $value, 2, '.', '') : null;
+    }
+}
