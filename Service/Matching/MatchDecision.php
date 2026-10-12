@@ -23,6 +23,9 @@ final readonly class MatchDecision
 
     private const USED_CONDITIONS = ['used', 'refurbished', 'pre-owned', 'occasion', 'reconditionne'];
 
+    /** Price answers that leave the price in the gap, even when Jev is sure of them. */
+    private const PLAIN_PRICE = ['comparable', 'unclear'];
+
     public function prefilter(string $ourPriceInclTax, ?string $theirPrice, ?string $currency, ?string $condition): ?MatchVerdict
     {
         if ($currency !== null && strtoupper($currency) !== 'EUR') {
@@ -74,12 +77,13 @@ final readonly class MatchDecision
             return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', false, null, true);
         }
 
-        if ($price->band !== JevAnswer::ACT) {
-            return new MatchVerdict(MatchVerdict::MATCHED, 'JEV', false, 'PRICE_UNCLEAR', true);
+        // The price is what the seller asks today. Jev rarely has the evidence
+        // to be sure of it (measured 2026-10-12: 19 answers out of 20 in the
+        // middle band), so only a confident "not a plain price" excludes it.
+        if ($price->band !== JevAnswer::ACT || \in_array($price->value, self::PLAIN_PRICE, true)) {
+            return new MatchVerdict(MatchVerdict::MATCHED, 'JEV', true, null, true);
         }
 
-        return $price->value === 'comparable'
-            ? new MatchVerdict(MatchVerdict::MATCHED, 'JEV', true, null, true)
-            : new MatchVerdict(MatchVerdict::MATCHED, 'JEV', false, (string) $price->value, true);
+        return new MatchVerdict(MatchVerdict::MATCHED, 'JEV', false, (string) $price->value, true);
     }
 }

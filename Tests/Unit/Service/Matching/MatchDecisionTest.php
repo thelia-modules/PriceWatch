@@ -23,7 +23,14 @@ final class MatchDecisionTest extends TestCase
     {
         yield 'confirmed and comparable' => [0.94, 0.96, ['comparable', 0.90], MatchVerdict::MATCHED, 'JEV', true, null];
         yield 'confirmed, clearance price' => [0.95, 0.97, ['promotional', 0.98], MatchVerdict::MATCHED, 'JEV', false, 'promotional'];
-        yield 'confirmed, price unclear' => [0.94, 0.96, ['comparable', 0.54], MatchVerdict::MATCHED, 'JEV', false, 'PRICE_UNCLEAR'];
+        // Measured 2026-10-12: 19 price answers out of 20 fell in the middle
+        // band, and excluding them left one comparable price out of four
+        // matches. Unsure counts; only a confident "not a plain price" excludes.
+        yield 'confirmed, Jev unsure about the price' => [0.94, 0.96, ['comparable', 0.54], MatchVerdict::MATCHED, 'JEV', true, null];
+        yield 'confirmed, Jev unsure it is a promotion' => [0.94, 0.96, ['promotional', 0.50], MatchVerdict::MATCHED, 'JEV', true, null];
+        yield 'confirmed, Jev sure the evidence is unclear' => [0.94, 0.96, ['unclear', 0.90], MatchVerdict::MATCHED, 'JEV', true, null];
+        yield 'confirmed, a bundle' => [0.94, 0.96, ['bundle', 0.85], MatchVerdict::MATCHED, 'JEV', false, 'bundle'];
+        yield 'confirmed, a starting price' => [0.94, 0.96, ['from_price', 0.85], MatchVerdict::MATCHED, 'JEV', false, 'from_price'];
         yield 'other size' => [0.93, 0.03, ['comparable', 0.90], MatchVerdict::REJECTED, 'VARIANT_MISMATCH', false, null];
         yield 'other article' => [0.02, 0.91, ['comparable', 0.90], MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false, null];
         yield 'product in the middle band' => [0.60, 0.96, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false, null];
