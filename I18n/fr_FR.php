@@ -423,8 +423,16 @@ return [
 
     // Suggestions de produits à relever
     'Suggestions' => 'Suggestions',
-    'Products to collect now: they sell, we were dearer last time, or what a competitor showed is over %stale% days old. The ones with the most reasons first.' => 'Produits à relever maintenant : ils se vendent, nous étions plus chers au dernier relevé, ou ce qu\'un concurrent affichait date de plus de %stale% jours. Ceux qui cumulent le plus de raisons d\'abord.',
-    'No suggestion for now: no recent sale, no gap against us, nothing collected too long ago.' => 'Aucune suggestion pour l\'instant : pas de vente récente, pas d\'écart en notre défaveur, rien de relevé il y a trop longtemps.',
+    'Products to collect now: they sell, we were dearer last time, what a competitor showed is over %stale% days old, or they are on a deep promotion. The highest score first; hidden or out of stock products are left out.' => 'Produits à relever maintenant : ils se vendent, nous étions plus chers au dernier relevé, ce qu\'un concurrent affichait date de plus de %stale% jours, ou ils sont en forte promotion. Le meilleur score d\'abord ; les produits invisibles ou en rupture sont écartés.',
+    'No suggestion for now: no recent sale, no gap against us, no deep promotion, nothing collected too long ago.' => 'Aucune suggestion pour l\'instant : pas de vente récente, pas d\'écart en notre défaveur, pas de forte promotion, rien de relevé il y a trop longtemps.',
+    'Score' => 'Score',
+    'Sales' => 'Ventes',
+    'Dearer' => 'Plus chers',
+    'Promotion' => 'Promo',
+    'Old reading' => 'Relevé ancien',
+    'New' => 'Nouveauté',
+    'Stock' => 'Stock',
+    'On promotion, %discount% off' => 'En promo, −%discount%',
     '%products% product(s), %variants% variant(s), at most %cost%' => '%products% produit(s), %variants% déclinaison(s), au plus %cost%',
     'Tick the products to collect.' => 'Cochez les produits à relever.',
     'Select' => 'Sélectionner',

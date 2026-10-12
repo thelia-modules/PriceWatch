@@ -12,7 +12,7 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
  * The comparator's suggestions tab: products worth collecting now, each with
- * the reasons why, the ones with the most reasons first.
+ * the reasons why, the highest score first (SuggestionScore).
  */
 final readonly class SuggestionPresenter
 {
@@ -41,13 +41,11 @@ final readonly class SuggestionPresenter
     public function present(string $locale, ?\DateTimeImmutable $now = null): array
     {
         $now ??= new \DateTimeImmutable();
-        $sales = $this->repository->bestSellers($now->modify('-'.self::SALES_DAYS.' days'), self::SHOWN);
-        $dearer = $this->repository->weWereDearer(self::SHOWN);
-        $stale = $this->repository->stale($now->modify('-'.self::STALE_DAYS.' days'), self::SHOWN);
+        ['sales' => $sales, 'dearer' => $dearer, 'stale' => $stale, 'signals' => $signals] = $this->candidates($now);
 
-        $productIds = array_values(array_unique([...array_keys($sales), ...array_keys($dearer), ...array_keys($stale)]));
-        $products = $this->repository->products($productIds, $locale);
-        $ranked = self::rank($productIds, $sales, $dearer, $stale);
+        $scores = self::score($sales, $dearer, $stale, $signals, $now);
+        $products = $this->repository->products(array_keys($scores), $locale);
+        $ranked = self::rank($scores, $sales);
 
         $ranked = \array_slice(array_values(array_filter($ranked, static fn (int $productId): bool => isset($products[$productId]))), 0, self::SHOWN);
         $eanCodes = $this->repository->eanCodes(array_values(array_filter($ranked, static fn (int $productId): bool => $products[$productId]['watched'] === 0)));
@@ -82,6 +80,16 @@ final readonly class SuggestionPresenter
                 $reasons[] = ['key' => 'stale', 'days' => (int) $stale[$productId]->diff($now)->days];
             }
 
+            $discount = $signals[$productId]['discountPct'];
+
+            if ($discount !== null && $discount >= SuggestionScore::PROMO_FROM_PCT) {
+                $reasons[] = ['key' => 'promo', 'discount' => $percent->format($discount / 100)];
+            }
+
+            if ($signals[$productId]['isNew']) {
+                $reasons[] = ['key' => 'new'];
+            }
+
             $rows[] = [
                 'id' => $productId,
                 'title' => $product['title'],
@@ -92,6 +100,8 @@ final readonly class SuggestionPresenter
                 'variants' => $variants,
                 'cost' => $usd->formatCurrency(ManualRun::worstCaseUsd($variants), 'USD'),
                 'reasons' => $reasons,
+                'score' => (int) round($scores[$productId]->total()),
+                'scoreParts' => array_map(static fn (float $points): int => (int) round($points), $scores[$productId]->parts()),
             ];
         }
 
@@ -128,41 +138,80 @@ final readonly class SuggestionPresenter
      */
     public function count(?\DateTimeImmutable $now = null): int
     {
-        $now ??= new \DateTimeImmutable();
-
-        return min(self::SHOWN, \count(array_unique([
-            ...array_keys($this->repository->bestSellers($now->modify('-'.self::SALES_DAYS.' days'), self::SHOWN)),
-            ...array_keys($this->repository->weWereDearer(self::SHOWN)),
-            ...array_keys($this->repository->stale($now->modify('-'.self::STALE_DAYS.' days'), self::SHOWN)),
-        ])));
+        return min(self::SHOWN, \count($this->candidates($now ?? new \DateTimeImmutable())['signals']));
     }
 
     /**
-     * The most reasons first; then what sells most, then where we were
-     * dearest, then what was collected longest ago.
+     * Every product one reason puts forward, kept only if we can sell it:
+     * collecting the price of a hidden or out of stock product is money lost.
      *
-     * @param list<int>                                     $productIds
-     * @param array<int, array{quantity: int, revenue: float}>   $sales
-     * @param array<int, array{gapPct: float, competitors: int}> $dearer
-     * @param array<int, \DateTimeImmutable>                $stale
+     * @return array{
+     *     sales: array<int, array{quantity: int, revenue: float}>,
+     *     dearer: array<int, array{gapPct: float, competitors: int}>,
+     *     stale: array<int, \DateTimeImmutable>,
+     *     signals: array<int, array{discountPct: float|null, isNew: bool, stockValue: float}>,
+     * }
+     */
+    private function candidates(\DateTimeImmutable $now): array
+    {
+        $sales = $this->repository->bestSellers($now->modify('-'.self::SALES_DAYS.' days'), self::SHOWN);
+        $dearer = $this->repository->weWereDearer(self::SHOWN);
+        $stale = $this->repository->stale($now->modify('-'.self::STALE_DAYS.' days'), self::SHOWN);
+        $promoted = $this->repository->onPromotion(SuggestionScore::PROMO_FROM_PCT, self::SHOWN);
+
+        return [
+            'sales' => $sales,
+            'dearer' => $dearer,
+            'stale' => $stale,
+            'signals' => $this->repository->catalogSignals(array_values(array_unique([...array_keys($sales), ...array_keys($dearer), ...array_keys($stale), ...$promoted]))),
+        ];
+    }
+
+    /**
+     * Revenue and stock are measured against the largest among the products
+     * we can sell, so the score tells apart what the list shows.
+     *
+     * @param array<int, array{quantity: int, revenue: float}>                              $sales
+     * @param array<int, array{gapPct: float, competitors: int}>                            $dearer
+     * @param array<int, \DateTimeImmutable>                                                $stale
+     * @param array<int, array{discountPct: float|null, isNew: bool, stockValue: float}> $signals
+     *
+     * @return array<int, SuggestionScore> product id => score, for the products in $signals only
+     */
+    public static function score(array $sales, array $dearer, array $stale, array $signals, \DateTimeImmutable $now): array
+    {
+        $bestRevenue = max([0.0, ...array_map(static fn (int $productId): float => $sales[$productId]['revenue'] ?? 0.0, array_keys($signals))]);
+        $largestStock = max([0.0, ...array_column($signals, 'stockValue')]);
+        $scores = [];
+
+        foreach ($signals as $productId => $signal) {
+            $scores[$productId] = SuggestionScore::of(
+                $bestRevenue > 0 ? ($sales[$productId]['revenue'] ?? 0.0) / $bestRevenue : 0.0,
+                $dearer[$productId]['gapPct'] ?? null,
+                $signal['discountPct'],
+                isset($stale[$productId]) ? (int) $stale[$productId]->diff($now)->days : null,
+                $signal['isNew'],
+                $largestStock > 0 ? $signal['stockValue'] / $largestStock : 0.0,
+            );
+        }
+
+        return $scores;
+    }
+
+    /**
+     * The highest score first; on a tie, what sells most.
+     *
+     * @param array<int, SuggestionScore>                        $scores
+     * @param array<int, array{quantity: int, revenue: float}> $sales
      *
      * @return list<int>
      */
-    public static function rank(array $productIds, array $sales, array $dearer, array $stale): array
+    public static function rank(array $scores, array $sales): array
     {
-        usort($productIds, static fn (int $a, int $b): int => [
-            (int) isset($sales[$b]) + (int) isset($dearer[$b]) + (int) isset($stale[$b]),
-            $sales[$b]['revenue'] ?? 0.0,
-            $dearer[$a]['gapPct'] ?? 0.0,
-            isset($stale[$a]) ? $stale[$a]->getTimestamp() : \PHP_INT_MAX,
-            $a,
-        ] <=> [
-            (int) isset($sales[$a]) + (int) isset($dearer[$a]) + (int) isset($stale[$a]),
-            $sales[$a]['revenue'] ?? 0.0,
-            $dearer[$b]['gapPct'] ?? 0.0,
-            isset($stale[$b]) ? $stale[$b]->getTimestamp() : \PHP_INT_MAX,
-            $b,
-        ]);
+        $productIds = array_keys($scores);
+
+        usort($productIds, static fn (int $a, int $b): int => [$scores[$b]->total(), $sales[$b]['revenue'] ?? 0.0, $a]
+            <=> [$scores[$a]->total(), $sales[$a]['revenue'] ?? 0.0, $b]);
 
         return $productIds;
     }

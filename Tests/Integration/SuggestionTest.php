@@ -31,6 +31,7 @@ use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Suggestion\SuggestionPresenter;
 use PriceWatch\Service\Suggestion\SuggestionRepository;
 use PriceWatch\Service\Suggestion\SuggestionRun;
+use PriceWatch\Service\Suggestion\SuggestionScore;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
 use Symfony\Component\Routing\Generator\UrlGenerator;
@@ -41,11 +42,13 @@ use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 use Thelia\Model\OrderProduct;
 use Thelia\Model\OrderQuery;
 use Thelia\Model\Product;
+use Thelia\Model\ProductPriceQuery;
 use Thelia\Model\ProductSaleElementsQuery;
 
 /**
- * What the suggestions tab proposes: products that sell, where we were
- * dearer, or whose competitor reading is getting old.
+ * What the suggestions tab proposes: products we can sell that sell, where
+ * we were dearer, whose competitor reading is getting old, or on a deep
+ * promotion; the highest score first.
  */
 final class SuggestionTest extends PriceWatchIntegrationTestCase
 {
@@ -130,21 +133,19 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         self::assertArrayNotHasKey((int) $unknown->getId(), $stale, 'no competitor ever found: the rotation is enough');
     }
 
-    public function testTheProductsWithTheMostReasonsComeFirst(): void
+    public function testTheHighestScoreComesFirst(): void
     {
-        // A real shop fills the top sellers with its own orders: they are
-        // moved out of the sales window while the test runs (rolled back).
-        OrderQuery::create()
-            ->filterByCreatedAt(['min' => new \DateTime('-'.(SuggestionPresenter::SALES_DAYS + 1).' days')])
-            ->update(['CreatedAt' => new \DateTime('-1 year')]);
-        $both = $this->product('Deux raisons '.$this->tag);
-        $this->sale($both, 'paid', 1, '10.00');
-        $this->offer($both, '-8.000');
+        $this->isolateFromTheShop();
+        $several = $this->product('Plusieurs raisons '.$this->tag);
+        $this->sale($several, 'paid', 1, '10.00');
+        $this->offer($several, '-20.000');
+        $this->promote($several, '100.00', '60.00');
         $soldOnly = $this->product('Vendu '.$this->tag);
         $this->sale($soldOnly, 'paid', 3, '900.00');
         $soldOnlySale = ProductSaleElementsQuery::create()->filterByProductId($soldOnly->getId())->findOne();
         self::assertNotNull($soldOnlySale);
         $soldOnlySale->setEanCode($this->ean())->save();
+        $this->promote($soldOnly, '100.00', '95.00');
         $noEan = $this->product('Vendu sans EAN '.$this->tag);
         // Sells more than anything here: only the lack of a searchable EAN puts it last.
         $this->sale($noEan, 'paid', 9, '900.00');
@@ -152,12 +153,80 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         $rows = array_column($this->presenter()->present('fr_FR'), null, 'id');
         $order = array_keys($rows);
 
-        self::assertLessThan(array_search((int) $soldOnly->getId(), $order, true), array_search((int) $both->getId(), $order, true), 'two reasons before one, whatever the revenue');
-        self::assertSame(['sales', 'dearer'], array_column($rows[(int) $both->getId()]['reasons'], 'key'));
+        self::assertLessThan(array_search((int) $soldOnly->getId(), $order, true), array_search((int) $several->getId(), $order, true), 'dearer by 20 % and 40 % off outweigh a far larger revenue');
+        self::assertSame(['sales'], array_column($rows[(int) $soldOnly->getId()]['reasons'], 'key'), '5 % off is no reason');
+        self::assertGreaterThan($rows[(int) $soldOnly->getId()]['score'], $rows[(int) $several->getId()]['score']);
+        self::assertSame(['sales', 'dearer', 'promo'], array_column($rows[(int) $several->getId()]['reasons'], 'key'));
+        self::assertSame(25, $rows[(int) $several->getId()]['scoreParts']['dearer']);
+        self::assertSame(20, $rows[(int) $several->getId()]['scoreParts']['promo']);
+        self::assertSame(35, $rows[(int) $noEan->getId()]['scoreParts']['sales'], 'the best seller here takes the full weight');
         self::assertFalse($rows[(int) $soldOnly->getId()]['watched'], 'sold but not watched yet');
         self::assertSame(1, $rows[(int) $soldOnly->getId()]['variants'], 'counted on its variants with a valid EAN');
         self::assertSame(0, $rows[(int) $noEan->getId()]['variants'], 'nothing to search: nothing to pay, nothing to tick');
         self::assertLessThan(array_search((int) $noEan->getId(), $order, true), array_search((int) $soldOnly->getId(), $order, true), 'what can be collected comes first');
+    }
+
+    public function testWhatWeCannotSellIsNeverSuggested(): void
+    {
+        $this->isolateFromTheShop();
+        $sellable = $this->product('En stock '.$this->tag);
+        $hidden = $this->product('Invisible '.$this->tag);
+        $hidden->setVisible(0)->save();
+        $soldOut = $this->product('Rupture '.$this->tag, stock: 0);
+
+        foreach ([$sellable, $hidden, $soldOut] as $product) {
+            $this->sale($product, 'paid', 1, '50.00');
+        }
+
+        $presenter = $this->presenter();
+        $ids = array_column($presenter->present('fr_FR'), 'id');
+
+        self::assertContains((int) $sellable->getId(), $ids);
+        self::assertNotContains((int) $hidden->getId(), $ids, 'hidden: no customer sees its price');
+        self::assertNotContains((int) $soldOut->getId(), $ids, 'out of stock: nothing to sell at any price');
+        self::assertSame(\count($ids), $presenter->count(), 'the badge counts what the tab shows');
+    }
+
+    public function testADeepPromotionPutsAProductForwardWithoutAnySale(): void
+    {
+        $this->isolateFromTheShop();
+        $deep = $this->product('Forte promo '.$this->tag);
+        $this->promote($deep, '100.00', '70.00');
+        $shallow = $this->product('Petite promo '.$this->tag);
+        $this->promote($shallow, '100.00', '95.00');
+        $soldOut = $this->product('Promo en rupture '.$this->tag, stock: 0);
+        $this->promote($soldOut, '100.00', '50.00');
+
+        $promoted = (new SuggestionRepository())->onPromotion(10.0, 1000);
+        $rows = array_column($this->presenter()->present('fr_FR'), null, 'id');
+
+        self::assertContains((int) $deep->getId(), $promoted);
+        self::assertNotContains((int) $shallow->getId(), $promoted, '5 % off: most of the catalogue is');
+        self::assertNotContains((int) $soldOut->getId(), $promoted);
+        self::assertSame(['promo'], array_column($rows[(int) $deep->getId()]['reasons'], 'key'));
+        self::assertSame(13, $rows[(int) $deep->getId()]['scoreParts']['promo'], '30 % off: two thirds of the way from 10 to 40 %');
+    }
+
+    public function testTheCatalogueSignalsCountTheVariantsInStockOnly(): void
+    {
+        $product = $this->product('Signaux '.$this->tag, stock: 2);
+        $this->promote($product, '100.00', '80.00');
+        $factory = $this->createFixtureFactory();
+        $soldOutSize = $factory->productSaleElement($product, ['quantity' => 0]);
+        $soldOutSize->setPromo(1)->setNewness(1)->save();
+        $factory->productPrice($soldOutSize, $factory->currency(), ['price' => '100.000000', 'promoPrice' => '20.000000']);
+        $newSize = $factory->productSaleElement($product, ['quantity' => 3]);
+        $newSize->setNewness(1)->save();
+        $factory->productPrice($newSize, $factory->currency(), ['price' => '50.000000', 'promoPrice' => '50.000000']);
+        $hidden = $this->product('Signaux invisible '.$this->tag);
+        $hidden->setVisible(0)->save();
+
+        $signals = (new SuggestionRepository())->catalogSignals([(int) $product->getId(), (int) $hidden->getId()]);
+
+        self::assertArrayNotHasKey((int) $hidden->getId(), $signals);
+        self::assertEqualsWithDelta(20.0, $signals[(int) $product->getId()]['discountPct'], 0.001, 'the 80 % off size is out of stock');
+        self::assertTrue($signals[(int) $product->getId()]['isNew']);
+        self::assertEqualsWithDelta(2 * 80.0 + 3 * 50.0, $signals[(int) $product->getId()]['stockValue'], 0.001, 'at the price it sells for');
     }
 
     public function testOnlyValidEanCodesOfTheirOwnAreSearched(): void
@@ -172,14 +241,21 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
     public function testRankingWithoutDatabase(): void
     {
         $now = new \DateTimeImmutable();
-        $ranked = SuggestionPresenter::rank(
-            [1, 2, 3, 4],
-            [1 => ['quantity' => 1, 'revenue' => 10.0], 2 => ['quantity' => 9, 'revenue' => 900.0]],
-            [3 => ['gapPct' => -30.0, 'competitors' => 1], 1 => ['gapPct' => -5.0, 'competitors' => 1]],
+        // 9 sells most but cannot be sold now: absent from the signals.
+        $sales = [1 => ['quantity' => 1, 'revenue' => 100.0], 2 => ['quantity' => 9, 'revenue' => 900.0], 5 => ['quantity' => 1, 'revenue' => 100.0], 9 => ['quantity' => 90, 'revenue' => 9000.0]];
+        $plain = ['discountPct' => null, 'isNew' => false, 'stockValue' => 0.0];
+        $scores = SuggestionPresenter::score(
+            $sales,
+            [3 => ['gapPct' => -30.0, 'competitors' => 1]],
             [4 => $now->modify('-20 days')],
+            [1 => $plain, 2 => $plain, 3 => $plain, 4 => $plain, 5 => ['isNew' => true] + $plain],
+            $now,
         );
 
-        self::assertSame([1, 2, 3, 4], $ranked, 'two reasons; then revenue; then the widest gap; then the oldest reading');
+        self::assertEqualsWithDelta(35.0 / 3, $scores[1]->sales, 0.0001, 'measured against the best seller among the products we can sell');
+        self::assertEqualsWithDelta(10.0 / 3, $scores[4]->stale, 0.0001, '20 days out of 60');
+        self::assertSame([2, 3, 5, 1, 4], SuggestionPresenter::rank($scores, $sales), '35; 25; 11.7 + 5 new; 11.7; 3.3 for 20 days');
+        self::assertSame([7, 6], SuggestionPresenter::rank([6 => SuggestionScore::of(0.0, null, null, 30, false, 0.0), 7 => SuggestionScore::of(0.0, null, null, 30, false, 0.0)], [7 => ['quantity' => 1, 'revenue' => 1.0]]), 'on a tie, what sells');
     }
 
     public function testCollectingTheSelectionAddsWhatIsNotWatchedAndLeavesOutWhatCannotBeSearched(): void
@@ -283,13 +359,42 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         return new SuggestionPresenter(new SuggestionRepository(), new ComparatorRepository(), new CatalogThumbnails($dispatcher), new UrlGenerator($routes, new RequestContext()), new GtinNormalizer());
     }
 
-    private function product(string $title): Product
+    /**
+     * A real shop fills the candidates with its own orders and promotions:
+     * they are moved out of the way while the test runs (rolled back).
+     */
+    private function isolateFromTheShop(): void
+    {
+        OrderQuery::create()
+            ->filterByCreatedAt(['min' => new \DateTime('-'.(SuggestionPresenter::SALES_DAYS + 1).' days')])
+            ->update(['CreatedAt' => new \DateTime('-1 year')]);
+        ProductSaleElementsQuery::create()->filterByPromo(1)->update(['Promo' => 0]);
+    }
+
+    /**
+     * Visible and in stock unless told otherwise: what the tab may suggest.
+     */
+    private function product(string $title, int $stock = 5): Product
     {
         $factory = $this->createFixtureFactory();
-        $product = $factory->product($factory->category(), $factory->taxRule(), $factory->currency());
+        $product = $factory->product($factory->category(), $factory->taxRule(), $factory->currency(), ['baseQuantity' => $stock]);
         $product->setLocale('fr_FR')->setTitle($title)->save();
 
         return $product;
+    }
+
+    private function promote(Product $product, string $price, string $promoPrice): void
+    {
+        $saleElement = ProductSaleElementsQuery::create()->filterByProductId($product->getId())->findOne();
+        self::assertNotNull($saleElement);
+        $saleElement->setPromo(1)->save();
+
+        $productPrice = ProductPriceQuery::create()
+            ->filterByProductSaleElementsId($saleElement->getId())
+            ->filterByCurrencyId($this->createFixtureFactory()->currency()->getId())
+            ->findOne();
+        self::assertNotNull($productPrice);
+        $productPrice->setPrice($price)->setPromoPrice($promoPrice)->save();
     }
 
     private function sale(Product $product, string $status, int $quantity, string $price, ?string $promo = null, int $daysAgo = 1): void

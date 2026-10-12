@@ -10,9 +10,10 @@ use PriceWatch\Service\Competitor\CompetitorStatus;
 use Propel\Runtime\Propel;
 
 /**
- * The three reasons to collect a product now rather than when the rotation
- * reaches it: it sells, we were dearer last time, or what a competitor
- * showed is getting old. One grouped query each, product ids out.
+ * The four reasons to collect a product now rather than when the rotation
+ * reaches it: it sells, we were dearer last time, what a competitor showed
+ * is getting old, or it is on a deep promotion. One grouped query each,
+ * product ids out; then what the catalogue says of them.
  */
 final readonly class SuggestionRepository
 {
@@ -102,6 +103,71 @@ final readonly class SuggestionRepository
         }
 
         return $stale;
+    }
+
+    /**
+     * Products on a deep promotion we can sell now, the largest saving in
+     * euros first: a discount on a dear product moves more money.
+     *
+     * @return list<int> product ids
+     */
+    public function onPromotion(float $minimumDiscountPct, int $limit): array
+    {
+        $rows = $this->rows(
+            'SELECT pse.product_id, MAX(pp.price - pp.promo_price) AS saving'
+            .' FROM product_sale_elements pse'
+            .' JOIN product p ON p.id = pse.product_id AND p.visible = 1'
+            .' JOIN product_price pp ON pp.product_sale_elements_id = pse.id'
+            .' JOIN currency cur ON cur.id = pp.currency_id AND cur.by_default = 1'
+            .' WHERE pse.promo = 1 AND pse.quantity > 0 AND pp.price > 0'
+            .' AND pp.promo_price <= pp.price * (1 - :minimum / 100)'
+            .' GROUP BY pse.product_id ORDER BY saving DESC, pse.product_id LIMIT '.max(1, $limit),
+            ['minimum' => $minimumDiscountPct],
+        );
+
+        return array_map(static fn (array $row): int => (int) $row['product_id'], $rows);
+    }
+
+    /**
+     * What the catalogue says of the products we can sell now: visible,
+     * with a variant in stock. A product missing from the result is not
+     * worth collecting. Only the variants in stock count.
+     *
+     * @param list<int> $productIds
+     *
+     * @return array<int, array{discountPct: float|null, isNew: bool, stockValue: float}> discount 0 to 100 on its deepest promotion, stock valued at the price excluding tax
+     */
+    public function catalogSignals(array $productIds): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+
+        $rows = $this->rows(
+            'SELECT pse.product_id,'
+            .' MAX(IF(pse.promo = 1 AND pp.price > 0, (1 - pp.promo_price / pp.price) * 100, NULL)) AS discount,'
+            .' MAX(pse.newness) AS is_new,'
+            .' SUM(pse.quantity * COALESCE(IF(pse.promo = 1, pp.promo_price, pp.price), 0)) AS stock_value'
+            .' FROM product_sale_elements pse'
+            .' JOIN product p ON p.id = pse.product_id AND p.visible = 1'
+            .' LEFT JOIN product_price pp ON pp.product_sale_elements_id = pse.id'
+            .' AND pp.currency_id = (SELECT id FROM currency WHERE by_default = 1 ORDER BY id LIMIT 1)'
+            .' WHERE pse.product_id IN ('.implode(',', array_map('intval', $productIds)).') AND pse.quantity > 0'
+            .' GROUP BY pse.product_id',
+            [],
+        );
+
+        $signals = [];
+
+        foreach ($rows as $row) {
+            $signals[(int) $row['product_id']] = [
+                'discountPct' => $row['discount'] === null ? null : (float) $row['discount'],
+                'isNew' => (int) $row['is_new'] === 1,
+                'stockValue' => (float) $row['stock_value'],
+            ];
+        }
+
+        return $signals;
     }
 
     /**
