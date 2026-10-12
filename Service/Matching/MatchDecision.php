@@ -8,18 +8,23 @@ use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\OfferQuestions;
 
 /**
- * Where code decides. Two stages:
+ * Where code decides. Three stages:
  *
  * 1. prefilter(): what code can see for itself, before paying for anything.
- *    A price gap no same-article offer would show, a second-hand item, a
- *    foreign currency. Jev is never asked about those.
+ *    A second-hand item, a foreign currency. Jev is never asked about those.
  * 2. decide(): Jev's typed answers turned into a state, only in the decisive
  *    bands. Anything in between goes to a human; it is never a pass.
+ * 3. withGap(): a price far from ours is a doubt, checked, never decided by
+ *    the gap alone (asked 2026-10-12). Beyond 70 % it used to be rejected
+ *    blind; from 25 % a Jev "yes" alone let it into the gap.
  */
 final readonly class MatchDecision
 {
-    /** Beyond this gap, whatever the titles say, it is not the same article. */
+    /** Beyond this gap, even a proven match is a data problem for a human. */
     public const IMPLAUSIBLE_GAP = 0.70;
+
+    /** From this gap on, Jev's word alone does not let an offer into the gap. */
+    public const SUSPECT_GAP = 0.25;
 
     private const USED_CONDITIONS = ['used', 'refurbished', 'pre-owned', 'occasion', 'reconditionne'];
 
@@ -36,14 +41,60 @@ final readonly class MatchDecision
             return new MatchVerdict(MatchVerdict::REJECTED, 'USED_OR_REFURBISHED', false, 'used_or_refurbished', false);
         }
 
+        return null;
+    }
+
+    /**
+     * The gap weighed after the identity verdict:
+     *
+     * - beyond IMPLAUSIBLE_GAP, whatever Jev said short of "not this article"
+     *   or "not this size" goes to a human;
+     * - from SUSPECT_GAP on, a Jev match whose price would count in the gap
+     *   goes to a human; a price already kept out (a promotion) cannot
+     *   mislead the gap.
+     *
+     * A rejection keeps its own reason: it is the proof the gap only hinted.
+     */
+    public function withGap(MatchVerdict $verdict, ?string $ourPriceInclTax, ?string $theirPrice): MatchVerdict
+    {
+        $gap = self::gap($ourPriceInclTax, $theirPrice);
+
+        if ($gap === null || $verdict->state === MatchVerdict::REJECTED) {
+            return $verdict;
+        }
+
+        if ($gap > self::IMPLAUSIBLE_GAP) {
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', false, 'PRICE_GAP_IMPLAUSIBLE', $verdict->judgedByJev);
+        }
+
+        if ($gap >= self::SUSPECT_GAP && $verdict->state === MatchVerdict::MATCHED && $verdict->comparable) {
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', false, 'PRICE_GAP_SUSPECT', $verdict->judgedByJev);
+        }
+
+        return $verdict;
+    }
+
+    /**
+     * For a match proven by a GTIN or a human: the article is certain, only a
+     * gap no shop would show makes the price itself doubtful.
+     */
+    public static function implausibleGap(?string $ourPriceInclTax, ?string $theirPrice): bool
+    {
+        $gap = self::gap($ourPriceInclTax, $theirPrice);
+
+        return $gap !== null && $gap > self::IMPLAUSIBLE_GAP;
+    }
+
+    /**
+     * Relative to our price; rounded to the basis point, so 75.00 against
+     * 100.00 is 25 % and not a float a hair below it.
+     */
+    private static function gap(?string $ourPriceInclTax, ?string $theirPrice): ?float
+    {
         $ours = (float) $ourPriceInclTax;
         $theirs = (float) $theirPrice;
 
-        if ($ours > 0.0 && $theirs > 0.0 && abs($theirs - $ours) / $ours > self::IMPLAUSIBLE_GAP) {
-            return new MatchVerdict(MatchVerdict::REJECTED, 'PRICE_GAP_IMPLAUSIBLE', false, 'PRICE_GAP_IMPLAUSIBLE', false);
-        }
-
-        return null;
+        return $ours > 0.0 && $theirs > 0.0 ? round(abs($theirs - $ours) / $ours, 4) : null;
     }
 
     /**

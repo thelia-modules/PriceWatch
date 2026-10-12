@@ -111,19 +111,49 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         self::assertSame(0, $offer->getLastComparable());
     }
 
-    public function testImplausibleGapIsRejectedWithoutCallingJev(): void
+    /**
+     * Asked 2026-10-12: a price far from ours used to be rejected blind. It
+     * is checked: another article is rejected with Jev's proof.
+     */
+    public function testAFarPriceOfAnotherArticleIsRejectedOnJevsWord(): void
+    {
+        $offer = $this->offer(CompetitorStatus::Watched, '161.30', '329.99');
+
+        $this->judge([$this->jev(0.05, 0.10, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        $offer->reload();
+        self::assertSame(1, $this->calls, 'checked, not rejected blind');
+        self::assertSame('rejected', $offer->getMatchState());
+        self::assertSame('PRODUCT_MISMATCH', $offer->getMatchReason());
+    }
+
+    public function testAFarPriceOfTheSameArticleGoesToAHuman(): void
     {
         $offer = $this->offer(CompetitorStatus::Watched, '419.00', '89.00');
 
-        $run = $this->judge([])->judgePending(50, 1.0);
+        $this->judge([$this->jev(0.94, 0.96, 'comparable', 0.90)])->judgePending(50, 1.0);
 
         $offer->reload();
-        self::assertSame('rejected', $offer->getMatchState());
-        self::assertSame('code', $offer->getMatchMethod());
+        self::assertSame('needs_review', $offer->getMatchState(), 'the same article at a fifth of our price: a human looks');
         self::assertSame('PRICE_GAP_IMPLAUSIBLE', $offer->getMatchReason());
-        self::assertSame(0, $this->calls, 'code saw it: nothing paid');
-        self::assertSame(0, $run->getJevRequests());
-        self::assertNull($offer->getJudgmentJson(), 'no Jev answer to show when code decided alone');
+        self::assertSame(0, $offer->getLastComparable());
+    }
+
+    /**
+     * Seen 2026-10-12: a Bell Moto 3 matched by Jev at +33 %, black against
+     * matt black, counted in the gap.
+     */
+    public function testAJevMatchAtASuspectGapWaitsForAHuman(): void
+    {
+        $offer = $this->offer(CompetitorStatus::Watched, '224.99', '299.99');
+
+        $this->judge([$this->jev(0.94, 0.96, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        $offer->reload();
+        self::assertSame('needs_review', $offer->getMatchState());
+        self::assertSame('PRICE_GAP_SUSPECT', $offer->getMatchReason());
+        self::assertSame(0, $offer->getLastComparable());
+        self::assertSame(0, $this->latestQuote($offer)->getComparable());
     }
 
     public function testSameFactsAreNeverPaidTwice(): void

@@ -143,6 +143,9 @@ final readonly class OfferJudge
                         $productVerdicts[$evidence] = [$verdict, $answers];
                     }
                 }
+
+                // A price far from ours makes Jev's word not enough.
+                $verdict = $this->decision->withGap($verdict, (string) $quote->getOurPrice(), $quote->getPrice());
             }
 
             if ($dryRun) {

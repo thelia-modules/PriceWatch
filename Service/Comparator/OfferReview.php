@@ -23,7 +23,7 @@ final readonly class OfferReview
      * promotion, a bundle, a starting price or a second-hand item stays out of
      * the gap. Only "could not tell" exclusions are lifted.
      */
-    private const EXCLUSIONS_A_HUMAN_LIFTS = [null, 'NOT_JUDGED', 'PRICE_UNCLEAR', 'PRICE_GAP_IMPLAUSIBLE', 'unclear'];
+    private const EXCLUSIONS_A_HUMAN_LIFTS = [null, 'NOT_JUDGED', 'PRICE_UNCLEAR', 'PRICE_GAP_IMPLAUSIBLE', 'PRICE_GAP_SUSPECT', 'unclear'];
 
     public function confirm(PwCompetitorOffer $offer, string $reviewer): void
     {

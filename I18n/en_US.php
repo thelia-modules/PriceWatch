@@ -57,6 +57,7 @@ return [
     'reason.CURRENCY_MISMATCH' => 'Price in another currency',
     'reason.USED_OR_REFURBISHED' => 'Used or refurbished',
     'reason.PRICE_GAP_IMPLAUSIBLE' => 'Implausible price gap, over 70 %',
+    'reason.PRICE_GAP_SUSPECT' => 'Price gap of 25 % or more: same product to check',
     'reason.CONFIRMED_BY_HUMAN' => 'Confirmed by hand',
     'reason.REJECTED_BY_HUMAN' => 'Excluded by hand',
     'reason.REOPENED' => 'Sent back to review',
@@ -69,6 +70,7 @@ return [
     'exclusion.CURRENCY_MISMATCH' => 'Another currency',
     'exclusion.NOT_JUDGED' => 'Not judged',
     'exclusion.PRICE_GAP_IMPLAUSIBLE' => 'Implausible gap',
+    'exclusion.PRICE_GAP_SUSPECT' => 'Suspect gap, to check',
     'exclusion.unclear' => 'Price unclear',
     'shipping' => 'shipping',
 

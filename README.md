@@ -7,6 +7,11 @@ Matching is deterministic wherever the code can see the answer — GTIN equality
 price gap, currency — and only the narrow semantic questions go to typed Jev
 judgments: is it the same article, the same variant, is this price comparable.
 
+A price far from ours is a doubt, never a verdict: from a 25 % gap a match
+Jev alone made waits for a human, and beyond 70 % the offer is still checked
+(another article is rejected on Jev's word, the same article goes to a human).
+A match proven by a GTIN only goes to a human beyond 70 %.
+
 A product whose sizes we all sell at one price is one comparison: the collect
 pass searches one of its variants (the limit counts searches), the other sizes
 ride on the card it leads to, a "same article?" verdict is asked once for sizes

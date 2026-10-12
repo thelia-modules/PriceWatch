@@ -190,8 +190,12 @@ final readonly class DirectCollector
                 ->setOfferKey(self::OFFER_KEY_PREFIX.$saleElementId)
                 ->setFirstSeenAt($now);
 
-        // A gap no same article would show is a data problem: a human looks.
-        $verdict = $ourPrice === null ? null : $this->decision->prefilter($ourPrice, $variant->price, $product->currency, null);
+        // The article is proven; only a gap no shop would show makes the
+        // price itself doubtful, and a human looks. A wide but plausible gap
+        // is a price like any other.
+        $verdict = $ourPrice === null ? null : (MatchDecision::implausibleGap($ourPrice, $variant->price)
+            ? new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', false, 'PRICE_GAP_IMPLAUSIBLE', false)
+            : $this->decision->prefilter($ourPrice, $variant->price, $product->currency, null));
         $rejectedByHuman = $offer->getMatchState() === 'rejected' && $offer->getReviewedBy() !== null;
         $comparable = !$rejectedByHuman && $verdict === null;
 
