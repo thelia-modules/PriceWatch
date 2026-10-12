@@ -23,6 +23,11 @@ when the title leads to no card of ours; a GTIN Google answered with nothing
 of ours is not searched again for 90 days (`gtin_unknown_at`). Measured on
 2026-10-12: 81 GTIN searches, no card of ours, about three minutes per pass.
 
+A product's last watch is the latest of its last Google Shopping search and
+its last competitor page read with a price. Beyond 14 days (`LastWatch`, the
+same rule as the suggestions) the product card, the watched products list
+("Stale reading" tab) and the admin home say so.
+
 Requires Thelia 3.0.0 and PHP 8.3.
 
 ## Install

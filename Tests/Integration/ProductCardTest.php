@@ -14,6 +14,7 @@ use PriceWatch\Service\Comparator\ProductCardPresenter;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Watched\WatchedRepository;
 use Symfony\Component\Routing\Generator\UrlGenerator;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Route;
@@ -81,6 +82,21 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, $card['watch']['missing'], 'its catalogue variant can be added');
     }
 
+    public function testTheCardSaysWhenTheProductWasLastWatchedAndWarnsWhenLongAgo(): void
+    {
+        $product = $this->product();
+        $small = $this->variant($product, 'S', '3660600123454');
+        $presenter = $this->presenter();
+
+        self::assertNull($presenter->present((int) $product->getId(), 'fr_FR')['lastWatch'], 'never watched');
+
+        PwProductIdentityQuery::create()->filterByProductSaleElementsId($small->getId())->update(['LastCollectedAt' => new \DateTime('2026-09-22 11:00:00')]);
+        $card = $presenter->present((int) $product->getId(), 'fr_FR', new \DateTimeImmutable('2026-10-12 12:00:00'));
+
+        self::assertSame(['at' => '22/09/2026 11:00', 'daysAgo' => 20, 'stale' => true], $card['lastWatch']);
+        self::assertFalse($presenter->present((int) $product->getId(), 'fr_FR', new \DateTimeImmutable('2026-09-30 12:00:00'))['lastWatch']['stale']);
+    }
+
     // ------------------------------------------------------------------
 
     private function presenter(): ProductCardPresenter
@@ -88,7 +104,7 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         $routes = new RouteCollection();
         $routes->add('pricewatch_comparator', new Route('/admin/module/pricewatch/comparator'));
 
-        return new ProductCardPresenter(new ComparatorRepository(), new CatalogVariantRepository(), new UrlGenerator($routes, new RequestContext()));
+        return new ProductCardPresenter(new ComparatorRepository(), new CatalogVariantRepository(), new UrlGenerator($routes, new RequestContext()), new WatchedRepository(new ComparatorRepository()));
     }
 
     private function product(): Product

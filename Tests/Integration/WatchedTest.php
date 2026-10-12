@@ -6,6 +6,7 @@ namespace PriceWatch\Tests\Integration;
 
 use PriceWatch\Model\PwCompetitor;
 use PriceWatch\Model\PwCompetitorOffer;
+use PriceWatch\Model\PwCompetitorPage;
 use PriceWatch\Model\PwCompetitorQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Comparator\ComparatorRepository;
@@ -70,8 +71,8 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
         self::assertSame('Blouson comparé '.$this->tag, $rows[0]['title'], 'sorted by best gap first, products without one after');
 
         self::assertSame(
-            ['all' => 5, 'never' => 3, 'not_collectable' => 1, 'compared' => 1, 'paused' => 1],
-            $this->repository()->counts(new WatchedFilters(search: $this->tag), 'fr_FR'),
+            ['all' => 5, 'never' => 3, 'stale' => 0, 'not_collectable' => 1, 'compared' => 1, 'paused' => 1],
+            $this->repository()->counts(new WatchedFilters(search: $this->tag), 'fr_FR', new \DateTimeImmutable('2026-10-12 12:00:00')),
         );
         self::assertSame(['Gants sans GTIN '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::NotCollectable, $this->tag)), 'title'));
         self::assertSame(['Bottes en pause '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::Paused, $this->tag)), 'title'));
@@ -103,6 +104,40 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
             ['Récent '.$this->tag, 'Ancien '.$this->tag, 'Jamais '.$this->tag],
             array_column($this->rows(new WatchedFilters(search: $this->tag, sort: 'collected')), 'title'),
         );
+    }
+
+    /**
+     * Asked 2026-10-12: show when a product was last watched, and say so
+     * when it was long ago.
+     */
+    public function testAProductLastWatchedOverFourteenDaysAgoIsStale(): void
+    {
+        $old = $this->product('Ancien');
+        $this->variant($old, monitored: true, collectable: true, collectedAt: '-20 days');
+        $recent = $this->product('Récent');
+        $this->variant($recent, monitored: true, collectable: true, collectedAt: '-3 days');
+        // Searched on Google long ago, but read on a competitor page yesterday.
+        $readDirectly = $this->product('Lu en direct');
+        $this->variant($readDirectly, monitored: true, collectable: true, collectedAt: '-20 days');
+        $this->page($readDirectly, 'read', '-1 day');
+        // A page that failed to read watched nothing.
+        $failedPage = $this->product('Page en erreur');
+        $this->variant($failedPage, monitored: true, collectable: true);
+        $this->page($failedPage, 'http_error', '-1 day');
+        $paused = $this->product('En pause');
+        $this->variant($paused, monitored: false, collectable: true, collectedAt: '-40 days');
+
+        self::assertSame(['Ancien '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::Stale, $this->tag)), 'title'));
+        $counts = $this->repository()->counts(new WatchedFilters(search: $this->tag), 'fr_FR');
+        self::assertSame(1, $counts['stale'], 'a paused product raises no alert');
+        self::assertSame(1, $counts['never']);
+        self::assertSame(['Page en erreur '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::Never, $this->tag)), 'title'));
+
+        $byTitle = array_column($this->rows(new WatchedFilters(search: $this->tag)), null, 'title');
+        self::assertSame((new \DateTimeImmutable('-1 day'))->format('Y-m-d'), substr((string) $byTitle['Lu en direct '.$this->tag]['last_watched_at'], 0, 10), 'the latest of the Google search and the page read');
+
+        self::assertEqualsWithDelta((new \DateTimeImmutable('-20 days'))->getTimestamp(), $this->repository()->lastWatched((int) $old->getId())?->getTimestamp(), 5);
+        self::assertNull($this->repository()->lastWatched((int) $failedPage->getId()));
     }
 
     /**
@@ -146,6 +181,21 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
             ->save();
 
         return $saleElement;
+    }
+
+    private function page(Product $product, string $outcome, string $fetchedAt): void
+    {
+        $url = 'https://'.$this->watched->getDomain().'/'.bin2hex(random_bytes(4));
+
+        (new PwCompetitorPage())
+            ->setCompetitorId($this->watched->getId())
+            ->setProductId($product->getId())
+            ->setUrl($url)
+            ->setUrlKey(sha1($url))
+            ->setStatus('confirmed')
+            ->setLastFetchedAt(new \DateTime($fetchedAt))
+            ->setLastOutcome($outcome)
+            ->save();
     }
 
     private function offer(ProductSaleElements $variant, string $state, bool $comparable, string $gapPct, ?PwCompetitor $competitor = null): void

@@ -71,11 +71,12 @@
     {% endif %}
 
     {% if rows is empty %}
-        <div class="alert alert-light border" data-testid="pw-watched-empty">{{ ('watched.view.' ~ view ~ '.empty')|trans({}, 'pricewatch') }}</div>
+        <div class="alert alert-light border" data-testid="pw-watched-empty">{{ ('watched.view.' ~ view ~ '.empty')|trans({'%days%': staleDays}, 'pricewatch') }}</div>
     {% else %}
         {% set statuses = {
             collected: 'bg-success-subtle text-success-emphasis border-success-subtle',
             never: 'bg-body-secondary text-body',
+            stale: 'bg-warning-subtle text-warning-emphasis border-warning-subtle',
             not_collectable: 'bg-warning-subtle text-warning-emphasis border-warning-subtle',
             paused: 'bg-body-tertiary text-muted'
         } %}
@@ -107,7 +108,11 @@
                         </td>
                         <td style="white-space: normal">
                             <span class="badge border {{ statuses[row.status] }}" data-testid="pw-watched-status-{{ row.productId }}">{{ ('watched.status.' ~ row.status)|trans({}, 'pricewatch') }}</span>
-                            {% if row.lastCollected %}<div class="small text-muted">{{ row.lastCollected }}</div>{% endif %}
+                            {% if row.lastCollected %}
+                                <div class="small {{ row.status == 'stale' ? 'text-warning-emphasis' : 'text-muted' }}" data-testid="pw-watched-last-{{ row.productId }}">
+                                    {{ row.lastCollected }} · {{ 'watched.days_ago'|trans({'%count%': row.daysAgo}, 'pricewatch') }}
+                                </div>
+                            {% endif %}
                         </td>
                         <td class="text-end">{{ row.compared ?: '–' }}</td>
                         <td>{% include '@PriceWatchModule/backOffice/default-twig/price-watch/_gap.html.twig' with {position: row.position, pct: row.gap} only %}</td>

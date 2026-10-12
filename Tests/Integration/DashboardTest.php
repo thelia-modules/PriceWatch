@@ -18,6 +18,7 @@ use PriceWatch\Service\Run\RunProgress;
 use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Usage\UsagePresenter;
 use PriceWatch\Service\Usage\UsageRepository;
+use PriceWatch\Service\Watched\WatchedRepository;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
 use Symfony\Component\Routing\Generator\UrlGenerator;
@@ -77,6 +78,21 @@ final class DashboardTest extends PriceWatchIntegrationTestCase
         self::assertSame(2, $dashboard['competitors'][0]['compared']);
     }
 
+    public function testTheSummaryWarnsAboutProductsReadLongAgoOrNever(): void
+    {
+        // Only this test's identities are watched while it runs.
+        \PriceWatch\Model\PwProductIdentityQuery::create()->update(['Monitored' => 0]);
+        $this->offer($this->rarely, 'matched_judged', true, '5.000');
+        \PriceWatch\Model\PwProductIdentityQuery::create()->filterByMonitored(1)->update(['LastCollectedAt' => new \DateTime('-20 days')]);
+        $this->offer($this->often, 'matched_judged', true, '1.000');
+
+        $dashboard = $this->presenter()->present('fr_FR');
+
+        self::assertSame(['stale' => 1, 'never' => 1, 'staleDays' => 14], $dashboard['watch']);
+        self::assertSame('/w?view=stale&sort=collected', $dashboard['links']['stale']);
+        self::assertSame('/w?view=never', $dashboard['links']['never']);
+    }
+
     public function testWithoutWhitelistTheBlockSaysSo(): void
     {
         PwCompetitorQuery::create()->filterByStatus(CompetitorStatus::Watched->value)->update(['Status' => CompetitorStatus::Proposed->value]);
@@ -112,7 +128,7 @@ final class DashboardTest extends PriceWatchIntegrationTestCase
     {
         $routes = new RouteCollection();
 
-        foreach (['pricewatch_comparator' => '/c', 'pricewatch_competitors' => '/k', 'admin.products.update' => '/p'] as $name => $path) {
+        foreach (['pricewatch_comparator' => '/c', 'pricewatch_competitors' => '/k', 'admin.products.update' => '/p', 'pricewatch_watched' => '/w'] as $name => $path) {
             $routes->add($name, new Route($path));
         }
 
@@ -128,6 +144,7 @@ final class DashboardTest extends PriceWatchIntegrationTestCase
             new RunStatus(new RunProgress(new ManualRun($runner, new LockFactory(new InMemoryStore()), '/tmp')), $ledger),
             new UsagePresenter($ledger),
             new UrlGenerator($routes, new RequestContext()),
+            new WatchedRepository(new ComparatorRepository()),
         );
     }
 }

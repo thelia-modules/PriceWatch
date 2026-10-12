@@ -44,6 +44,18 @@
             </div>
         </div>
 
+        {% if watch.stale > 0 or watch.never > 0 %}
+            <div class="alert alert-warning py-2 small d-flex flex-wrap gap-3" data-testid="pw-dash-stale">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                {% if watch.stale > 0 %}
+                    <span>{{ 'dashboard.stale'|trans({'%count%': watch.stale, '%days%': watch.staleDays}, 'pricewatch') }} · <a href="{{ links.stale }}">{{ 'dashboard.see'|trans({}, 'pricewatch') }}</a></span>
+                {% endif %}
+                {% if watch.never > 0 %}
+                    <span>{{ 'dashboard.never'|trans({'%count%': watch.never}, 'pricewatch') }} · <a href="{{ links.never }}">{{ 'dashboard.see'|trans({}, 'pricewatch') }}</a></span>
+                {% endif %}
+            </div>
+        {% endif %}
+
         <div class="mb-1 d-flex justify-content-between small">
             <span class="fw-semibold">{{ 'Our position on the compared offers'|trans({}, 'pricewatch') }}</span>
             {% if split.averagePct %}<span class="text-muted">{{ 'Average gap'|trans({}, 'pricewatch') }} <span class="fw-semibold text-body">{{ split.averagePct }}</span></span>{% endif %}

@@ -23,7 +23,8 @@ final readonly class SuggestionPresenter
     public const VIEW = 'suggestions';
 
     public const SALES_DAYS = 90;
-    public const STALE_DAYS = 14;
+    /** One rule for "old reading" across the back office. */
+    public const STALE_DAYS = \PriceWatch\Service\Watched\LastWatch::STALE_DAYS;
     public const SHOWN = 50;
 
     /** A click starts one pass: this many products at most. */
