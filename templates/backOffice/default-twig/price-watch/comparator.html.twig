@@ -94,6 +94,7 @@
     <form method="post" action="{{ path('pricewatch_comparator_review', {id: row.id, action: action}) }}" class="d-inline">
         <input type="hidden" name="_token" value="{{ csrfToken }}">
         <input type="hidden" name="return" value="{{ returnQuery }}">
+        {% for id in row.groupIds|filter(id => id != row.id) %}<input type="hidden" name="also[]" value="{{ id }}">{% endfor %}
         <button type="submit" class="btn btn-sm {{ style }}" data-testid="pw-{{ action }}-{{ row.id }}">{% if icon %}<i class="bi {{ icon }} me-1" aria-hidden="true"></i>{% endif %}{{ label }}</button>
     </form>
 {% endmacro %}
@@ -104,6 +105,7 @@
     <form method="post" action="{{ path('pricewatch_comparator_review', {id: row.id, action: action}) }}" class="d-inline">
         <input type="hidden" name="_token" value="{{ csrfToken }}">
         <input type="hidden" name="return" value="{{ returnQuery }}">
+        {% for id in row.groupIds|filter(id => id != row.id) %}<input type="hidden" name="also[]" value="{{ id }}">{% endfor %}
         <button type="submit" class="btn btn-sm {{ style }}" data-bs-toggle="tooltip" title="{{ label }}" aria-label="{{ label }}" data-testid="pw-{{ action }}-{{ row.id }}"><i class="bi {{ icon }}" aria-hidden="true"></i></button>
     </form>
 {% endmacro %}
@@ -261,7 +263,7 @@
                                 {% endif %}
                                 <div style="min-width: 0">
                                     {% if row.product.editUrl %}<a href="{{ row.product.editUrl }}" class="fw-semibold d-block text-truncate" title="{{ row.product.title }}">{{ row.product.title }}</a>{% else %}<span class="fw-semibold d-block text-truncate">{{ row.product.title }}</span>{% endif %}
-                                    <div class="small text-muted text-truncate">{{ row.product.ref }}{% if row.product.size %} · {{ 'Size'|trans({}, 'pricewatch') }} <strong class="text-body">{{ row.product.size }}</strong>{% endif %}</div>
+                                    <div class="small text-muted text-truncate">{{ row.product.ref }}{% if row.sizes|length > 1 %} · {{ 'Sizes'|trans({}, 'pricewatch') }} <strong class="text-body" data-testid="pw-sizes-{{ row.id }}">{{ row.sizes|join(', ') }}</strong>{% elseif row.product.size %} · {{ 'Size'|trans({}, 'pricewatch') }} <strong class="text-body">{{ row.product.size }}</strong>{% endif %}</div>
                                 </div>
                             </div>
                         </td>

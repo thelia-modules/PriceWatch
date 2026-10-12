@@ -300,6 +300,35 @@ final readonly class ComparatorRepository
     }
 
     /**
+     * The other offers of a line of the screen, among the ids the form sent:
+     * same competitor, same product, same prices, same state. An id that
+     * does not share all of it is ignored, never decided on.
+     *
+     * @param list<int> $ids
+     *
+     * @return list<PwCompetitorOffer>
+     */
+    public function sameLine(PwCompetitorOffer $offer, array $ids): array
+    {
+        $productId = ProductSaleElementsQuery::create()->findPk($offer->getProductSaleElementsId())?->getProductId();
+        $ids = array_values(array_diff(array_filter($ids, static fn (int $id): bool => $id > 0), [(int) $offer->getId()]));
+
+        if ($productId === null || $ids === []) {
+            return [];
+        }
+
+        return PwCompetitorOfferQuery::create()
+            ->filterById($ids, Criteria::IN)
+            ->filterByCompetitorId($offer->getCompetitorId())
+            ->filterByMatchState($offer->getMatchState())
+            ->filterByLastPrice($offer->getLastPrice())
+            ->filterByLastOurPrice($offer->getLastOurPrice())
+            ->useProductSaleElementsQuery()->filterByProductId($productId)->endUse()
+            ->find()
+            ->getData();
+    }
+
+    /**
      * Null when the filters cannot match anything: no whitelisted competitor,
      * or a search that finds no product.
      */

@@ -244,6 +244,7 @@ return [
     'confidence.rule' => 'Règle automatique',
     'confidence.none' => 'Non jugée',
     'confidence.proof' => 'Prouvée',
+    'Sizes' => 'Tailles',
     'proof.ean' => 'Prouvée : un de nos EAN figure sur la page du concurrent',
     'proof.size' => 'Prouvée : page confirmée à la main, taille lue sur la page',
     'proof.short.ean' => 'EAN',

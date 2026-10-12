@@ -49,6 +49,8 @@ final readonly class ComparatorPresenter
             $rows[] = $this->row($offer, $quotes[(int) $offer->getId()] ?? null, $identity, $products[$identity['productId']] ?? null, $competitors[(int) $offer->getCompetitorId()] ?? '', $money, $percent, $pictures[$identity['productId']] ?? null);
         }
 
+        $rows = self::lines($rows);
+
         $direction = $filters->gapDirection();
 
         $summary = $this->repository->gapSummary($filters);
@@ -210,6 +212,11 @@ final readonly class ComparatorPresenter
 
         return [
             'id' => (int) $offer->getId(),
+            'groupIds' => [(int) $offer->getId()],
+            'sizes' => $identity['size'] === null || $identity['size'] === '' ? [] : [$identity['size']],
+            'lineKey' => $identity['productId'] > 0 && $theirs !== null && $ours !== null
+                ? implode('|', [$offer->getCompetitorId(), $identity['productId'], $theirs, $ours, $deltaPct, $state, $offer->getLastComparable(), $offer->getExclusionReason(), $offer->getMatchMethod()])
+                : null,
             'state' => $state,
             'reason' => $offer->getMatchReason(),
             'method' => $offer->getMatchMethod(),
@@ -251,6 +258,42 @@ final readonly class ComparatorPresenter
                 'reopen' => $state !== 'needs_review',
             ],
         ];
+    }
+
+    /**
+     * The sizes of one product read at one competitor at one price, in one
+     * state, are one line (asked 2026-10-12: five lines said the same thing).
+     * Sizes at another price, or decided otherwise, keep a line of their own.
+     * Nothing is inferred: a size shows only where it was read.
+     *
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function lines(array $rows): array
+    {
+        $lines = [];
+        $lineOf = [];
+
+        foreach ($rows as $row) {
+            $key = $row['lineKey'] ?? null;
+
+            if (\is_string($key) && isset($lineOf[$key])) {
+                $line = &$lines[$lineOf[$key]];
+                $line['groupIds'][] = $row['id'];
+                $line['sizes'] = [...$line['sizes'], ...$row['sizes']];
+                unset($line);
+                continue;
+            }
+
+            if (\is_string($key)) {
+                $lineOf[$key] = \count($lines);
+            }
+
+            $lines[] = $row;
+        }
+
+        return $lines;
     }
 
     private function url(ComparatorFilters $filters): string

@@ -97,12 +97,17 @@ final readonly class ComparatorController
         }
 
         $reviewer = $this->guard->adminLogin();
+        // A line of the screen can stand for several sizes: the decision
+        // reaches those the repository confirms are on the same line.
+        $also = array_map('intval', array_filter((array) $request->request->all('also'), 'is_numeric'));
 
-        match ($action) {
-            'confirm' => $this->review->confirm($offer, $reviewer),
-            'reject' => $this->review->reject($offer, $reviewer),
-            'reopen' => $this->review->reopen($offer, $reviewer),
-        };
+        foreach ([$offer, ...$this->repository->sameLine($offer, array_values($also))] as $decided) {
+            match ($action) {
+                'confirm' => $this->review->confirm($decided, $reviewer),
+                'reject' => $this->review->reject($decided, $reviewer),
+                'reopen' => $this->review->reopen($decided, $reviewer),
+            };
+        }
 
         return $this->back($request, 'success', match ($action) {
             'confirm' => 'Offer confirmed: same product, same size. It will not be judged again.',

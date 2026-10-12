@@ -237,6 +237,40 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertArrayHasKey((int) $product->getId(), $images, 'any offer of the product lends its card picture');
     }
 
+    /**
+     * Asked 2026-10-12: the sizes of one product read at one price at one
+     * competitor are one line, not five.
+     */
+    public function testTheSizesOfAProductAtOnePriceAreOneLine(): void
+    {
+        $product = $this->product('Casque Arai '.$this->tag);
+        $medium = $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-10.000');
+        $small = $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-10.000', size: 'S');
+        $large = $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-10.000', size: 'L');
+        $dearer = $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-5.000', size: 'XL', price: '95.00');
+
+        $rows = $this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['rows'];
+
+        self::assertCount(2, $rows, 'one line for M, S and L; XL is sold at another price');
+        $grouped = array_values(array_filter($rows, static fn (array $row): bool => \count($row['groupIds']) > 1))[0] ?? null;
+        self::assertNotNull($grouped);
+        self::assertEqualsCanonicalizing(['M', 'S', 'L'], $grouped['sizes']);
+        self::assertEqualsCanonicalizing([(int) $medium->getId(), (int) $small->getId(), (int) $large->getId()], $grouped['groupIds']);
+        self::assertContains([(int) $dearer->getId()], array_column($rows, 'groupIds'));
+    }
+
+    public function testADecisionOnALineReachesEveryOfferOfThatLineOnly(): void
+    {
+        $product = $this->product('Casque Arai '.$this->tag);
+        $medium = $this->offer($product, 'needs_review', comparable: false, deltaPct: '-10.000');
+        $small = $this->offer($product, 'needs_review', comparable: false, deltaPct: '-10.000', size: 'S');
+        $elsewhere = $this->offer($this->product('Autre '.$this->tag), 'needs_review', comparable: false, deltaPct: '-10.000');
+
+        $siblings = $this->repository->sameLine($medium, [(int) $small->getId(), (int) $elsewhere->getId(), 999999999]);
+
+        self::assertSame([(int) $small->getId()], array_map(static fn (PwCompetitorOffer $offer): int => (int) $offer->getId(), $siblings), 'another product\'s offer never rides on this line\'s decision');
+    }
+
     public function testEveryLineGetsAPictureAndAnUnsignedEqualGap(): void
     {
         $product = $this->product('Blouson Furygan '.$this->tag);
@@ -307,16 +341,28 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         return $product;
     }
 
-    private function offer(Product $product, string $state, bool $comparable, string $deltaPct, ?string $exclusion = null, ?PwCompetitor $competitor = null): PwCompetitorOffer
+    /**
+     * @param string|null $size another size of the product: a variant of its own
+     */
+    private function offer(Product $product, string $state, bool $comparable, string $deltaPct, ?string $exclusion = null, ?PwCompetitor $competitor = null, ?string $size = null, string $price = '90.00'): PwCompetitorOffer
     {
         $saleElement = ProductSaleElementsQuery::create()->filterByProductId($product->getId())->findOne();
         self::assertNotNull($saleElement);
+
+        if ($size !== null) {
+            $saleElement = (new \Thelia\Model\ProductSaleElements())
+                ->setProductId($product->getId())
+                ->setRef('PW-SIZE-'.bin2hex(random_bytes(4)))
+                ->setQuantity(1)
+                ->setIsDefault(false);
+            $saleElement->save();
+        }
 
         if (PwProductIdentityQuery::create()->filterByProductSaleElementsId($saleElement->getId())->count() === 0) {
             (new PwProductIdentity())
                 ->setProductSaleElementsId($saleElement->getId())
                 ->setProductId($product->getId())
-                ->setSizeLabel('M')
+                ->setSizeLabel($size ?? 'M')
                 ->save();
         }
 
@@ -329,7 +375,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
             ->setMatchState($state)
             ->setLastComparable($comparable ? 1 : 0)
             ->setExclusionReason($exclusion)
-            ->setLastPrice('90.00')
+            ->setLastPrice($price)
             ->setLastOurPrice('100.00')
             ->setLastDeltaPct($deltaPct)
             ->setLastSeenAt(new \DateTime())
