@@ -95,6 +95,35 @@ need a container.
   lock.
 - PHPUnit's `TestCase::run()` is final: never name a test helper `run()`.
 
+## Direct reading of competitor pages
+
+`pricewatch:direct` reads prices straight from the competitor product pages
+tied to our products (`pw_competitor_page`): free, a few seconds a page, every
+size at once. It records exact matches only:
+
+- one of our GTINs on the page (JSON-LD `gtin*` or a GTIN-shaped `sku`): that
+  variant, and the page is confirmed;
+- otherwise, on a page confirmed by hand, a size stated once, in a single
+  colour, on a page that lists no GTIN at all.
+
+A page listing GTINs that are not ours is rejected. Anything uncertain (no
+price in euros, structured data that disagree, data naming another page after
+a redirect) records nothing. Extractors: JSON-LD, and the `__NUXT_DATA__`
+state, restricted to the object whose `url` is the page (the state also holds
+the recommended products). The fetcher announces itself as `PriceWatch`,
+honours robots.txt and leaves each site 2 s between two pages.
+
+```bash
+ddev exec php Thelia pricewatch:page seed        # candidates from the merchant pages Google led to
+ddev exec php Thelia pricewatch:page add --competitor=motoblouz.com --product=REF --url=https://... [--confirm]
+ddev exec php Thelia pricewatch:page list
+ddev exec php Thelia pricewatch:page confirm --id=71
+ddev exec php Thelia pricewatch:direct [--product=REF] [--competitor=domain]
+```
+
+A variant read directly steps the Google Shopping offer of the same pair aside,
+and the collect pass no longer records that pair from Google.
+
 ## Logs
 
 - `var/log/pricewatch.log`: what each collect pass did and why it stopped
