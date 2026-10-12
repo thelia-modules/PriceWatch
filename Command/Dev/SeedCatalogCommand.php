@@ -359,7 +359,7 @@ final class SeedCatalogCommand extends Command
                 $row['monitored'] = '1';
                 $row['locale'] = self::LOCALE;
 
-                fputcsv($handle, array_values($row), CatalogCsvReader::DELIMITER, CatalogCsvReader::ENCLOSURE, '');
+                fputcsv($handle, array_values($row), CatalogCsvReader::DELIMITER, CatalogCsvReader::ENCLOSURE, CatalogCsvReader::ESCAPE);
                 ++$written;
             }
         }
