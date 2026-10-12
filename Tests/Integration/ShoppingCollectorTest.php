@@ -11,6 +11,7 @@ use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\BrandNormalizer;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
@@ -276,6 +277,25 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertNull($result['run']->getErrorsJson());
         self::assertSame(1, $result['run']->getQuotesWritten());
         self::assertSame([PassItems::DONE, 1], $this->item($result['run'], (int) $identity->getProductId()));
+    }
+
+    public function testAVariantReadOnTheCompetitorsOwnPageIsNotRecordedFromGoogle(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $competitor = \PriceWatch\Model\PwCompetitorQuery::create()->findOneByDomain($this->watched);
+        self::assertNotNull($competitor);
+        (new \PriceWatch\Model\PwCompetitorOffer())
+            ->setCompetitorId($competitor->getId())
+            ->setProductSaleElementsId($identity->getProductSaleElementsId())
+            ->setOfferKey(DirectCollector::OFFER_KEY_PREFIX.$identity->getProductSaleElementsId())
+            ->setMatchState('matched_exact')
+            ->setActive(1)
+            ->save();
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByOfferKey('shopping:'.$identity->getProductSaleElementsId())->count(), 'the proven reading is not doubled by Google\'s');
+        self::assertSame(0, $result['run']->getQuotesWritten());
     }
 
     public function testAnUnrelatedCardIsNotWorthASellersLookup(): void

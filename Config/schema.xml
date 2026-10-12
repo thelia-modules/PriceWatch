@@ -466,6 +466,49 @@
         </vendor>
     </table>
 
+    <!-- A competitor's product page, tied to one of our products: read
+         directly, without Google. Confirmed only by proof (one of our GTINs on
+         the page) or by a human; a candidate page is never read for prices. -->
+    <table name="pw_competitor_page" namespace="PriceWatch\Model">
+        <column autoIncrement="true" name="id" primaryKey="true" required="true" type="INTEGER"/>
+        <column name="competitor_id" required="true" type="INTEGER"/>
+        <column name="product_id" required="true" type="INTEGER"/>
+        <column name="url" required="true" type="LONGVARCHAR"/>
+        <!-- sha1 of the URL: a LONGVARCHAR cannot carry the unique index. -->
+        <column name="url_key" required="true" size="40" type="CHAR"/>
+        <column defaultValue="candidate" name="status" required="true" size="20" type="VARCHAR"/>
+        <column name="confirmed_by" size="20" type="VARCHAR"/>
+        <column name="discovered_by" size="20" type="VARCHAR"/>
+        <column name="last_fetched_at" type="TIMESTAMP"/>
+        <column name="last_outcome" size="30" type="VARCHAR"/>
+        <column name="last_error" size="255" type="VARCHAR"/>
+
+        <foreign-key foreignTable="pw_competitor" name="fk_pw_page_competitor" onDelete="CASCADE" onUpdate="RESTRICT">
+            <reference foreign="id" local="competitor_id"/>
+        </foreign-key>
+        <foreign-key foreignTable="product" name="fk_pw_page_product" onDelete="CASCADE" onUpdate="RESTRICT">
+            <reference foreign="id" local="product_id"/>
+        </foreign-key>
+
+        <unique name="uq_pw_page_competitor_url">
+            <unique-column name="competitor_id"/>
+            <unique-column name="url_key"/>
+        </unique>
+        <index name="idx_pw_page_product_status">
+            <index-column name="product_id"/>
+            <index-column name="status"/>
+        </index>
+
+        <behavior name="timestampable"/>
+
+        <vendor type="mysql">
+            <parameter name="Engine" value="InnoDB"/>
+            <parameter name="Charset" value="utf8mb4"/>
+            <parameter name="Collate" value="utf8mb4_general_ci"/>
+            <parameter name="RowFormat" value="DYNAMIC"/>
+        </vendor>
+    </table>
+
     <!-- Required as soon as a foreign key points at a core table
          (product_sale_elements here). -->
     <external-schema filename="local/config/schema.xml" referenceOnly="true"/>

@@ -13,6 +13,7 @@ use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
 use PriceWatch\Service\Normalizer\TextNormalizer;
@@ -362,10 +363,10 @@ final readonly class ShoppingCollector
      * Posts the searches, waits, and keeps for each the first card whose
      * title is plausible against ours.
      *
-     * @param array<string, string> $keywordsByTag
-     * @param array<string, string> $ourTitleByTag
+     * @param array<array-key, string> $keywordsByTag PHP turns numeric tags into int keys
+     * @param array<array-key, string> $ourTitleByTag
      *
-     * @return array{cards: array<string, ShoppingCard>, missed: array<string, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>} errors keyed by tag; failed: tags whose search ended in error
+     * @return array{cards: array<array-key, ShoppingCard>, missed: array<array-key, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>} errors keyed by tag; failed: tags whose search ended in error
      *
      * @throws DataForSeoException
      */
@@ -600,6 +601,12 @@ final readonly class ShoppingCollector
         $saleElementId = (int) $identity->getProductSaleElementsId();
         $offerKey = 'shopping:'.$saleElementId;
         $now = new \DateTime();
+
+        // Read straight from this competitor's page: Google's reading of the
+        // same variant would only compete with the proven one.
+        if (PwCompetitorOfferQuery::create()->filterByCompetitorId($competitorId)->filterByOfferKey(DirectCollector::OFFER_KEY_PREFIX.$saleElementId)->filterByActive(1)->count() > 0) {
+            return false;
+        }
 
         $model = PwCompetitorOfferQuery::create()->filterByCompetitorId($competitorId)->filterByOfferKey($offerKey)->findOne()
             ?? (new PwCompetitorOffer())
