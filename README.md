@@ -18,6 +18,11 @@ ride on the card it leads to, a "same article?" verdict is asked once for sizes
 read on the same listing at the same price, and the comparator shows them on
 one line. A size is never given a price it was not read at.
 
+Google Shopping is searched by product title first. The GTIN is the fallback
+when the title leads to no card of ours; a GTIN Google answered with nothing
+of ours is not searched again for 90 days (`gtin_unknown_at`). Measured on
+2026-10-12: 81 GTIN searches, no card of ours, about three minutes per pass.
+
 Requires Thelia 3.0.0 and PHP 8.3.
 
 ## Install

@@ -39,6 +39,7 @@ CREATE TABLE `pw_product_identity`
     `source_checksum` VARCHAR(40),
     `import_batch_id` INTEGER,
     `last_collected_at` TIMESTAMP NULL,
+    `gtin_unknown_at` TIMESTAMP NULL,
     `created_at` TIMESTAMP NULL,
     `updated_at` TIMESTAMP NULL,
     PRIMARY KEY (`id`),

@@ -28,7 +28,9 @@ class PriceWatch extends BaseModule
 
     public function update($currentVersion, $newVersion, ?ConnectionInterface $con = null): void
     {
-        $finder = Finder::create()->name('*.sql')->depth(0)->sortByName()->in(__DIR__.'/Config/update');
+        // Natural order: by name alone, 0.10.0 would run before 0.4.0 adds the
+        // column it follows.
+        $finder = Finder::create()->name('*.sql')->depth(0)->sortByName(true)->in(__DIR__.'/Config/update');
         $database = new Database($con);
 
         foreach ($finder as $file) {

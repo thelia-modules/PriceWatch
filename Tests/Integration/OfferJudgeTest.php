@@ -36,6 +36,19 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
     private int $calls = 0;
     private ?\Throwable $failWith = null;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Isolation from the real offers in this database: candidates a live
+        // collect pass left unjudged were judged first and took the test's
+        // Jev answers (seen 2026-10-12). Only this test's competitors are
+        // whitelisted while it runs (rolled back after).
+        \PriceWatch\Model\PwCompetitorQuery::create()
+            ->filterByStatus(CompetitorStatus::Watched->value)
+            ->update(['Status' => CompetitorStatus::Proposed->value]);
+    }
+
     public function testConfirmedOfferBecomesMatchedAndComparable(): void
     {
         $offer = $this->offer(CompetitorStatus::Watched, '22.00', '21.90');

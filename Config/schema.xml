@@ -54,6 +54,8 @@
         <column name="import_batch_id" type="INTEGER"/>
         <!-- When the variant was last searched: collection goes oldest first, so passes rotate through the referential. -->
         <column name="last_collected_at" type="TIMESTAMP"/>
+        <!-- When Google last answered a search for this GTIN with no card of ours: the GTIN is not searched again for a while. -->
+        <column name="gtin_unknown_at" type="TIMESTAMP"/>
 
         <foreign-key foreignTable="product_sale_elements" name="fk_pw_identity_pse" onDelete="CASCADE" onUpdate="RESTRICT">
             <reference foreign="id" local="product_sale_elements_id"/>

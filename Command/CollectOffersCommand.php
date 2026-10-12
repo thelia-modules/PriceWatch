@@ -64,8 +64,8 @@ final class CollectOffersCommand extends Command
         $priority = $input->getOption('priority') ? 2 : 1;
         $sandbox = (bool) $input->getOption('sandbox');
 
-        // Three tasks per variant at most: a GTIN search, a title search
-        // when the GTIN leads nowhere, one sellers lookup.
+        // Three tasks per variant at most: a title search, a GTIN search
+        // when the title leads nowhere, one sellers lookup.
         $worstCase = $sandbox ? 0.0 : $limit * 3 * self::COST_PER_TASK[$priority];
 
         if (self::exceedsBudget($worstCase, (string) $input->getOption('budget-usd'))) {

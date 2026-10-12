@@ -59,9 +59,9 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
     public function testThePercentCountsTheStepsAlreadyDone(): void
     {
-        self::assertSame(0, PassStep::GtinSearch->percent(0, 4));
-        self::assertSame(10, PassStep::GtinSearch->percent(2, 4), 'half of the first of five steps');
-        self::assertSame(25, PassStep::TitleSearch->percent(1, 4));
+        self::assertSame(0, PassStep::TitleSearch->percent(0, 4));
+        self::assertSame(10, PassStep::TitleSearch->percent(2, 4), 'half of the first of five steps');
+        self::assertSame(25, PassStep::GtinSearch->percent(1, 4));
         self::assertSame(60, PassStep::Recording->percent(0, 0), 'nothing to count yet: the step has just begun');
         self::assertSame(100, PassStep::Judging->percent(3, 3));
         self::assertSame(100, PassStep::Judging->percent(9, 3), 'never past the end');
