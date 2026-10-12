@@ -28,10 +28,14 @@ use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Referential\ProductEnrolment;
 use PriceWatch\Service\Run\BackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Settings\PriceWatchSettings;
+use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Suggestion\SuggestionPresenter;
 use PriceWatch\Service\Suggestion\SuggestionRepository;
 use PriceWatch\Service\Suggestion\SuggestionRun;
 use PriceWatch\Service\Suggestion\SuggestionScore;
+use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
+use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
 use Symfony\Component\Routing\Generator\UrlGenerator;
@@ -39,6 +43,7 @@ use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Route;
 use Symfony\Component\Routing\RouteCollection;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
+use Thelia\Model\Category;
 use Thelia\Model\OrderProduct;
 use Thelia\Model\OrderQuery;
 use Thelia\Model\Product;
@@ -335,6 +340,77 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
     }
 
     /**
+     * Asked 2026-10-12: ranked across the shop, helmets took 47 lines out of
+     * 50 and no glove ever got in. Best sellers are read family by family.
+     */
+    public function testEachFamilyBringsItsOwnBestSellers(): void
+    {
+        $this->isolateFromTheShop();
+        [$helmets, $fullFace] = $this->family('Casques');
+        [$gear, $gloves] = $this->family('Equipement');
+        $dearHelmets = [];
+
+        foreach ([1, 2, 3] as $index) {
+            $dearHelmets[] = $helmet = $this->product('Casque '.$index.' '.$this->tag, category: $fullFace);
+            $this->sale($helmet, 'paid', 1, (string) (600 + $index));
+        }
+
+        $glove = $this->product('Gants '.$this->tag, category: $gloves);
+        $this->sale($glove, 'paid', 2, '30.00');
+        $repository = new SuggestionRepository();
+        $since = new \DateTimeImmutable('-90 days');
+
+        $byFamily = $repository->bestSellersByFamily($since, 2, []);
+
+        self::assertArrayHasKey((int) $glove->getId(), $byFamily, 'the best glove is read with the best helmets');
+        self::assertCount(2, array_intersect(array_keys($byFamily), array_map(static fn (Product $product): int => (int) $product->getId(), $dearHelmets)), 'two per family');
+        self::assertSame([(int) $glove->getId() => (int) $gear->getId()], $repository->families([(int) $glove->getId()], []), 'a sub-category belongs to its top-level family');
+        self::assertEqualsWithDelta(60.0, $repository->familyRevenue($since, [])[(int) $gear->getId()] ?? 0.0, 0.001);
+    }
+
+    public function testEveryLineSaysItsFamilyAndTheFilterKeepsOne(): void
+    {
+        $this->isolateFromTheShop();
+        [$helmets, $fullFace] = $this->family('Casques');
+        [$gear, $gloves] = $this->family('Equipement');
+        $helmet = $this->product('Casque '.$this->tag, category: $fullFace);
+        $this->sale($helmet, 'paid', 1, '600.00');
+        $glove = $this->product('Gants '.$this->tag, category: $gloves);
+        $this->sale($glove, 'paid', 2, '30.00');
+
+        $screen = $this->presenter()->screen('fr_FR');
+        $rows = array_column($screen['rows'], null, 'id');
+
+        self::assertSame('Equipement '.$this->tag, $rows[(int) $glove->getId()]['family'] ?? null);
+        self::assertContains((int) $gear->getId(), array_column($screen['families'], 'id'), 'offered by the filter');
+
+        $filtered = $this->presenter()->screen('fr_FR', family: (int) $gear->getId());
+
+        self::assertSame([(int) $glove->getId()], array_column($filtered['rows'], 'id'));
+        self::assertSame((int) $gear->getId(), $filtered['family']);
+    }
+
+    public function testAnExcludedOrHiddenFamilyIsNeverSuggested(): void
+    {
+        $this->isolateFromTheShop();
+        [$unavailable, $unavailableSub] = $this->family('Articles Indisponibles');
+        [$giftCards, $giftSub] = $this->family('Cartes cadeau', visible: false);
+        [$helmets, $fullFace] = $this->family('Casques');
+        $excluded = $this->product('Indisponible '.$this->tag, category: $unavailableSub);
+        $this->sale($excluded, 'paid', 3, '900.00');
+        $card = $this->product('Carte cadeau '.$this->tag, category: $giftSub);
+        $this->sale($card, 'paid', 3, '900.00');
+        $helmet = $this->product('Casque '.$this->tag, category: $fullFace);
+        $this->sale($helmet, 'paid', 1, '600.00');
+
+        $ids = array_column($this->presenter([(int) $unavailable->getId()])->present('fr_FR'), 'id');
+
+        self::assertContains((int) $helmet->getId(), $ids);
+        self::assertNotContains((int) $excluded->getId(), $ids, 'excluded in the settings');
+        self::assertNotContains((int) $card->getId(), $ids, 'a hidden top-level category is no family to suggest from');
+    }
+
+    /**
      * A valid EAN-13 in the 2xx in-store range: never a real product's.
      */
     private function ean(): string
@@ -349,14 +425,35 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         return $body.((10 - $sum % 10) % 10);
     }
 
-    private function presenter(): SuggestionPresenter
+    /**
+     * @param list<int> $excludedFamilies
+     */
+    private function presenter(array $excludedFamilies = []): SuggestionPresenter
     {
         $routes = new RouteCollection();
         $routes->add('admin.products.update', new Route('/p'));
         $dispatcher = self::coreService('event_dispatcher');
         self::assertInstanceOf(EventDispatcherInterface::class, $dispatcher);
+        $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
+        $settings->setExcludedFamilies($excludedFamilies);
 
-        return new SuggestionPresenter(new SuggestionRepository(), new ComparatorRepository(), new CatalogThumbnails($dispatcher), new UrlGenerator($routes, new RequestContext()), new GtinNormalizer());
+        return new SuggestionPresenter(new SuggestionRepository(), new ComparatorRepository(), new CatalogThumbnails($dispatcher), new UrlGenerator($routes, new RequestContext()), new GtinNormalizer(), $settings);
+    }
+
+    /**
+     * A top-level category, the family the suggestions group by, with one
+     * sub-category under it: products sit in sub-categories in a real shop.
+     *
+     * @return array{Category, Category} the family and its sub-category
+     */
+    private function family(string $title, bool $visible = true): array
+    {
+        $factory = $this->createFixtureFactory();
+        $root = $factory->category(['visible' => $visible ? 1 : 0]);
+        $root->setLocale('fr_FR')->setTitle($title.' '.$this->tag)->save();
+        $sub = $factory->category(['parent' => $root->getId()]);
+
+        return [$root, $sub];
     }
 
     /**
@@ -374,10 +471,10 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
     /**
      * Visible and in stock unless told otherwise: what the tab may suggest.
      */
-    private function product(string $title, int $stock = 5): Product
+    private function product(string $title, int $stock = 5, ?Category $category = null): Product
     {
         $factory = $this->createFixtureFactory();
-        $product = $factory->product($factory->category(), $factory->taxRule(), $factory->currency(), ['baseQuantity' => $stock]);
+        $product = $factory->product($category ?? $factory->category(), $factory->taxRule(), $factory->currency(), ['baseQuantity' => $stock]);
         $product->setLocale('fr_FR')->setTitle($title)->save();
 
         return $product;

@@ -28,6 +28,7 @@ final readonly class PriceWatchSettings
     private const UPDATED_SUFFIX = '_updated_at';
     private const SHOP_DESCRIPTION = 'shop_description';
     private const SHOP_DESCRIPTION_MAX_LENGTH = 500;
+    private const EXCLUDED_FAMILIES = 'suggestions_excluded_families';
 
     public function __construct(
         private ConfigStore $store,
@@ -236,6 +237,27 @@ final readonly class PriceWatchSettings
         }
 
         $this->store->set(self::SHOP_DESCRIPTION, $description);
+    }
+
+    /**
+     * Top-level categories the suggestions never draw from: what no
+     * competitor sells as such (unavailable items, gift cards).
+     *
+     * @return list<int> category ids
+     */
+    public function excludedFamilies(): array
+    {
+        return array_values(array_filter(array_map('intval', explode(',', $this->store->get(self::EXCLUDED_FAMILIES))), static fn (int $id): bool => $id > 0));
+    }
+
+    /**
+     * @param list<int> $categoryIds
+     */
+    public function setExcludedFamilies(array $categoryIds): void
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $categoryIds), static fn (int $id): bool => $id > 0)));
+        sort($ids);
+        $this->store->set(self::EXCLUDED_FAMILIES, implode(',', $ids));
     }
 
     public function isJevReady(): bool

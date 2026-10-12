@@ -454,4 +454,11 @@ return [
     'Tick the products to collect first.' => 'Cochez d\'abord les produits à relever.',
     'None of these products has a variant with a valid EAN code of its own: nothing can be collected.' => 'Aucun de ces produits n\'a de déclinaison avec un EAN valide qui lui soit propre : rien à relever.',
     'Price watch started on %products% product(s), %count% variant(s), at most %cost%. Its progress shows on the page.' => 'Surveillance lancée sur %products% produit(s), %count% déclinaison(s), au plus %cost%. Sa progression s\'affiche sur la page.',
+
+    // Suggestions by family
+    'Family' => 'Famille',
+    'All families' => 'Toutes les familles',
+    'Each family gets lines in proportion to its revenue, at least %min%: the best of every family shows.' => 'Chaque famille a des lignes en proportion de son chiffre d\'affaires, au moins %min% : le meilleur de chaque famille apparaît.',
+    'Each family gets lines in proportion to its revenue. Tick the families that have no equivalent at competitors: they are never suggested.' => 'Chaque famille a des lignes en proportion de son chiffre d\'affaires. Cochez les familles sans équivalent chez les concurrents : elles ne sont jamais suggérées.',
+    'Families left out of the suggestions' => 'Familles exclues des suggestions',
 ];

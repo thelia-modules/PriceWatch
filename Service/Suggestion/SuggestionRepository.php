@@ -21,6 +21,14 @@ final readonly class SuggestionRepository
     public const SOLD_STATUSES = ['paid', 'processing', 'sent'];
 
     /**
+     * Every category with the visible top-level category it sits under: a
+     * hidden family (gift cards, here) is no family to suggest from.
+     */
+    private const FAMILY_TREE = 'WITH RECURSIVE tree AS ('
+        .'SELECT c.id, c.id AS root FROM category c WHERE c.parent = 0 AND c.visible = 1'
+        .' UNION ALL SELECT c.id, tree.root FROM category c JOIN tree ON c.parent = tree.id)';
+
+    /**
      * @return array<int, array{quantity: int, revenue: float}> product id => units and revenue excluding tax, best first
      */
     public function bestSellers(\DateTimeInterface $since, int $limit): array
@@ -171,6 +179,165 @@ final readonly class SuggestionRepository
     }
 
     /**
+     * Best sellers family by family: ranked across the shop, dear helmets
+     * took 47 lines out of 50 (measured 2026-10-12) and no glove ever got in.
+     *
+     * @param list<int> $excludedFamilies
+     *
+     * @return array<int, array{quantity: int, revenue: float}> product id => units and revenue excluding tax
+     */
+    public function bestSellersByFamily(\DateTimeInterface $since, int $perFamily, array $excludedFamilies): array
+    {
+        $rows = $this->rows(
+            self::FAMILY_TREE
+            .', sold AS (SELECT p.id AS product_id, SUM(op.quantity) AS quantity,'
+            .' SUM(op.quantity * IF(op.was_in_promo = 1, op.promo_price, op.price)) AS revenue'
+            .' FROM order_product op'
+            .' JOIN `order` o ON o.id = op.order_id'
+            .' JOIN order_status os ON os.id = o.status_id'
+            .' JOIN product p ON p.ref = op.product_ref'
+            .' WHERE o.created_at >= :since AND os.code IN ('.self::quoted(self::SOLD_STATUSES).')'
+            .' GROUP BY p.id),'
+            .' ranked AS (SELECT sold.*, ROW_NUMBER() OVER (PARTITION BY tree.root ORDER BY sold.revenue DESC, sold.product_id) AS position'
+            .' FROM sold'
+            .' JOIN product_category pc ON pc.product_id = sold.product_id AND pc.default_category = 1'
+            .' JOIN tree ON tree.id = pc.category_id'
+            .self::excluding($excludedFamilies).')'
+            .' SELECT product_id, quantity, revenue FROM ranked WHERE position <= '.max(1, $perFamily),
+            ['since' => $since->format('Y-m-d H:i:s')],
+        );
+
+        $sellers = [];
+
+        foreach ($rows as $row) {
+            $sellers[(int) $row['product_id']] = ['quantity' => (int) $row['quantity'], 'revenue' => (float) $row['revenue']];
+        }
+
+        return $sellers;
+    }
+
+    /**
+     * Deep promotions family by family, the largest saving in euros first.
+     *
+     * @param list<int> $excludedFamilies
+     *
+     * @return list<int> product ids
+     */
+    public function onPromotionByFamily(float $minimumDiscountPct, int $perFamily, array $excludedFamilies): array
+    {
+        $rows = $this->rows(
+            self::FAMILY_TREE
+            .', promoted AS (SELECT pse.product_id, MAX(pp.price - pp.promo_price) AS saving'
+            .' FROM product_sale_elements pse'
+            .' JOIN product p ON p.id = pse.product_id AND p.visible = 1'
+            .' JOIN product_price pp ON pp.product_sale_elements_id = pse.id'
+            .' JOIN currency cur ON cur.id = pp.currency_id AND cur.by_default = 1'
+            .' WHERE pse.promo = 1 AND pse.quantity > 0 AND pp.price > 0'
+            .' AND pp.promo_price <= pp.price * (1 - :minimum / 100)'
+            .' GROUP BY pse.product_id),'
+            .' ranked AS (SELECT promoted.product_id, ROW_NUMBER() OVER (PARTITION BY tree.root ORDER BY promoted.saving DESC, promoted.product_id) AS position'
+            .' FROM promoted'
+            .' JOIN product_category pc ON pc.product_id = promoted.product_id AND pc.default_category = 1'
+            .' JOIN tree ON tree.id = pc.category_id'
+            .self::excluding($excludedFamilies).')'
+            .' SELECT product_id FROM ranked WHERE position <= '.max(1, $perFamily),
+            ['minimum' => $minimumDiscountPct],
+        );
+
+        return array_map(static fn (array $row): int => (int) $row['product_id'], $rows);
+    }
+
+    /**
+     * The top-level family of each product, through its default category.
+     * A product whose family is hidden or excluded is left out: it is not
+     * worth suggesting.
+     *
+     * @param list<int> $productIds
+     * @param list<int> $excludedFamilies
+     *
+     * @return array<int, int> product id => family id
+     */
+    public function families(array $productIds, array $excludedFamilies): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+
+        $rows = $this->rows(
+            self::FAMILY_TREE
+            .' SELECT pc.product_id, tree.root FROM product_category pc'
+            .' JOIN tree ON tree.id = pc.category_id'
+            .' WHERE pc.default_category = 1 AND pc.product_id IN ('.implode(',', array_map('intval', $productIds)).')'
+            .self::excluding($excludedFamilies, 'AND'),
+            [],
+        );
+
+        $families = [];
+
+        foreach ($rows as $row) {
+            $families[(int) $row['product_id']] = (int) $row['root'];
+        }
+
+        return $families;
+    }
+
+    /**
+     * @param list<int> $excludedFamilies
+     *
+     * @return array<int, float> family id => revenue excluding tax since $since
+     */
+    public function familyRevenue(\DateTimeInterface $since, array $excludedFamilies): array
+    {
+        $rows = $this->rows(
+            self::FAMILY_TREE
+            .' SELECT tree.root, SUM(op.quantity * IF(op.was_in_promo = 1, op.promo_price, op.price)) AS revenue'
+            .' FROM order_product op'
+            .' JOIN `order` o ON o.id = op.order_id'
+            .' JOIN order_status os ON os.id = o.status_id'
+            .' JOIN product p ON p.ref = op.product_ref'
+            .' JOIN product_category pc ON pc.product_id = p.id AND pc.default_category = 1'
+            .' JOIN tree ON tree.id = pc.category_id'
+            .' WHERE o.created_at >= :since AND os.code IN ('.self::quoted(self::SOLD_STATUSES).')'
+            .self::excluding($excludedFamilies, 'AND')
+            .' GROUP BY tree.root',
+            ['since' => $since->format('Y-m-d H:i:s')],
+        );
+
+        $revenue = [];
+
+        foreach ($rows as $row) {
+            $revenue[(int) $row['root']] = (float) $row['revenue'];
+        }
+
+        return $revenue;
+    }
+
+    /**
+     * The visible top-level categories, for the filter and the settings.
+     *
+     * @return array<int, string> family id => title, by position
+     */
+    public function familyTitles(string $locale): array
+    {
+        $rows = $this->rows(
+            'SELECT c.id, COALESCE(NULLIF(i18n.title, \'\'), NULLIF(fr.title, \'\'), CONCAT(\'#\', c.id)) AS title'
+            .' FROM category c'
+            .' LEFT JOIN category_i18n i18n ON i18n.id = c.id AND i18n.locale = :locale'
+            .' LEFT JOIN category_i18n fr ON fr.id = c.id AND fr.locale = \'fr_FR\''
+            .' WHERE c.parent = 0 AND c.visible = 1 ORDER BY c.position, c.id',
+            ['locale' => $locale],
+        );
+
+        $titles = [];
+
+        foreach ($rows as $row) {
+            $titles[(int) $row['id']] = (string) $row['title'];
+        }
+
+        return $titles;
+    }
+
+    /**
      * @param list<int> $productIds
      *
      * @return array<int, array{title: string, ref: string, variants: int, watched: int, collectable: int}>
@@ -242,6 +409,16 @@ final readonly class SuggestionRepository
         $statement->execute($parameters);
 
         return $statement->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * @param list<int> $families ids, cast here: they come from the settings
+     */
+    private static function excluding(array $families, string $keyword = 'WHERE'): string
+    {
+        $ids = array_values(array_filter(array_map('intval', $families), static fn (int $id): bool => $id > 0));
+
+        return $ids === [] ? '' : ' '.$keyword.' tree.root NOT IN ('.implode(',', $ids).')';
     }
 
     /**

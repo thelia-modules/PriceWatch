@@ -2,6 +2,22 @@
    starts one pass on them; the cost shown is the worst case, enforced. #}
 <p class="small text-muted mb-2">{{ 'Products to collect now: they sell, we were dearer last time, what a competitor showed is over %stale% days old, or they are on a deep promotion. The highest score first; hidden or out of stock products are left out.'|trans({'%stale%': staleDays}, 'pricewatch') }}</p>
 
+<p class="small text-muted mb-2">{{ 'Each family gets lines in proportion to its revenue, at least %min%: the best of every family shows.'|trans({'%min%': 3}, 'pricewatch') }}</p>
+
+{% if families|length > 1 %}
+    <form method="get" action="{{ path('pricewatch_comparator') }}" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-testid="pw-suggestions-family">
+        <input type="hidden" name="view" value="suggestions">
+        <label class="small fw-semibold" for="pw-suggest-family">{{ 'Family'|trans({}, 'pricewatch') }}</label>
+        <select class="form-select form-select-sm w-auto" id="pw-suggest-family" name="family">
+            <option value="">{{ 'All families'|trans({}, 'pricewatch') }}</option>
+            {% for option in families %}
+                <option value="{{ option.id }}" {% if option.id == family %}selected{% endif %}>{{ option.title }} ({{ option.lines }})</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-outline-secondary">{{ 'Filter'|trans({}, 'pricewatch') }}</button>
+    </form>
+{% endif %}
+
 {% if suggestions is empty %}
     <div class="alert alert-light border" data-testid="pw-suggestions-empty">{{ 'No suggestion for now: no recent sale, no gap against us, no deep promotion, nothing collected too long ago.'|trans({}, 'pricewatch') }}</div>
 {% else %}
@@ -54,6 +70,7 @@
                                 <span style="min-width: 0">
                                     <span class="fw-semibold d-block text-truncate" title="{{ row.title }}">{{ row.title }}</span>
                                     <span class="small text-muted d-block text-truncate">
+                                        {% if row.family %}<span class="badge rounded-pill bg-body-tertiary text-body border me-1" data-testid="pw-suggestion-family">{{ row.family }}</span>{% endif %}
                                         {{ row.ref }}
                                         {% if row.variants == 0 %} · <span class="text-warning-emphasis">{{ 'no variant with a valid EAN code of its own'|trans({}, 'pricewatch') }}</span>
                                         {% elseif not row.watched %} · <span class="text-primary-emphasis">{{ 'not watched yet, added when collected'|trans({}, 'pricewatch') }}</span>{% endif %}

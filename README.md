@@ -106,6 +106,16 @@ need a container.
   lock.
 - PHPUnit's `TestCase::run()` is final: never name a test helper `run()`.
 
+## Suggestions by family
+
+The suggestions tab lists 50 products, family by family: a family is the
+visible top-level category of a product's default category. Each family gets
+lines in proportion to its revenue over 90 days, and at least 3; best sellers
+and promotions are read per family, or the dearest family fills the list
+(helmets took 47 lines out of 50 before). Hidden top-level categories are
+never suggested, and the settings page lists the families to leave out (what
+competitors do not sell as such). The tab can be filtered on one family.
+
 ## Direct reading of competitor pages
 
 `pricewatch:direct` reads prices straight from the competitor product pages

@@ -8,11 +8,14 @@ use PriceWatch\Service\Comparator\CatalogThumbnails;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Settings\PriceWatchSettings;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
  * The comparator's suggestions tab: products worth collecting now, each with
- * the reasons why, the highest score first (SuggestionScore).
+ * the reasons why, the highest score first (SuggestionScore), family by
+ * family (SuggestionQuota): ranked across the shop, helmets took 47 lines out
+ * of 50 (measured 2026-10-12).
  */
 final readonly class SuggestionPresenter
 {
@@ -26,28 +29,46 @@ final readonly class SuggestionPresenter
     /** A click starts one pass: this many products at most. */
     public const MAX_SELECTED = 20;
 
+    /** Lines a family gets at least, however little it sells. */
+    public const MIN_PER_FAMILY = 3;
+
     public function __construct(
         private SuggestionRepository $repository,
         private ComparatorRepository $comparator,
         private CatalogThumbnails $thumbnails,
         private UrlGeneratorInterface $urlGenerator,
         private GtinNormalizer $gtin,
+        private PriceWatchSettings $settings,
     ) {
     }
 
     /**
      * @return list<array<string, mixed>>
      */
-    public function present(string $locale, ?\DateTimeImmutable $now = null): array
+    public function present(string $locale, ?\DateTimeImmutable $now = null, ?int $family = null): array
+    {
+        return $this->screen($locale, $now, $family)['rows'];
+    }
+
+    /**
+     * The rows, and the families the filter offers: those with a candidate,
+     * the best selling first, each with the lines it gets.
+     *
+     * @return array{rows: list<array<string, mixed>>, families: list<array{id: int, title: string, lines: int}>, family: ?int}
+     */
+    public function screen(string $locale, ?\DateTimeImmutable $now = null, ?int $family = null): array
     {
         $now ??= new \DateTimeImmutable();
-        ['sales' => $sales, 'dearer' => $dearer, 'stale' => $stale, 'signals' => $signals] = $this->candidates($now);
+        ['sales' => $sales, 'dearer' => $dearer, 'stale' => $stale, 'signals' => $signals, 'families' => $familyOf] = $this->candidates($now);
 
         $scores = self::score($sales, $dearer, $stale, $signals, $now);
         $products = $this->repository->products(array_keys($scores), $locale);
-        $ranked = self::rank($scores, $sales);
+        $ranked = array_values(array_filter(self::rank($scores, $sales), static fn (int $productId): bool => isset($products[$productId])));
+        $quota = self::quota($ranked, $familyOf, $this->repository->familyRevenue($now->modify('-'.self::SALES_DAYS.' days'), $this->settings->excludedFamilies()));
+        $titles = $this->repository->familyTitles($locale);
+        $family = $family !== null && isset($quota[$family]) ? $family : null;
 
-        $ranked = \array_slice(array_values(array_filter($ranked, static fn (int $productId): bool => isset($products[$productId]))), 0, self::SHOWN);
+        $ranked = self::lines($ranked, $familyOf, $family === null ? $quota : [$family => self::SHOWN]);
         $eanCodes = $this->repository->eanCodes(array_values(array_filter($ranked, static fn (int $productId): bool => $products[$productId]['watched'] === 0)));
         $pictures = $this->comparator->cardImages($ranked);
         $pictures += $this->thumbnails->urls(array_values(array_diff($ranked, array_keys($pictures))));
@@ -92,6 +113,8 @@ final readonly class SuggestionPresenter
 
             $rows[] = [
                 'id' => $productId,
+                'familyId' => $familyOf[$productId],
+                'family' => $titles[$familyOf[$productId]] ?? '',
                 'title' => $product['title'],
                 'ref' => $product['ref'],
                 'image' => $pictures[$productId] ?? null,
@@ -105,11 +128,61 @@ final readonly class SuggestionPresenter
             ];
         }
 
-        // What can be collected first: a product without a searchable
-        // variant stays listed, for its EAN codes to be fixed, at the end.
+        // The highest score first, whatever the family: the quota chose which
+        // products are listed, the filter narrows to one family. What can be
+        // collected first: a product without a searchable variant stays
+        // listed, for its EAN codes to be fixed, at the end.
         usort($rows, static fn (array $a, array $b): int => (int) ($a['variants'] === 0) <=> (int) ($b['variants'] === 0));
 
-        return $rows;
+        return [
+            'rows' => $rows,
+            'families' => array_map(static fn (int $id, int $lines): array => ['id' => $id, 'title' => $titles[$id] ?? '#'.$id, 'lines' => $lines], array_keys($quota), $quota),
+            'family' => $family,
+        ];
+    }
+
+    /**
+     * @param list<int>        $ranked   product ids, the highest score first
+     * @param array<int, int>  $familyOf product id => family id
+     * @param array<int, float> $revenue family id => revenue
+     *
+     * @return array<int, int> family id => lines, the best selling family first
+     */
+    private static function quota(array $ranked, array $familyOf, array $revenue): array
+    {
+        $candidates = [];
+
+        foreach ($ranked as $productId) {
+            $candidates[$familyOf[$productId]] = ($candidates[$familyOf[$productId]] ?? 0) + 1;
+        }
+
+        return SuggestionQuota::allocate($revenue, $candidates, self::SHOWN, self::MIN_PER_FAMILY);
+    }
+
+    /**
+     * The best of each family, as many as its quota.
+     *
+     * @param list<int>       $ranked
+     * @param array<int, int> $familyOf
+     * @param array<int, int> $quota
+     *
+     * @return list<int>
+     */
+    public static function lines(array $ranked, array $familyOf, array $quota): array
+    {
+        $taken = [];
+        $lines = [];
+
+        foreach ($ranked as $productId) {
+            $family = $familyOf[$productId];
+
+            if (($taken[$family] ?? 0) < ($quota[$family] ?? 0)) {
+                $taken[$family] = ($taken[$family] ?? 0) + 1;
+                $lines[] = $productId;
+            }
+        }
+
+        return $lines;
     }
 
     /**
@@ -138,32 +211,39 @@ final readonly class SuggestionPresenter
      */
     public function count(?\DateTimeImmutable $now = null): int
     {
-        return min(self::SHOWN, \count($this->candidates($now ?? new \DateTimeImmutable())['signals']));
+        return min(self::SHOWN, \count($this->candidates($now ?? new \DateTimeImmutable())['families']));
     }
 
     /**
-     * Every product one reason puts forward, kept only if we can sell it:
-     * collecting the price of a hidden or out of stock product is money lost.
+     * Every product one reason puts forward, kept only if we can sell it
+     * (collecting the price of a hidden or out of stock product is money
+     * lost) and if its family is one to suggest from. Best sellers and
+     * promotions are read family by family, so every family has candidates.
      *
      * @return array{
      *     sales: array<int, array{quantity: int, revenue: float}>,
      *     dearer: array<int, array{gapPct: float, competitors: int}>,
      *     stale: array<int, \DateTimeImmutable>,
      *     signals: array<int, array{discountPct: float|null, isNew: bool, stockValue: float}>,
+     *     families: array<int, int>,
      * }
      */
     private function candidates(\DateTimeImmutable $now): array
     {
-        $sales = $this->repository->bestSellers($now->modify('-'.self::SALES_DAYS.' days'), self::SHOWN);
+        $excluded = $this->settings->excludedFamilies();
+        $sales = $this->repository->bestSellersByFamily($now->modify('-'.self::SALES_DAYS.' days'), self::SHOWN, $excluded);
         $dearer = $this->repository->weWereDearer(self::SHOWN);
         $stale = $this->repository->stale($now->modify('-'.self::STALE_DAYS.' days'), self::SHOWN);
-        $promoted = $this->repository->onPromotion(SuggestionScore::PROMO_FROM_PCT, self::SHOWN);
+        $promoted = $this->repository->onPromotionByFamily(SuggestionScore::PROMO_FROM_PCT, self::SHOWN, $excluded);
+        $signals = $this->repository->catalogSignals(array_values(array_unique([...array_keys($sales), ...array_keys($dearer), ...array_keys($stale), ...$promoted])));
+        $families = $this->repository->families(array_keys($signals), $excluded);
 
         return [
             'sales' => $sales,
             'dearer' => $dearer,
             'stale' => $stale,
-            'signals' => $this->repository->catalogSignals(array_values(array_unique([...array_keys($sales), ...array_keys($dearer), ...array_keys($stale), ...$promoted]))),
+            'signals' => array_intersect_key($signals, $families),
+            'families' => $families,
         ];
     }
 
