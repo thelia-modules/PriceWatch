@@ -54,13 +54,13 @@
             <div class="col-12 col-xl-6">
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span class="fw-semibold">{{ 'Jev controls'|trans({}, 'pricewatch') }}</span>
+                        <span class="fw-semibold">{{ 'Match checks'|trans({}, 'pricewatch') }}</span>
                         <span class="badge {{ jevReady ? 'text-bg-success' : 'text-bg-warning' }}">{{ jevReady ? 'Ready'|trans({}, 'pricewatch') : 'Not ready'|trans({}, 'pricewatch') }}</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small">{{ 'Jev checks that a competitor offer is the same product, the same variant, and that its price is comparable.'|trans({}, 'pricewatch') }}</p>
+                        <p class="text-muted small">{{ 'Each competitor offer is checked: same product, same variant, comparable price.'|trans({}, 'pricewatch') }}</p>
                         <fieldset class="mb-3">
-                            <legend class="form-label fw-semibold fs-6">{{ 'Reach Jev through'|trans({}, 'pricewatch') }}</legend>
+                            <legend class="form-label fw-semibold fs-6">{{ 'Checks reached through'|trans({}, 'pricewatch') }}</legend>
                             {% for provider in jevProviders %}
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="jev_provider" id="pw-jev-{{ provider }}" value="{{ provider }}" {% if provider == jevProvider %}checked{% endif %}>
@@ -79,7 +79,7 @@
                 <div class="card h-100">
                     <div class="card-header fw-semibold">OpenRouter</div>
                     <div class="card-body">
-                        <p class="text-muted small">{{ 'Used by the reasoning model, and by Jev when Jev is reached through OpenRouter.'|trans({}, 'pricewatch') }}</p>
+                        <p class="text-muted small">{{ 'Used by the reasoning model, and by the checks when they go through OpenRouter.'|trans({}, 'pricewatch') }}</p>
                         {{ _self.secret_field(secrets.openrouter_api_key, 'OpenRouter API key'|trans({}, 'pricewatch'), null, 'pw-test-openrouter') }}
                     </div>
                 </div>

@@ -29,7 +29,7 @@
                         <option value="{{ batch.size }}">{{ '%count% variants, at most %cost%'|trans({'%count%': batch.size, '%cost%': batch.cost}, 'pricewatch') }}</option>
                     {% endfor %}
                 </select>
-                <button type="submit" class="btn btn-sm btn-primary text-nowrap" data-testid="pw-run-start" data-bs-toggle="tooltip" title="{{ 'The variants collected longest ago go first. Google Shopping priority queue, then Jev checks the offers found.'|trans({}, 'pricewatch') }}" {% if run.running %}disabled{% endif %}>
+                <button type="submit" class="btn btn-sm btn-primary text-nowrap" data-testid="pw-run-start" data-bs-toggle="tooltip" title="{{ 'The variants collected longest ago go first. Google Shopping priority queue, then the offers found are checked.'|trans({}, 'pricewatch') }}" {% if run.running %}disabled{% endif %}>
                     <i class="bi bi-play-fill me-1" aria-hidden="true"></i>{{ 'Start a pass'|trans({}, 'pricewatch') }}
                 </button>
             </form>

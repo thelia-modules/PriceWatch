@@ -58,7 +58,7 @@
             <span class="badge {{ bands[gauge.band] ?? 'text-bg-secondary' }}" style="min-width: 1.6rem" data-band="{{ gauge.band }}" data-bs-toggle="tooltip" title="{{ label }}" aria-label="{{ label }}">{{ ('gauge.short.' ~ gauge.question)|trans({}, 'pricewatch') }}</span>
         {% endfor %}
         {% if row.confidence.disagreements is not empty %}
-            {% set disagreement = 'Jev disagrees on:'|trans({}, 'pricewatch') ~ ' ' ~ row.confidence.disagreements|map(question => ('gauge.' ~ question)|trans({}, 'pricewatch')|lower)|join(', ') %}
+            {% set disagreement = 'The automatic check disagrees on:'|trans({}, 'pricewatch') ~ ' ' ~ row.confidence.disagreements|map(question => ('gauge.' ~ question)|trans({}, 'pricewatch')|lower)|join(', ') %}
             <i class="bi bi-exclamation-triangle-fill text-danger ms-1" data-bs-toggle="tooltip" title="{{ disagreement }}" aria-label="{{ disagreement }}" data-testid="pw-disagreement-{{ row.id }}"></i>
         {% endif %}
         {% if row.confidence.score is not null and row.confidence.level in ['high', 'medium', 'low'] %}
@@ -327,7 +327,7 @@
                                     </dl>
                                 </div>
                                 <div class="col-12 col-md-6 col-xl-4">
-                                    <div class="text-uppercase text-muted fw-semibold mb-2">{{ 'Jev checks'|trans({}, 'pricewatch') }}</div>
+                                    <div class="text-uppercase text-muted fw-semibold mb-2">{{ 'Automatic checks'|trans({}, 'pricewatch') }}</div>
                                     {% set bars = {yes: 'bg-success', act: 'bg-success', review: 'bg-warning', no: 'bg-danger'} %}
                                     {% for gauge in row.confidence.gauges %}
                                         <div class="d-flex align-items-center gap-2 mb-1" title="{{ ('jev.' ~ gauge.question)|trans({}, 'pricewatch') }}">
@@ -339,7 +339,7 @@
                                         </div>
                                         {% if gauge.choice %}<div class="text-muted mb-1" style="margin-left: 4.5rem">{{ ('price.' ~ gauge.choice)|trans({}, 'pricewatch') }}</div>{% endif %}
                                     {% else %}
-                                        <div class="text-muted">{{ row.method == 'human' ? 'Decided by a human, without Jev.'|trans({}, 'pricewatch') : 'No Jev answer yet.'|trans({}, 'pricewatch') }}</div>
+                                        <div class="text-muted">{{ row.method == 'human' ? 'Decided by a human, without automatic check.'|trans({}, 'pricewatch') : 'Not checked yet.'|trans({}, 'pricewatch') }}</div>
                                     {% endfor %}
                                 </div>
                                 <div class="col-12 col-md-6 col-xl-3">
