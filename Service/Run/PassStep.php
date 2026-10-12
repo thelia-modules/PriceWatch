@@ -14,7 +14,6 @@ use PriceWatch\Model\PwCollectRun;
 enum PassStep: string
 {
     case TitleSearch = 'title_search';
-    case GtinSearch = 'gtin_search';
     case Sellers = 'sellers';
     case Recording = 'recording';
     case Judging = 'judging';

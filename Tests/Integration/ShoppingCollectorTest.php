@@ -259,10 +259,10 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
     }
 
     /**
-     * A failed search is no unreliable title: a GTIN search would not tell
-     * more, and a later pass searches the title again.
+     * A failed search is no product Google does not know: an error, and a
+     * later pass searches the title again.
      */
-    public function testAFailedTitleSearchIsNotFollowedByAGtinSearch(): void
+    public function testAFailedTitleSearchIsAnError(): void
     {
         $identity = $this->identity('3660600123454');
         $answers = $this->answers([$this->watched, null, null]);
@@ -276,8 +276,6 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, $result['run']->getDataforseoTasks(), 'the title search only');
         self::assertSame('partial', $result['run']->getStatus());
         self::assertSame([PassItems::ERROR, 0], $this->item($result['run'], (int) $identity->getProductId()));
-        $identity->reload();
-        self::assertNull($identity->getGtinUnknownAt(), 'the GTIN was not asked: nothing learned about it');
     }
 
     public function testAVariantReadOnTheCompetitorsOwnPageIsNotRecordedFromGoogle(): void
@@ -321,39 +319,29 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
 
         self::assertSame(['Casque Bell Custom 500 Gloss Black'], array_keys($result['noPlausibleCard']));
-        self::assertContains('GTIN: Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], 'what Google returned is shown');
-        self::assertContains('title: Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black']);
-        self::assertSame(2, $result['run']->getDataforseoTasks(), 'both searches are paid, the sellers lookup is not');
+        self::assertContains('title: Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], 'what Google returned is shown');
+        self::assertEmpty(array_filter($result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], static fn (string $line): bool => !str_starts_with($line, 'title: ')), 'no GTIN search to report');
+        self::assertSame(1, $result['run']->getDataforseoTasks(), 'the search is paid, the sellers lookup is not');
         self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
-        $identity->reload();
-        self::assertNotNull($identity->getGtinUnknownAt(), 'Google answered the GTIN with nothing of ours');
     }
 
     /**
-     * Measured live (2026-10-12): 81 GTIN searches, none led to a card of
-     * ours, and the 40101 among them held each pass about three minutes.
+     * Measured live (2026-10-09 to 12): 2 GTIN searches out of 91+ led to a
+     * card of ours, 18 ended in 40101 after about three minutes, billed all
+     * the same. Asked 2026-10-12: no GTIN search at all.
      */
-    public function testAGtinGoogleDidNotKnowIsNotSearchedAgainForAWhile(): void
+    public function testATitleThatLeadsNowhereIsNeverFollowedByAGtinSearch(): void
     {
-        $identity = $this->identity('3660600123454', title: 'Casque Bell Custom 500 Gloss Black');
-        $identity->setGtinUnknownAt(new \DateTime('-89 days'))->save();
+        $identity = $this->identity('3660600123454');
+        $answers = $this->answers([$this->watched, null, null]);
+        // The GTIN would have found the card: it is not asked.
+        $answers['products/task_get:title'] = $this->unrelatedCards();
 
-        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
 
         self::assertSame(1, $result['run']->getDataforseoTasks(), 'the title search only');
         self::assertSame([PassItems::NO_CARD, 0], $this->item($result['run'], (int) $identity->getProductId()));
-    }
-
-    public function testAGtinGoogleDidNotKnowLongAgoIsSearchedAgain(): void
-    {
-        $identity = $this->identity('3660600123454', title: 'Casque Bell Custom 500 Gloss Black');
-        $identity->setGtinUnknownAt(new \DateTime('-91 days'))->save();
-
-        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
-
-        self::assertSame(2, $result['run']->getDataforseoTasks(), 'the title search, then the GTIN one');
-        $identity->reload();
-        self::assertGreaterThan((new \DateTime('-1 day'))->getTimestamp(), $identity->getGtinUnknownAt()?->getTimestamp(), 'still unknown: dated again');
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
     }
 
     public function testVariantsLedToTheSameCardShareOneSellersLookup(): void
@@ -368,7 +356,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($large->getProductSaleElementsId())->count(), 'the card\'s sellers reach every variant led to it');
     }
 
-    public function testAProductFoundByTitleCostsNoGtinSearch(): void
+    public function testAProductIsSearchedOnceByTitleForAllItsSizes(): void
     {
         $small = $this->identity('3660600123454');
         $this->addVariant($small, '3660600123461');
@@ -450,75 +438,6 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
 
         self::assertSame(2, $result['run']->getTargetsPlanned());
         self::assertSame(2, $result['run']->getDataforseoTasks(), 'one title search for the product, one sellers lookup');
-    }
-
-    public function testTheGtinIsSearchedWhenTheTitleLeadsNowhere(): void
-    {
-        $identity = $this->identity('3660600123454');
-        $identity->setGtinUnknownAt(new \DateTime('-100 days'))->save();
-        $answers = $this->answers([$this->watched, null, null]);
-        $answers['products/task_get:title'] = $this->unrelatedCards();
-
-        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
-
-        self::assertSame(3, $result['run']->getDataforseoTasks(), 'one title search, one GTIN search, one sellers lookup');
-        self::assertSame([], $result['noPlausibleCard']);
-        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
-        $quote = PwPriceQuoteQuery::create()->filterByOfferId($offer?->getId())->findOne();
-        self::assertSame('gtin', json_decode((string) $quote?->getRawPayloadJson(), true)['searched_by'] ?? null);
-        $identity->reload();
-        self::assertNull($identity->getGtinUnknownAt(), 'Google knows the GTIN now');
-    }
-
-    /**
-     * Seen live (pass #6026): sizes at different prices turned 5 title
-     * searches into 7 GTIN ones, none useful.
-     */
-    public function testAProductWhoseTitleLedNowhereCostsOneGtinSearchWhateverItsSizes(): void
-    {
-        $small = $this->identity('3660600123454');
-        $large = $this->addVariant($small, '3660600123461', pricedLike: true, price: 20.0);
-        $answers = $this->answers([$this->watched, null, null]);
-        $answers['products/task_get:title'] = $this->unrelatedCards();
-
-        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
-
-        self::assertSame(2, $result['run']->getTargetsPlanned());
-        self::assertSame(3, $result['run']->getDataforseoTasks(), 'one title search, one GTIN search for the product, one sellers lookup');
-        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($large->getProductSaleElementsId())->count(), 'the card reaches the size whose GTIN was not searched');
-        $large->reload();
-        self::assertNull($large->getGtinUnknownAt(), 'not asked: nothing learned about it');
-    }
-
-    public function testTheNextSizeIsTriedWhenTheFirstGtinIsKnownUnknown(): void
-    {
-        $small = $this->identity('3660600123454');
-        $small->setGtinUnknownAt(new \DateTime('-1 day'))->save();
-        $large = $this->addVariant($small, '3660600123461', pricedLike: true, price: 20.0);
-        $answers = $this->answers([$this->watched, null, null]);
-        $answers['products/task_get:title'] = $this->unrelatedCards();
-        $answers['products/task_get'] = $this->unrelatedCards();
-
-        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
-
-        self::assertSame(2, $result['run']->getDataforseoTasks(), 'the title search, then the GTIN of the other size');
-        $large->reload();
-        self::assertNotNull($large->getGtinUnknownAt());
-    }
-
-    public function testTheSizesWeSellAtOnePriceRideOnTheCardTheGtinFound(): void
-    {
-        $small = $this->identity('3660600123454');
-        $small->setSizeLabel('S')->save();
-        $medium = $this->addVariant($small, '3660600123461', 'M', pricedLike: true);
-        $answers = $this->answers([$this->watched, null, null]);
-        $answers['products/task_get:title'] = $this->unrelatedCards();
-        $answers['sellers/task_get']['tasks'][0]['result'][0]['items'][0]['details'] = 'Casque SZ-R Vas Evo Arai Noir Mat M - casque jet moto';
-
-        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
-
-        self::assertSame(3, $result['run']->getDataforseoTasks(), 'one title search, one GTIN search for the product, one sellers lookup');
-        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($medium->getProductSaleElementsId())->count(), 'the size the card shows, though its GTIN was not searched');
     }
 
     public function testAHumanMatchThatChangesGoesBackToAHumanNotToTheMachine(): void

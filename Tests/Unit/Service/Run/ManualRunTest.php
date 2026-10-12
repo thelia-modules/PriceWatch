@@ -53,7 +53,7 @@ final class ManualRunTest extends TestCase
         self::assertContains('--limit=4', $collect);
         self::assertContains('--priority', $collect, 'whoever clicked waits for an answer in minutes');
         self::assertContains('--product=1520190076NN', $collect);
-        self::assertContains('--budget-usd=0.024', $collect, 'the cap is the worst case announced on the button');
+        self::assertContains('--budget-usd=0.016', $collect, 'the cap is the worst case announced on the button');
         self::assertSame('pricewatch:judge', $judge[2], 'judged right after, so the comparator fills up');
         self::assertSame('/var/www/html/var/log/pricewatch-manual.log', $this->started[0]['log']);
     }
@@ -77,10 +77,10 @@ final class ManualRunTest extends TestCase
         self::assertEmpty(array_filter($collect, static fn (string $argument): bool => str_starts_with($argument, '--product')));
     }
 
-    public function testTheWorstCaseIsThreePriorityTasksPerVariant(): void
+    public function testTheWorstCaseIsTwoPriorityTasksPerVariant(): void
     {
-        self::assertEqualsWithDelta(0.06, ManualRun::worstCaseUsd(10), 1e-9);
-        self::assertEqualsWithDelta(3.0, ManualRun::worstCaseUsd(500), 1e-9);
+        self::assertEqualsWithDelta(0.04, ManualRun::worstCaseUsd(10), 1e-9);
+        self::assertEqualsWithDelta(2.0, ManualRun::worstCaseUsd(500), 1e-9);
     }
 
     public function testNoSecondPassWhileOneIsRunning(): void

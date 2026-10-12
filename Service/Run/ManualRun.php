@@ -21,8 +21,8 @@ final readonly class ManualRun
     /** DataForSEO priority queue, per task (list price read 2026-10-08). */
     public const PRIORITY_COST_PER_TASK = 0.002;
 
-    /** A title search, a GTIN search when the title leads nowhere, a sellers lookup. */
-    public const TASKS_PER_VARIANT = 3;
+    /** A title search, a sellers lookup: Google Shopping is never searched by GTIN. */
+    public const TASKS_PER_VARIANT = 2;
 
     public const LOG_FILE = 'var/log/pricewatch-manual.log';
 

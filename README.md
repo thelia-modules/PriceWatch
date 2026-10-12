@@ -18,10 +18,11 @@ ride on the card it leads to, a "same article?" verdict is asked once for sizes
 read on the same listing at the same price, and the comparator shows them on
 one line. A size is never given a price it was not read at.
 
-Google Shopping is searched by product title first. The GTIN is the fallback
-when the title leads to no card of ours; a GTIN Google answered with nothing
-of ours is not searched again for 90 days (`gtin_unknown_at`). Measured on
-2026-10-12: 81 GTIN searches, no card of ours, about three minutes per pass.
+Google Shopping is searched by product title only, never by GTIN. Measured
+from 2026-10-09 to 12: 2 GTIN searches out of 91+ led to a card of ours, 18
+ended in 40101 "Internal SE Server Error" after about three minutes, and
+DataForSEO bills those all the same. A pass costs at most two tasks per
+variant: a title search, a sellers lookup.
 
 A product's last watch is the latest of its last Google Shopping search and
 its last competitor page read with a price. Beyond 14 days (`LastWatch`, the

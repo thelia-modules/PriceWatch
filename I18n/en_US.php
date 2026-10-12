@@ -142,12 +142,10 @@ return [
     'Last pass failed' => 'The last pass of %at% failed:',
     'Last pass partial' => 'The last pass of %at% ended with errors:',
     'progress.step.preparing' => 'choosing the variants',
-    'progress.step.gtin_search' => 'Google Shopping search by GTIN',
     'progress.step.title_search' => 'Google Shopping search by title',
     'progress.step.sellers' => 'reading the sellers',
     'progress.step.recording' => 'recording the offers',
     'progress.step.judging' => 'checks',
-    'progress.count.gtin_search' => '%done% / %total% searches answered',
     'progress.count.title_search' => '%done% / %total% searches answered',
     'progress.count.sellers' => '%done% / %total% seller lists answered',
     'progress.count.recording' => '%done% / %total% product cards recorded',
@@ -163,7 +161,6 @@ return [
 
     // Products of a running pass
     'item.queued' => 'Waiting',
-    'item.gtin' => 'Searching by GTIN',
     'item.title' => 'Searching by title',
     'item.sellers' => 'Reading the sellers',
     'item.done' => '%count% offer(s) recorded',

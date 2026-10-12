@@ -7,6 +7,7 @@ namespace PriceWatch\Command;
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Service\Run\AbandonedRuns;
+use PriceWatch\Service\Run\ManualRun;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -64,9 +65,7 @@ final class CollectOffersCommand extends Command
         $priority = $input->getOption('priority') ? 2 : 1;
         $sandbox = (bool) $input->getOption('sandbox');
 
-        // Three tasks per variant at most: a title search, a GTIN search
-        // when the title leads nowhere, one sellers lookup.
-        $worstCase = $sandbox ? 0.0 : $limit * 3 * self::COST_PER_TASK[$priority];
+        $worstCase = $sandbox ? 0.0 : $limit * ManualRun::TASKS_PER_VARIANT * self::COST_PER_TASK[$priority];
 
         if (self::exceedsBudget($worstCase, (string) $input->getOption('budget-usd'))) {
             $io->error(\sprintf('Worst case %.3f USD exceeds the budget. Lower --limit or raise --budget-usd.', $worstCase));

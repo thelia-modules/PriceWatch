@@ -10,7 +10,6 @@ use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Source\DataForSeoClient;
 use PriceWatch\Service\Source\DataForSeoException;
-use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -163,12 +162,6 @@ final class DataForSeoClientTest extends TestCase
         self::assertCount(100, json_decode((string) $this->sent[0]['options']['body'], true));
         self::assertCount(50, json_decode((string) $this->sent[2]['options']['body'], true));
         self::assertEqualsWithDelta(0.3, $posted['costUsd'], 1e-9);
-    }
-
-    public function testStoredGtinIsSearchedInItsPublishedForm(): void
-    {
-        self::assertSame('3664191100832', ShoppingCollector::searchableGtin('03664191100832'));
-        self::assertSame('12345678901234', ShoppingCollector::searchableGtin('12345678901234'), 'a true GTIN-14 keeps its 14 digits');
     }
 
     private function fixture(string $name): MockResponse

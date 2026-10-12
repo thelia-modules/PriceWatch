@@ -30,9 +30,8 @@ use Thelia\Model\ProductI18nQuery;
  *
  * Google Shopping returns no GTIN anywhere (DataForSEO docs read 2026-10-09),
  * so strict GTIN equality is impossible on this source. Instead: search
- * Shopping with our product title, or with our GTIN when the title leads to
- * no card of ours, take the product card Google attaches to it, read that
- * card's sellers, keep the whitelisted ones. The offer is stored as a
+ * Shopping with our product title, take the product card Google attaches to
+ * it, read that card's sellers, keep the whitelisted ones. The offer is stored as a
  * candidate; pricewatch:judge decides whether it is really our variant.
  *
  * Merchants outside the whitelist are counted, never stored: the blacklist is
@@ -60,9 +59,6 @@ final readonly class ShoppingCollector
 
     /** Rows read per search allowed: sizes riding on another's search are skipped. */
     private const SCAN_PER_SEARCH = 20;
-
-    /** A GTIN Google answered with no card of ours is not searched again before this. */
-    public const GTIN_RETRY_DAYS = 90;
 
     /** @var \Closure(int): void */
     private \Closure $sleep;
@@ -183,10 +179,12 @@ final readonly class ShoppingCollector
         }
 
         if ($watched !== [] && $identities !== []) {
-            // 1. Search each product once by its title. Measured live
-            // (2026-10-12): 81 GTIN searches led to no card of ours, while
-            // the title found every card recorded. Telling the variant apart
-            // is Jev's job.
+            // 1. Search each product once by its title, never by GTIN.
+            // Measured live (2026-10-09 to 12): 2 GTIN searches out of 91+
+            // led to a card of ours, 18 ended in 40101 "Internal SE Server
+            // Error" after about three minutes, billed all the same; the
+            // title found every card recorded. Telling the variant apart is
+            // Jev's job.
             $titles = $this->productTitles($identities);
             $items = new PassItems();
             $brands = [];
@@ -221,86 +219,17 @@ final readonly class ShoppingCollector
             // Keyed like the search tags, which the sellers step reads back.
             /** @var array<array-key, ShoppingCard> $cards */
             $cards = [];
-            $searchedBy = [];
 
             foreach ($identities as $id => $identity) {
                 $card = $byTitle['cards']['p'.$identity->getProductId()] ?? null;
 
                 if ($card !== null) {
                     $cards[$id] = $card;
-                    $searchedBy[$id] = 'title';
-                }
-            }
-
-            // 1b. A title that led to no card of ours: our GTIN may, when
-            // Google knows it. One GTIN per product and per pass: seen live
-            // (pass #6026), sizes at different prices turned 5 title searches
-            // into 7 GTIN ones, none useful. A GTIN Google answered with
-            // nothing of ours is not asked again for GTIN_RETRY_DAYS, so the
-            // next pass tries another size. A failed title search is no
-            // unreliable title: the next pass searches it again.
-            $retryAfter = new \DateTime('-'.self::GTIN_RETRY_DAYS.' days');
-            $gtins = [];
-            $ourTitles = [];
-            $ourBrands = [];
-            $gtinTagByProduct = [];
-            $notAskedAgain = 0;
-
-            foreach ($searched as $id => $identity) {
-                $productId = (int) $identity->getProductId();
-
-                if (!isset($byTitle['missed']['p'.$productId]) || isset($gtinTagByProduct[$productId])) {
-                    continue;
-                }
-
-                $unknownAt = $identity->getGtinUnknownAt();
-
-                if ($unknownAt !== null && $unknownAt > $retryAfter) {
-                    ++$notAskedAgain;
-                    continue;
-                }
-
-                $gtins[(string) $id] = self::searchableGtin((string) $identity->getGtin());
-                $ourTitles[(string) $id] = $titles[$productId];
-                $ourBrands[(string) $id] = $identity->getBrandLabel();
-                $gtinTagByProduct[$productId] = (string) $id;
-            }
-
-            if ($notAskedAgain > 0) {
-                $this->log->info('Collect: {count} GTIN(s) Google did not know within {days} days, not searched again.', ['count' => $notAskedAgain, 'days' => self::GTIN_RETRY_DAYS]);
-            }
-
-            $items->set(PassItems::SELLERS, $this->productIdsOf($identities, array_keys($cards)));
-            $items->set(PassItems::GTIN, array_keys($gtinTagByProduct));
-            $items->save($run);
-
-            $byGtin = $this->searchCards($run, PassStep::GtinSearch, $gtins, $ourTitles, $ourBrands, 'identity', $priority, $maxWaitSeconds, $sandbox);
-
-            // What Google answered about each GTIN, for the next passes.
-            if ($byGtin['missed'] !== []) {
-                PwProductIdentityQuery::create()
-                    ->filterById(array_keys($byGtin['missed']), Criteria::IN)
-                    ->update(['GtinUnknownAt' => new \DateTime()]);
-            }
-
-            if ($byGtin['cards'] !== []) {
-                PwProductIdentityQuery::create()
-                    ->filterById(array_keys($byGtin['cards']), Criteria::IN)
-                    ->update(['GtinUnknownAt' => null]);
-            }
-
-            // Like a title's, the card reaches every size of the product: an
-            // offer only reaches the size its card shows.
-            foreach ($identities as $id => $identity) {
-                $card = $byGtin['cards'][$gtinTagByProduct[(int) $identity->getProductId()] ?? ''] ?? null;
-
-                if (!isset($cards[$id]) && $card !== null) {
-                    $cards[$id] = $card;
-                    $searchedBy[$id] = 'gtin';
                 }
             }
 
             $withCard = array_flip($this->productIdsOf($identities, array_keys($cards)));
+            $items->set(PassItems::SELLERS, array_keys($withCard));
             $reported = [];
 
             foreach ($searched as $identity) {
@@ -312,25 +241,17 @@ final readonly class ShoppingCollector
 
                 $reported[$productId] = true;
                 // A search that failed is not a product Google does not know.
-                $failed = \in_array('p'.$productId, $byTitle['failed'], true)
-                    || \in_array($gtinTagByProduct[$productId] ?? null, $byGtin['failed'], true);
-                $items->set($failed ? PassItems::ERROR : PassItems::NO_CARD, [$productId]);
+                $items->set(\in_array('p'.$productId, $byTitle['failed'], true) ? PassItems::ERROR : PassItems::NO_CARD, [$productId]);
 
                 // Kept for the report: a human tells a strict gate from a
                 // product Google does not know at a glance.
-                $tally->noCard[$titles[$productId] ?? '#'.$productId] = array_merge(
-                    array_map(static fn (string $title): string => 'title: '.$title, \array_slice($byTitle['missed']['p'.$productId] ?? [], 0, 2)),
-                    array_map(static fn (string $title): string => 'GTIN: '.$title, \array_slice($byGtin['missed'][$gtinTagByProduct[$productId] ?? ''] ?? [], 0, 2)),
-                );
+                $tally->noCard[$titles[$productId] ?? '#'.$productId] = array_map(static fn (string $title): string => 'title: '.$title, \array_slice($byTitle['missed']['p'.$productId] ?? [], 0, 2));
             }
 
             $items->save($run);
-
-            foreach ([$byTitle, $byGtin] as $search) {
-                $tally->costUsd += $search['costUsd'];
-                $tally->tasks += $search['tasks'];
-                array_push($tally->errors, ...array_values($search['errors']));
-            }
+            $tally->costUsd += $byTitle['costUsd'];
+            $tally->tasks += $byTitle['tasks'];
+            array_push($tally->errors, ...array_values($byTitle['errors']));
 
             // 2. Read the sellers of each card, once per card: the variants
             // of one product often lead Google to the same card.
@@ -406,7 +327,7 @@ final readonly class ShoppingCollector
                                 'google' => $listing['googleUrl'] ?? $cards[$tag]->googleUrl,
                             ];
 
-                            if ($this->record($identity, $competitorId, $cards[$tag], $searchedBy[$tag], $offer, $links, $ourPrice, (int) $run->getId())) {
+                            if ($this->record($identity, $competitorId, $cards[$tag], 'title', $offer, $links, $ourPrice, (int) $run->getId())) {
                                 ++$tally->written;
                             }
                         }
@@ -517,15 +438,6 @@ final readonly class ShoppingCollector
     }
 
     /**
-     * An EAN-13 travels as 13 digits: the 14-digit padded form is our storage
-     * format, not what merchants publish.
-     */
-    public static function searchableGtin(string $gtin14): string
-    {
-        return str_starts_with($gtin14, '0') && \strlen($gtin14) === 14 ? substr($gtin14, 1) : $gtin14;
-    }
-
-    /**
      * Waits on tasks_ready, then hands back every task: the ready ones, and
      * the ones never listed, which the caller reads once anyway.
      *
@@ -611,8 +523,8 @@ final readonly class ShoppingCollector
     }
 
     /**
-     * Only variants whose GTIN can be searched: valid and not shared, since a
-     * shared GTIN points Google at a card for several variants.
+     * Only variants with a valid GTIN of their own, as when Google was
+     * searched by GTIN: the back office calls the others "not collectable".
      *
      * A product whose sizes we all sell at one price costs one search: its
      * other sizes ride on the card the searched one leads to, and the limit,

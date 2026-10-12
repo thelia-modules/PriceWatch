@@ -39,7 +39,7 @@ final readonly class DataForSeoClient
     }
 
     /**
-     * @param array<string, string> $keywordsByTag tag => keyword (a GTIN, typically)
+     * @param array<string, string> $keywordsByTag tag => keyword (our product title)
      *
      * @return array{tasks: array<string, string>, costUsd: float} tag => task id
      *

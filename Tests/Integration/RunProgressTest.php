@@ -60,9 +60,9 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
     public function testThePercentCountsTheStepsAlreadyDone(): void
     {
         self::assertSame(0, PassStep::TitleSearch->percent(0, 4));
-        self::assertSame(10, PassStep::TitleSearch->percent(2, 4), 'half of the first of five steps');
-        self::assertSame(25, PassStep::GtinSearch->percent(1, 4));
-        self::assertSame(60, PassStep::Recording->percent(0, 0), 'nothing to count yet: the step has just begun');
+        self::assertSame(12, PassStep::TitleSearch->percent(2, 4), 'half of the first of four steps');
+        self::assertSame(31, PassStep::Sellers->percent(1, 4));
+        self::assertSame(50, PassStep::Recording->percent(0, 0), 'nothing to count yet: the step has just begun');
         self::assertSame(100, PassStep::Judging->percent(3, 3));
         self::assertSame(100, PassStep::Judging->percent(9, 3), 'never past the end');
     }
@@ -77,9 +77,9 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
         self::assertTrue($progress['running']);
         self::assertSame('sellers', $progress['step']);
-        self::assertSame([3, 5], [$progress['position'], $progress['steps']]);
+        self::assertSame([2, 4], [$progress['position'], $progress['steps']]);
         self::assertSame([1, 3], [$progress['done'], $progress['total']]);
-        self::assertSame(46, $progress['percent']);
+        self::assertSame(33, $progress['percent']);
         self::assertSame($run->getStartedAt()?->getTimestamp(), $progress['startedAt']);
     }
 
@@ -111,7 +111,7 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
     public function testNothingRunsWithoutALockEvenIfARowSaysStarted(): void
     {
-        $this->passRow(ShoppingCollector::PASS, PassStep::GtinSearch, 0, 2);
+        $this->passRow(ShoppingCollector::PASS, PassStep::TitleSearch, 0, 2);
 
         self::assertFalse($this->progress()->present()['running'], 'a row left "started" by a dead process is not a running pass');
     }
@@ -122,7 +122,7 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
         $progress = RunProgress::of($run);
 
-        self::assertSame(['judging', 5, 80], [$progress['step'], $progress['position'], $progress['percent']]);
+        self::assertSame(['judging', 4, 75], [$progress['step'], $progress['position'], $progress['percent']]);
     }
 
     public function testACollectPassStillChoosingItsVariantsStartsAtZero(): void
@@ -134,13 +134,13 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
     public function testRecordingSavesOnlyWhatChanged(): void
     {
-        $run = $this->passRow(ShoppingCollector::PASS, PassStep::GtinSearch, 0, 2);
+        $run = $this->passRow(ShoppingCollector::PASS, PassStep::TitleSearch, 0, 2);
 
-        PassStep::GtinSearch->record($run, 1, 2);
+        PassStep::TitleSearch->record($run, 1, 2);
         $run->reload();
 
         self::assertSame([1, 2], [$run->getProgressDone(), $run->getProgressTotal()], 'written to the row the back office reads');
-        PassStep::GtinSearch->record($run, 1, 2);
+        PassStep::TitleSearch->record($run, 1, 2);
         self::assertFalse($run->isModified());
     }
 
