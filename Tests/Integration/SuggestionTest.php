@@ -39,6 +39,7 @@ use Symfony\Component\Routing\Route;
 use Symfony\Component\Routing\RouteCollection;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 use Thelia\Model\OrderProduct;
+use Thelia\Model\OrderQuery;
 use Thelia\Model\Product;
 use Thelia\Model\ProductSaleElementsQuery;
 
@@ -131,6 +132,11 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
 
     public function testTheProductsWithTheMostReasonsComeFirst(): void
     {
+        // A real shop fills the top sellers with its own orders: they are
+        // moved out of the sales window while the test runs (rolled back).
+        OrderQuery::create()
+            ->filterByCreatedAt(['min' => new \DateTime('-'.(SuggestionPresenter::SALES_DAYS + 1).' days')])
+            ->update(['CreatedAt' => new \DateTime('-1 year')]);
         $both = $this->product('Deux raisons '.$this->tag);
         $this->sale($both, 'paid', 1, '10.00');
         $this->offer($both, '-8.000');

@@ -35,6 +35,9 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     private PwCompetitor $watched;
     private string $tag;
 
+    /** @var list<string> pictures written for the test, removed after it */
+    private array $pictures = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -48,6 +51,15 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $this->tag = bin2hex(random_bytes(4));
         $this->repository = new ComparatorRepository();
         $this->watched = (new CompetitorRepository())->create('cmp-'.$this->tag.'.example', CompetitorStatus::Watched, 'manual');
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->pictures as $path) {
+            @unlink($path);
+        }
+
+        parent::tearDown();
     }
 
     public function testEveryOfferIsInExactlyOneTab(): void
@@ -232,7 +244,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $this->latestQuote($withPicture)->setRawPayloadJson((string) json_encode(['card' => ['image' => 'https://img.example/'.$this->tag.'.jpg']], \JSON_UNESCAPED_SLASHES))->save();
         $without = $this->offer($product, 'matched_judged', comparable: true, deltaPct: '-0.040');
         $ours = $this->product('Casque catalogue '.$this->tag);
-        (new ProductImage())->setProductId($ours->getId())->setFile('PROD001-1.jpg')->setVisible(1)->setPosition(1)->save();
+        (new ProductImage())->setProductId($ours->getId())->setFile($this->pictureOnDisk())->setVisible(1)->setPosition(1)->save();
         $catalogue = $this->offer($ours, 'matched_judged', comparable: true, deltaPct: '2.000');
 
         $rows = array_column($this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['rows'], null, 'id');
@@ -247,8 +259,8 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     {
         $product = $this->product('Casque catalogue '.$this->tag);
         $missing = $this->product('Casque sans fichier '.$this->tag);
-        // A picture of the demo catalogue, present on disk in this install.
-        (new ProductImage())->setProductId($product->getId())->setFile('PROD001-1.jpg')->setVisible(1)->setPosition(1)->save();
+        $file = $this->pictureOnDisk();
+        (new ProductImage())->setProductId($product->getId())->setFile($file)->setVisible(1)->setPosition(1)->save();
         (new ProductImage())->setProductId($missing->getId())->setFile('missing-'.$this->tag.'.jpg')->setVisible(1)->setPosition(1)->save();
 
         $dispatcher = self::coreService('event_dispatcher');
@@ -258,7 +270,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertArrayHasKey((int) $product->getId(), $urls);
         // The image cache lowercases the file name.
         self::assertStringContainsString('/cache/images/product/', $urls[(int) $product->getId()]);
-        self::assertStringContainsStringIgnoringCase('prod001-1', $urls[(int) $product->getId()]);
+        self::assertStringContainsStringIgnoringCase(pathinfo($file, \PATHINFO_FILENAME), $urls[(int) $product->getId()]);
         self::assertArrayNotHasKey((int) $missing->getId(), $urls, 'a missing file: no picture, no error');
     }
 
@@ -343,5 +355,21 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertNotNull($quote);
 
         return $quote;
+    }
+
+    /**
+     * A real picture in the catalogue's upload folder: the demo catalogue's
+     * are not there on every install.
+     */
+    private function pictureOnDisk(): string
+    {
+        $file = 'pw-test-'.$this->tag.'.jpg';
+        $path = (new ProductImage())->getUploadDir().\DIRECTORY_SEPARATOR.$file;
+        $image = imagecreatetruecolor(4, 4);
+        self::assertNotFalse($image);
+        self::assertTrue(imagejpeg($image, $path));
+        $this->pictures[] = $path;
+
+        return $file;
     }
 }
