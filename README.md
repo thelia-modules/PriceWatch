@@ -7,6 +7,12 @@ Matching is deterministic wherever the code can see the answer — GTIN equality
 price gap, currency — and only the narrow semantic questions go to typed Jev
 judgments: is it the same article, the same variant, is this price comparable.
 
+A product whose sizes we all sell at one price is one comparison: the collect
+pass searches one of its variants (the limit counts searches), the other sizes
+ride on the card it leads to, a "same article?" verdict is asked once for sizes
+read on the same listing at the same price, and the comparator shows them on
+one line. A size is never given a price it was not read at.
+
 Requires Thelia 3.0.0 and PHP 8.3.
 
 ## Install

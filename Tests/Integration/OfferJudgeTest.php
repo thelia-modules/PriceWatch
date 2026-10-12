@@ -180,7 +180,80 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         self::assertSame('partial', $run->getStatus());
     }
 
+    /**
+     * Seen 2026-10-12: six sizes of a Bell helmet at iCasque, a listing that
+     * names no size, judged six times to the same "product unclear".
+     */
+    public function testAProductVerdictIsGivenOnceForSizesThatShareTheEvidence(): void
+    {
+        $offers = $this->sizes(['XS', 'S', 'M'], 'Bell Custom 500 RSD Black Gold Casques Jet');
+
+        $run = $this->judge([$this->jev(0.58, 0.08, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        self::assertSame(1, $this->calls, 'whether it is the same article does not depend on our size');
+        self::assertSame(1, $run->getJevRequests());
+
+        foreach ($offers as $offer) {
+            $offer->reload();
+            self::assertSame('needs_review', $offer->getMatchState());
+            self::assertSame('PRODUCT_UNCLEAR', $offer->getMatchReason());
+        }
+    }
+
+    public function testASizeVerdictIsNeverSpreadToAnotherSize(): void
+    {
+        [$small, $medium] = $this->sizes(['S', 'M'], 'Casque jet taille S');
+
+        $this->judge([$this->jev(0.94, 0.96, 'comparable', 0.90), $this->jev(0.94, 0.04, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        self::assertSame(2, $this->calls, 'a match for S says nothing of M');
+        $small->reload();
+        $medium->reload();
+        self::assertSame('matched_judged', $small->getMatchState());
+        self::assertSame('rejected', $medium->getMatchState());
+    }
+
     // ------------------------------------------------------------------
+
+    /**
+     * Offers of one competitor for several sizes of one product, read on the
+     * same listing at the same price.
+     *
+     * @param list<string> $sizes
+     *
+     * @return list<PwCompetitorOffer>
+     */
+    private function sizes(array $sizes, string $remoteVariant): array
+    {
+        $factory = $this->createFixtureFactory();
+        $product = $factory->product($factory->category(), $factory->taxRule(), $factory->currency());
+        $product->setLocale('fr_FR')->setTitle('Casque Bell Custom 500 Crate Stone')->save();
+        $competitor = (new CompetitorRepository())->create('judge-'.bin2hex(random_bytes(5)).'.example', CompetitorStatus::Watched, 'manual');
+        $offers = [];
+
+        foreach ($sizes as $index => $size) {
+            $saleElement = $index === 0 ? ProductSaleElementsQuery::create()->filterByProductId($product->getId())->findOne() : (new \Thelia\Model\ProductSaleElements())->setProductId($product->getId())->setRef('PW-J-'.bin2hex(random_bytes(4)))->setQuantity(1)->setIsDefault(false);
+            self::assertNotNull($saleElement);
+            $saleElement->save();
+            (new PwProductIdentity())->setProductSaleElementsId($saleElement->getId())->setProductId($product->getId())->setBrandLabel('Bell')->setSizeLabel($size)->save();
+
+            $offer = (new PwCompetitorOffer())
+                ->setCompetitorId($competitor->getId())
+                ->setProductSaleElementsId($saleElement->getId())
+                ->setOfferKey('key-'.bin2hex(random_bytes(5)))
+                ->setRemoteTitle('Bell Custom 500')
+                ->setRemoteVariantLabel($remoteVariant)
+                ->setIdentityFingerprint(sha1('remote identity'))
+                ->setMatchState('candidate')
+                ->setActive(1);
+            $offer->save();
+            (new PwPriceQuote())->setOfferId($offer->getId())->setCollectedDay(new \DateTime())->setSource('test')->setCollectedAt(new \DateTime())
+                ->setPrice('185.00')->setCurrencyCode('EUR')->setOurPrice('157.69')->save();
+            $offers[] = $offer;
+        }
+
+        return $offers;
+    }
 
     private function offer(CompetitorStatus $status, string $ourPrice, string $theirPrice): PwCompetitorOffer
     {

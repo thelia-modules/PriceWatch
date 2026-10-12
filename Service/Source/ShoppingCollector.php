@@ -57,6 +57,9 @@ final readonly class ShoppingCollector
     private const HUMAN_MATCH = 'matched_manual';
     private const MATCHED_STATES = ['matched_exact', 'matched_judged', 'matched_manual'];
 
+    /** Rows read per search allowed: sizes riding on another's search are skipped. */
+    private const SCAN_PER_SEARCH = 20;
+
     /** @var \Closure(int): void */
     private \Closure $sleep;
 
@@ -164,9 +167,12 @@ final readonly class ShoppingCollector
         $watched = $this->watchedCompetitors();
         $domainsById = array_flip($watched);
         $sellers = new SellerMatcher($watched, $this->domains, $this->text);
-        $identities = $this->identities($limit, $productRefs, $onePerProduct);
-        $tally->targets = \count($identities);
-        $this->log->info('Collect: {variants} variant(s) to search, {competitors} whitelisted competitor(s).', ['variants' => \count($identities), 'competitors' => \count($watched)]);
+        // A product whose sizes we all sell at one price is one comparison:
+        // one variant is searched, the others ride on the card it leads to.
+        [$identities, $ridesOn] = $this->identities($limit, $productRefs, $onePerProduct);
+        $searched = array_diff_key($identities, $ridesOn);
+        $tally->targets = \count($searched);
+        $this->log->info('Collect: {variants} variant(s) to search, {riders} more at the same price, {competitors} whitelisted competitor(s).', ['variants' => \count($searched), 'riders' => \count($ridesOn), 'competitors' => \count($watched)]);
 
         if ($watched === []) {
             $tally->errors[] = 'No whitelisted competitor: nothing would be compared. Add competitors to the whitelist first.';
@@ -180,9 +186,12 @@ final readonly class ShoppingCollector
             $items = new PassItems();
 
             foreach ($identities as $id => $identity) {
-                $gtins[(string) $id] = self::searchableGtin((string) $identity->getGtin());
-                $ourTitles[(string) $id] = $titles[(int) $identity->getProductId()] ?? '';
                 $items->add((int) $identity->getProductId(), $titles[(int) $identity->getProductId()] ?? '', $identity->getSizeLabel());
+
+                if (isset($searched[$id])) {
+                    $gtins[(string) $id] = self::searchableGtin((string) $identity->getGtin());
+                    $ourTitles[(string) $id] = $titles[(int) $identity->getProductId()] ?? '';
+                }
             }
 
             $items->set(PassItems::GTIN);
@@ -196,6 +205,13 @@ final readonly class ShoppingCollector
                 ->filterById(array_keys($identities), Criteria::IN)
                 ->update(['LastCollectedAt' => new \DateTime()]);
             $cards = $byGtin['cards'];
+
+            foreach ($ridesOn as $rider => $searchedId) {
+                if (isset($cards[$searchedId])) {
+                    $cards[$rider] = $cards[$searchedId];
+                }
+            }
+
             $searchedBy = array_fill_keys(array_keys($cards), 'gtin');
 
             // 1b. Observed live (2026-10-09): Google knew 2 GTINs out of 10,
@@ -532,9 +548,13 @@ final readonly class ShoppingCollector
      * Only variants whose GTIN can be searched: valid and not shared, since a
      * shared GTIN points Google at a card for several variants.
      *
+     * A product whose sizes we all sell at one price costs one search: its
+     * other sizes ride on the card the searched one leads to, and the limit,
+     * which counts searches, moves on to other products.
+     *
      * @param list<string> $productRefs
      *
-     * @return array<int, PwProductIdentity> keyed by identity id
+     * @return array{0: array<int, PwProductIdentity>, 1: array<int, int>} every identity keyed by id, rider id => id of the one searched
      */
     private function identities(int $limit, array $productRefs, bool $onePerProduct): array
     {
@@ -549,7 +569,8 @@ final readonly class ShoppingCollector
             ->orderById();
 
         if (!$onePerProduct) {
-            $query->limit($limit);
+            // Sizes skipped as riders must not starve the limit.
+            $query->limit(max($limit * self::SCAN_PER_SEARCH, $limit));
         }
 
         if ($productRefs !== []) {
@@ -557,14 +578,25 @@ final readonly class ShoppingCollector
         }
 
         $identities = [];
-        $products = [];
+        $searchedByProduct = [];
+        $onePrice = [];
 
         foreach ($query->find() as $identity) {
-            if ($onePerProduct && isset($products[(int) $identity->getProductId()])) {
-                continue;
+            $productId = (int) $identity->getProductId();
+
+            if (isset($searchedByProduct[$productId])) {
+                if ($onePerProduct) {
+                    continue;
+                }
+
+                $onePrice[$productId] ??= $this->onePriceSizes($productId);
+
+                if ($onePrice[$productId] !== false) {
+                    continue;
+                }
             }
 
-            $products[(int) $identity->getProductId()] = true;
+            $searchedByProduct[$productId] ??= (int) $identity->getId();
             $identities[(int) $identity->getId()] = $identity;
 
             if (\count($identities) >= $limit) {
@@ -572,7 +604,43 @@ final readonly class ShoppingCollector
             }
         }
 
-        return $identities;
+        $ridesOn = [];
+
+        if ($onePerProduct) {
+            return [$identities, $ridesOn];
+        }
+
+        foreach ($searchedByProduct as $productId => $searchedId) {
+            $sizes = $onePrice[$productId] ??= $this->onePriceSizes($productId);
+
+            foreach ($sizes === false ? [] : $sizes as $id => $identity) {
+                if ($id !== $searchedId) {
+                    $identities[$id] = $identity;
+                    $ridesOn[$id] = $searchedId;
+                }
+            }
+        }
+
+        return [$identities, $ridesOn];
+    }
+
+    /**
+     * The monitored sizes of a product we sell at one price, or false when
+     * there is a single size, a size without price, or two prices.
+     *
+     * @return array<int, PwProductIdentity>|false keyed by identity id
+     */
+    private function onePriceSizes(int $productId): array|false
+    {
+        $sizes = [];
+
+        foreach (PwProductIdentityQuery::create()->filterByProductId($productId)->filterByMonitored(1)->find() as $identity) {
+            $sizes[(int) $identity->getId()] = $identity;
+        }
+
+        $prices = array_map(fn (PwProductIdentity $identity): ?string => $this->ourPrice->inclTax((int) $identity->getProductSaleElementsId()), $sizes);
+
+        return \count($sizes) < 2 || \in_array(null, $prices, true) || \count(array_unique($prices)) !== 1 ? false : $sizes;
     }
 
     /**
