@@ -23,5 +23,8 @@ final class CollectTally
     public int $tasks = 0;
     public int $seen = 0;
     public int $written = 0;
+
+    /** Whitelisted offers left out because the card showed another of our sizes. */
+    public int $otherSize = 0;
     public float $costUsd = 0.0;
 }

@@ -15,6 +15,7 @@ use PriceWatch\Service\Normalizer\BrandNormalizer;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
+use PriceWatch\Service\Normalizer\SizeNormalizer;
 use PriceWatch\Service\Normalizer\TextNormalizer;
 use PriceWatch\Service\Run\PassItems;
 use PriceWatch\Service\Run\PassStep;
@@ -26,6 +27,7 @@ use PriceWatch\Service\Source\DataForSeoClient;
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\OurPrice;
 use PriceWatch\Service\Source\ShoppingCollector;
+use PriceWatch\Service\Source\ShownSize;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use Propel\Runtime\ActiveQuery\Criteria;
@@ -162,6 +164,31 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame([PassItems::ERROR, 0], $this->item($result['run'], (int) $identity->getProductId()), 'a failed search is no unknown product');
     }
 
+    /**
+     * Observed live (2026-10-12): tasks_ready listed none of the title or
+     * sellers tasks, and each step ended at the first direct read, 30 s in.
+     */
+    public function testATaskTasksReadyNeverListsIsReadWithinSeconds(): void
+    {
+        $this->identity('3660600123454');
+        $clock = 1_000_000;
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['products/tasks_ready'] = ['status_code' => 20000, 'tasks' => [['status_code' => 20000, 'result' => []]]];
+        $answers['sellers/tasks_ready'] = $answers['products/tasks_ready'];
+
+        $this->collector(
+            $answers,
+            static function (int $seconds) use (&$clock): void {
+                $clock += $seconds;
+            },
+            static function () use (&$clock): int {
+                return $clock;
+            },
+        )->collect(1, 2, 600);
+
+        self::assertLessThanOrEqual(1_000_000 + 2 * 10, $clock, 'the search and the sellers lookup each read within 10 s');
+    }
+
     public function testTheProductsAreListedBeforeTheFirstSearchLeaves(): void
     {
         $identity = $this->identity('3660600123454');
@@ -230,6 +257,27 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertStringContainsString('Internal SE Server Error', (string) $result['run']->getErrorsJson());
     }
 
+    /**
+     * Observed live (2026-10-12): pass #198 closed "partial" on four GTIN
+     * searches in 40101, though the title search found both products.
+     */
+    public function testAFailedGtinSearchTheTitleSearchMadeUpForIsNoError(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['products/task_get:title'] = $answers['products/task_get'];
+        $answers['products/task_get']['tasks'][0]['status_code'] = 40101;
+        $answers['products/task_get']['tasks'][0]['status_message'] = 'Internal SE Server Error.';
+        $answers['products/task_get']['tasks'][0]['result'] = null;
+
+        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
+
+        self::assertSame('success', $result['run']->getStatus());
+        self::assertNull($result['run']->getErrorsJson());
+        self::assertSame(1, $result['run']->getQuotesWritten());
+        self::assertSame([PassItems::DONE, 1], $this->item($result['run'], (int) $identity->getProductId()));
+    }
+
     public function testAnUnrelatedCardIsNotWorthASellersLookup(): void
     {
         $identity = $this->identity('3660600123454', title: 'Casque Bell Custom 500 Gloss Black');
@@ -272,6 +320,26 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($small->getProductSaleElementsId())->findOne();
         $quote = PwPriceQuoteQuery::create()->filterByOfferId($offer?->getId())->findOne();
         self::assertSame('title', json_decode((string) $quote?->getRawPayloadJson(), true)['searched_by'] ?? null, 'how the card was found stays on the reading');
+    }
+
+    /**
+     * Observed live (2026-10-12): a card lists its sellers for one size, named
+     * in the offer's details, and recording it against every variant had Jev
+     * reject four sizes out of five.
+     */
+    public function testAnOfferOnlyReachesTheVariantsOfTheSizeItsCardShows(): void
+    {
+        $small = $this->identity('3660600123454');
+        $small->setSizeLabel('S')->save();
+        $medium = $this->addVariant($small, '3660600123461', 'M');
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['sellers/task_get']['tasks'][0]['result'][0]['items'][0]['details'] = 'Casque SZ-R Vas Evo Arai Noir Mat M - casque jet moto Arai Homme ou Femme';
+
+        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($small->getProductSaleElementsId())->count(), 'the card shows M: nothing to judge for S');
+        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($medium->getProductSaleElementsId())->count());
+        self::assertSame(1, $result['run']->getQuotesWritten());
     }
 
     public function testAKnownGtinIsNotSearchedByTitle(): void
@@ -442,7 +510,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         return $identity;
     }
 
-    private function addVariant(PwProductIdentity $of, string $gtin): void
+    private function addVariant(PwProductIdentity $of, string $gtin, ?string $size = null): PwProductIdentity
     {
         $saleElement = (new \Thelia\Model\ProductSaleElements())
             ->setProductId($of->getProductId())
@@ -451,14 +519,17 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
             ->setIsDefault(false);
         $saleElement->save();
 
-        (new PwProductIdentity())
+        $identity = (new PwProductIdentity())
             ->setProductSaleElementsId($saleElement->getId())
             ->setProductId($of->getProductId())
             ->setGtin(str_pad($gtin, 14, '0', \STR_PAD_LEFT))
             ->setGtinValid(1)
             ->setGtinShared(0)
-            ->setMonitored(1)
-            ->save();
+            ->setSizeLabel($size)
+            ->setMonitored(1);
+        $identity->save();
+
+        return $identity;
     }
 
     /**
@@ -581,6 +652,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
             new IdentityFingerprint($text, new BrandNormalizer($text), new GtinNormalizer()),
             new OurPrice(new TaxCalculatorFactory()),
             new CardRelevance($text),
+            new ShownSize(new SizeNormalizer($text)),
             $sleep ?? static function (int $seconds): void {},
             null,
             $now,

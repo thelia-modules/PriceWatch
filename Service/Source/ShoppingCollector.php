@@ -41,10 +41,14 @@ final readonly class ShoppingCollector
 {
     public const PASS = 'collect';
     public const SOURCE = 'dataforseo';
-    private const POLL_SECONDS = 10;
+    private const POLL_SECONDS = 5;
 
-    /** After this, late tasks are read directly instead of waited for. */
-    private const PROBE_AFTER_SECONDS = 30;
+    /**
+     * After this, late tasks are read directly instead of waited for. Reading
+     * is free, and tasks_ready listed none of the title or sellers tasks of
+     * 2026-10-12: at 30 s, every step lasted at least 30 s.
+     */
+    private const PROBE_AFTER_SECONDS = 5;
 
     /** How often the wait is reported in the log. */
     private const REPORT_EVERY_SECONDS = 60;
@@ -71,6 +75,7 @@ final readonly class ShoppingCollector
         private IdentityFingerprint $fingerprint,
         private OurPrice $ourPrice,
         private CardRelevance $relevance,
+        private ShownSize $shownSize,
         ?\Closure $sleep = null,
         ?PriceWatchLog $log = null,
         ?\Closure $now = null,
@@ -134,7 +139,7 @@ final readonly class ShoppingCollector
             ->save();
 
         $seconds = $run->getFinishedAt() !== null && $run->getStartedAt() !== null ? $run->getFinishedAt()->getTimestamp() - $run->getStartedAt()->getTimestamp() : 0;
-        $this->log->log($status === 'success' ? 'info' : 'warning', 'Collect pass #{run} {status} in {seconds} s: {targets} variant(s), {tasks} task(s), {cost} USD, {seen} offer(s) seen, {written} recorded, {errors} error(s).', [
+        $this->log->log($status === 'success' ? 'info' : 'warning', 'Collect pass #{run} {status} in {seconds} s: {targets} variant(s), {tasks} task(s), {cost} USD, {seen} offer(s) seen, {written} recorded, {otherSize} left out as another size, {errors} error(s).', [
             'run' => $run->getId(),
             'status' => $status,
             'seconds' => $seconds,
@@ -143,6 +148,7 @@ final readonly class ShoppingCollector
             'cost' => number_format($tally->costUsd, 3, '.', ''),
             'seen' => $tally->seen,
             'written' => $tally->written,
+            'otherSize' => $tally->otherSize,
             'errors' => \count($tally->errors),
         ]);
     }
@@ -244,10 +250,15 @@ final readonly class ShoppingCollector
 
             $items->save($run);
 
+            // A GTIN search that failed for a product the title search then
+            // found cost nothing but its price: no error (pass #198 closed
+            // "partial" on four of them, both products read).
+            $byGtin['errors'] = array_diff_key($byGtin['errors'], $cards);
+
             foreach ([$byGtin, $byTitle] as $search) {
                 $tally->costUsd += $search['costUsd'];
                 $tally->tasks += $search['tasks'];
-                array_push($tally->errors, ...$search['errors']);
+                array_push($tally->errors, ...array_values($search['errors']));
             }
 
             // 2. Read the sellers of each card, once per card: the variants
@@ -289,17 +300,32 @@ final readonly class ShoppingCollector
                     // error stays visible.
                     $items->set(PassItems::DONE, array_values(array_filter($ours, static fn (int $ourId): bool => $items->status($ourId) !== PassItems::ERROR)));
 
+                    // The card shows one size: each offer only reaches our
+                    // variants of the size its details name.
+                    $sizeByTag = [];
+
+                    foreach ($tagsByProductId[$productId] ?? [] as $tag) {
+                        $sizeByTag[$tag] = $identities[(int) $tag]->getSizeLabel();
+                    }
+
+                    $shown = array_map(fn (SellerOffer $offer): array => array_flip($this->shownSize->variantsShown($offer->details, $sizeByTag)), $offers);
+
                     foreach ($tagsByProductId[$productId] ?? [] as $tag) {
                         $identity = $identities[(int) $tag];
                         $ourPrice = $this->ourPrice->inclTax((int) $identity->getProductSaleElementsId());
 
-                        foreach ($offers as $offer) {
+                        foreach ($offers as $index => $offer) {
                             ++$tally->seen;
                             $competitorId = $sellers->competitorOf($offer);
 
                             if ($competitorId === null) {
                                 $label = $this->domains->registrableDomain($offer->domain) ?? $offer->sellerName;
                                 $tally->unknownSellers[$label] = ($tally->unknownSellers[$label] ?? 0) + 1;
+                                continue;
+                            }
+
+                            if (!isset($shown[$index][(string) $tag])) {
+                                ++$tally->otherSize;
                                 continue;
                             }
 
@@ -339,7 +365,7 @@ final readonly class ShoppingCollector
      * @param array<string, string> $keywordsByTag
      * @param array<string, string> $ourTitleByTag
      *
-     * @return array{cards: array<string, ShoppingCard>, missed: array<string, list<string>>, costUsd: float, tasks: int, errors: list<string>, failed: list<string>} failed: tags whose search ended in error
+     * @return array{cards: array<string, ShoppingCard>, missed: array<string, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>} errors keyed by tag; failed: tags whose search ended in error
      *
      * @throws DataForSeoException
      */
@@ -366,7 +392,7 @@ final readonly class ShoppingCollector
             } catch (DataForSeoException $error) {
                 // Observed live: a task can end in 40101 "Internal SE Server
                 // Error". One failed search must not sink the pass.
-                $found['errors'][] = \sprintf('search for %s %s: %s', $subject, $tag, $error->getMessage());
+                $found['errors'][(string) $tag] = \sprintf('search for %s %s: %s', $subject, $tag, $error->getMessage());
                 $found['failed'][] = (string) $tag;
                 $this->log->warning('Collect: search for {subject} {tag} failed: {error}', ['subject' => $subject, 'tag' => $tag, 'error' => $error->getMessage(), 'task' => $taskId]);
                 continue;

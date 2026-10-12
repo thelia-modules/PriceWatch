@@ -83,6 +83,29 @@ final readonly class SizeNormalizer
         return NormalizedSize::unknown($raw);
     }
 
+    /**
+     * Every size written in a free text ("Casque … Noir Mat S - casque jet"),
+     * word by word. "One size" phrases are left out: in running French, "tu"
+     * and "os" are words.
+     *
+     * @return list<NormalizedSize>
+     */
+    public function mentioned(?string $text): array
+    {
+        $folded = preg_replace('/\b([2-5])\s+(x+s|x+l)\b/', '$1$2', $this->textNormalizer->normalize($text)) ?? '';
+        $sizes = [];
+
+        foreach (explode(' ', $folded) as $token) {
+            if (isset(self::ALPHA_TOKENS[$token])) {
+                $sizes[] = new NormalizedSize($token, SizeFamily::Alpha, self::ALPHA_TOKENS[$token]);
+            } elseif (ctype_digit($token) && $this->isPlausible((int) $token)) {
+                $sizes[] = new NormalizedSize($token, SizeFamily::Numeric, (string) (int) $token);
+            }
+        }
+
+        return $sizes;
+    }
+
     private function isPlausible(int $value): bool
     {
         return $value >= self::PLAUSIBLE_MINIMUM && $value <= self::PLAUSIBLE_MAXIMUM;
