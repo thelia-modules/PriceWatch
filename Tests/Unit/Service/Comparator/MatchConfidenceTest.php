@@ -32,6 +32,17 @@ final class MatchConfidenceTest extends TestCase
         self::assertSame(MatchConfidence::LOW, MatchConfidence::of('jev', $this->judgment(0.94, 0.03, 'comparable', 0.54))['level']);
     }
 
+    /**
+     * Seen on 2026-10-12: offers proven by one of our EANs on Dafy's page
+     * showed "Not judged", as if nobody had checked them.
+     */
+    public function testAMatchReadOnTheCompetitorsPageIsAProof(): void
+    {
+        self::assertSame(MatchConfidence::PROOF, MatchConfidence::of('ean', [])['level']);
+        self::assertSame(MatchConfidence::PROOF, MatchConfidence::of('size', [])['level']);
+        self::assertNull(MatchConfidence::of('ean', [])['score'], 'no score: a proof is not a probability');
+    }
+
     public function testAHumanDecisionOutranksTheScore(): void
     {
         $confidence = MatchConfidence::of('human', $this->judgment(0.76, 0.93, 'comparable', 0.89));

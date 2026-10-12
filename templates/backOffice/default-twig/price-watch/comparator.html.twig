@@ -49,6 +49,9 @@
             <span class="badge rounded-pill bg-primary-subtle text-primary-emphasis border border-primary-subtle" data-bs-toggle="tooltip" title="{{ 'Confirmed by hand'|trans({}, 'pricewatch') }}{% if row.reviewedBy %} : {{ row.reviewedBy }}, {{ row.reviewedAt }}{% endif %}" aria-label="{{ 'confidence.human'|trans({}, 'pricewatch') }}"><i class="bi bi-person-check-fill" aria-hidden="true"></i></span>
         {% elseif row.method == 'code' %}
             <span class="badge rounded-pill bg-body-secondary text-body border" data-bs-toggle="tooltip" title="{{ 'confidence.rule'|trans({}, 'pricewatch') }}" aria-label="{{ 'confidence.rule'|trans({}, 'pricewatch') }}"><i class="bi bi-gear-fill" aria-hidden="true"></i></span>
+        {% elseif row.confidence.level == 'proof' %}
+            {% set proof = ('proof.' ~ row.method)|trans({}, 'pricewatch') %}
+            <span class="badge rounded-pill text-bg-success" data-bs-toggle="tooltip" title="{{ proof }}" aria-label="{{ proof }}"><i class="bi bi-patch-check-fill" aria-hidden="true"></i> {{ ('proof.short.' ~ row.method)|trans({}, 'pricewatch') }}</span>
         {% endif %}
         {% for gauge in row.confidence.gauges %}
             {% set label = ('gauge.' ~ gauge.question)|trans({}, 'pricewatch') ~ ' : ' ~ gauge.percent ~ ' % (' ~ ('band.' ~ gauge.band)|trans({}, 'pricewatch') ~ ')' %}
@@ -60,7 +63,7 @@
         {% endif %}
         {% if row.confidence.score is not null and row.confidence.level in ['high', 'medium', 'low'] %}
             <span class="small text-muted ms-1">{{ row.confidence.score }} %</span>
-        {% elseif row.confidence.gauges is empty and row.method not in ['human', 'code'] %}
+        {% elseif row.confidence.gauges is empty and row.method not in ['human', 'code'] and row.confidence.level != 'proof' %}
             <span class="small text-muted">{{ 'confidence.none'|trans({}, 'pricewatch') }}</span>
         {% endif %}
     </div>
