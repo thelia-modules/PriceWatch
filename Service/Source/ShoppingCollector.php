@@ -185,19 +185,24 @@ final readonly class ShoppingCollector
             $ourTitles = [];
             $items = new PassItems();
 
+            $brands = [];
+            $ourBrands = [];
+
             foreach ($identities as $id => $identity) {
                 $items->add((int) $identity->getProductId(), $titles[(int) $identity->getProductId()] ?? '', $identity->getSizeLabel());
+                $brands[(int) $identity->getProductId()] ??= $identity->getBrandLabel();
 
                 if (isset($searched[$id])) {
                     $gtins[(string) $id] = self::searchableGtin((string) $identity->getGtin());
                     $ourTitles[(string) $id] = $titles[(int) $identity->getProductId()] ?? '';
+                    $ourBrands[(string) $id] = $identity->getBrandLabel();
                 }
             }
 
             $items->set(PassItems::GTIN);
             $items->save($run);
 
-            $byGtin = $this->searchCards($run, PassStep::GtinSearch, $gtins, $ourTitles, 'identity', $priority, $maxWaitSeconds, $sandbox);
+            $byGtin = $this->searchCards($run, PassStep::GtinSearch, $gtins, $ourTitles, $ourBrands, 'identity', $priority, $maxWaitSeconds, $sandbox);
 
             // Paid at the post, whatever comes back: these go to the back of
             // the queue for the next pass.
@@ -230,14 +235,16 @@ final readonly class ShoppingCollector
             $items->set(PassItems::TITLE, array_keys($missedByProduct));
             $items->save($run);
             $titleKeywords = [];
+            $titleBrands = [];
 
             foreach (array_keys($missedByProduct) as $productId) {
                 if (($titles[$productId] ?? '') !== '') {
                     $titleKeywords['p'.$productId] = $titles[$productId];
+                    $titleBrands['p'.$productId] = $brands[$productId] ?? null;
                 }
             }
 
-            $byTitle = $this->searchCards($run, PassStep::TitleSearch, $titleKeywords, $titleKeywords, 'product', $priority, $maxWaitSeconds, $sandbox);
+            $byTitle = $this->searchCards($run, PassStep::TitleSearch, $titleKeywords, $titleKeywords, $titleBrands, 'product', $priority, $maxWaitSeconds, $sandbox);
 
             foreach ($missedByProduct as $productId => $tags) {
                 $card = $byTitle['cards']['p'.$productId] ?? null;
@@ -381,12 +388,13 @@ final readonly class ShoppingCollector
      *
      * @param array<array-key, string> $keywordsByTag PHP turns numeric tags into int keys
      * @param array<array-key, string> $ourTitleByTag
+     * @param array<array-key, ?string> $brandByTag    our brand: alone, it makes no card ours
      *
      * @return array{cards: array<array-key, ShoppingCard>, missed: array<array-key, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>} errors keyed by tag; failed: tags whose search ended in error
      *
      * @throws DataForSeoException
      */
-    private function searchCards(PwCollectRun $run, PassStep $step, array $keywordsByTag, array $ourTitleByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
+    private function searchCards(PwCollectRun $run, PassStep $step, array $keywordsByTag, array $ourTitleByTag, array $brandByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
     {
         $found = ['cards' => [], 'missed' => [], 'costUsd' => 0.0, 'tasks' => 0, 'errors' => [], 'failed' => []];
 
@@ -416,7 +424,7 @@ final readonly class ShoppingCollector
             }
 
             foreach ($result['cards'] as $card) {
-                if ($this->relevance->isPlausible($ourTitleByTag[$tag] ?? '', $card->title)) {
+                if ($this->relevance->isPlausible($ourTitleByTag[$tag] ?? '', $card->title, $brandByTag[$tag] ?? null)) {
                     $found['cards'][$tag] = $card;
                     continue 2;
                 }

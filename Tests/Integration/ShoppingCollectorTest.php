@@ -298,6 +298,21 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(0, $result['run']->getQuotesWritten());
     }
 
+    /**
+     * Seen live (2026-10-12): a Stormer History led to a Stormer Ride Path
+     * card, which reached the review list at 21 %.
+     */
+    public function testACardSharingOnlyOurBrandIsNotWorthASellersLookup(): void
+    {
+        $identity = $this->identity('3660600123454', title: 'Casque Apple Vision');
+        $identity->setBrandLabel('Apple')->save();
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertArrayHasKey('Casque Apple Vision', $result['noPlausibleCard'], 'the card is "Apple iPhone 18 Pro": only the brand and a generic word are shared');
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
+    }
+
     public function testAnUnrelatedCardIsNotWorthASellersLookup(): void
     {
         $identity = $this->identity('3660600123454', title: 'Casque Bell Custom 500 Gloss Black');

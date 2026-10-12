@@ -34,6 +34,10 @@ final class MatchDecisionTest extends TestCase
         yield 'other size' => [0.93, 0.03, ['comparable', 0.90], MatchVerdict::REJECTED, 'VARIANT_MISMATCH', false, null];
         yield 'other article' => [0.02, 0.91, ['comparable', 0.90], MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false, null];
         yield 'product in the middle band' => [0.60, 0.96, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false, null];
+        // Seen 2026-10-12: Stormer History against a Ride Path at 0.21, one
+        // hundredth above the "no" band, sent to a human for nothing.
+        yield 'product unlikely' => [0.21, 0.86, ['promotional', 0.65], MatchVerdict::REJECTED, 'PRODUCT_UNLIKELY', false, null];
+        yield 'unlikely stops below 0.35' => [0.35, 0.86, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false, null];
         yield 'variant in the middle band' => [0.92, 0.29, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', false, null];
         yield 'product threshold is inclusive' => [0.80, 0.80, ['comparable', 0.80], MatchVerdict::MATCHED, 'JEV', true, null];
         yield 'reject threshold is inclusive' => [0.20, 0.96, ['comparable', 0.90], MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false, null];

@@ -185,6 +185,7 @@ return [
     'reason.CURRENCY_MISMATCH' => 'Prix dans une autre devise',
     'reason.USED_OR_REFURBISHED' => 'Occasion ou reconditionné',
     'reason.PRICE_GAP_IMPLAUSIBLE' => 'Écart de prix invraisemblable, plus de 70 %',
+    'reason.PRODUCT_UNLIKELY' => 'Produit improbable : Jev lui donne moins de 35 %',
     'reason.PRICE_GAP_SUSPECT' => 'Écart de prix de 25 % ou plus : même produit à vérifier',
     'reason.CONFIRMED_BY_HUMAN' => 'Confirmé à la main',
     'reason.REJECTED_BY_HUMAN' => 'Écarté à la main',

@@ -41,7 +41,7 @@ final readonly class OfferJudge
      * of a product read on the same listing at the same price. A verdict that
      * involves the size (a match, another size) is never shared.
      */
-    private const PRODUCT_VERDICTS = ['PRODUCT_MISMATCH', 'PRODUCT_UNCLEAR'];
+    private const PRODUCT_VERDICTS = ['PRODUCT_MISMATCH', 'PRODUCT_UNLIKELY', 'PRODUCT_UNCLEAR'];
 
     public function __construct(
         private CachedJev $jev,

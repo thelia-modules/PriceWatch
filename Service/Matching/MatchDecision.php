@@ -28,6 +28,13 @@ final readonly class MatchDecision
 
     private const USED_CONDITIONS = ['used', 'refurbished', 'pre-owned', 'occasion', 'reconditionne'];
 
+    /**
+     * Below this, "same article?" is a no in all but name: measured
+     * 2026-10-12, true matches all scored 0.80 or more, nothing fell between
+     * 0.21 and 0.50, and the 0.21 was another model.
+     */
+    public const PRODUCT_UNLIKELY_BELOW = 0.35;
+
     /** Price answers that leave the price in the gap, even when Jev is sure of them. */
     private const PLAIN_PRICE = ['comparable', 'unclear'];
 
@@ -114,6 +121,10 @@ final readonly class MatchDecision
         // article means nothing.
         if ($product->band === JevAnswer::NO) {
             return new MatchVerdict(MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false, null, true);
+        }
+
+        if ($product->band !== JevAnswer::YES && is_numeric($product->value) && (float) $product->value < self::PRODUCT_UNLIKELY_BELOW) {
+            return new MatchVerdict(MatchVerdict::REJECTED, 'PRODUCT_UNLIKELY', false, null, true);
         }
 
         if ($product->band !== JevAnswer::YES) {

@@ -34,4 +34,26 @@ final class CardRelevanceTest extends TestCase
     {
         self::assertSame($expected, (new CardRelevance(new TextNormalizer()))->isPlausible($ours, $card));
     }
+
+    /**
+     * Seen live (2026-10-12): three wrong cards shared nothing with ours but
+     * the brand, and one reached the review list at 21 % (Stormer).
+     *
+     * @return iterable<string, array{string, string, string, bool}>
+     */
+    public static function brandOnly(): iterable
+    {
+        yield 'Stormer History, Ride Path card' => ['Casque Stormer History noir nacré uni', 'Casque Jet Stormer Ride Path', 'Stormer', false];
+        yield 'Nox N243, Spinner card' => ['Casque Nox N243 crème', 'Casque Nox Premium Spinner', 'Nox', false];
+        yield 'two-word brand' => ['Casque Nox Premium N243 crème', 'Casque Nox Premium Spinner', 'Nox Premium', false];
+        yield 'Bell Custom 500, TX-501 card' => ['Casque Bell Custom 500 Flake Rootbeer', 'Bell Casque TX-501', 'Bell', false];
+        yield 'brand and model' => ['Casque Arai SZ-R VAS EVO Diamond black', 'Arai Casque SZ-R VAS EVO', 'Arai', true];
+        yield 'brand unknown: as before' => ['Casque Stormer History noir nacré uni', 'Casque Jet Stormer Ride Path', '', true];
+    }
+
+    #[DataProvider('brandOnly')]
+    public function testTheBrandAloneDoesNotMakeACardOurs(string $ours, string $card, string $brand, bool $expected): void
+    {
+        self::assertSame($expected, (new CardRelevance(new TextNormalizer()))->isPlausible($ours, $card, $brand === '' ? null : $brand));
+    }
 }

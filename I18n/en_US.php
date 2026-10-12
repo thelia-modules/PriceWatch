@@ -57,6 +57,7 @@ return [
     'reason.CURRENCY_MISMATCH' => 'Price in another currency',
     'reason.USED_OR_REFURBISHED' => 'Used or refurbished',
     'reason.PRICE_GAP_IMPLAUSIBLE' => 'Implausible price gap, over 70 %',
+    'reason.PRODUCT_UNLIKELY' => 'Unlikely product: Jev gives it under 35 %',
     'reason.PRICE_GAP_SUSPECT' => 'Price gap of 25 % or more: same product to check',
     'reason.CONFIRMED_BY_HUMAN' => 'Confirmed by hand',
     'reason.REJECTED_BY_HUMAN' => 'Excluded by hand',
