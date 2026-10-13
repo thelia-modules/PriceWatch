@@ -38,11 +38,15 @@ final readonly class OfferReview
     }
 
     /**
-     * Undoes a decision, human or machine: the offer waits for a human again.
+     * Undoes a decision, human or machine: the offer waits for a human again,
+     * counted in the gaps meanwhile, tagged to check, unless its price is one
+     * that never compares (asked 2026-10-13).
      */
     public function reopen(PwCompetitorOffer $offer, string $reviewer): void
     {
-        $this->decide($offer, 'needs_review', 'REOPENED', false, $offer->getExclusionReason(), $reviewer);
+        $comparable = \in_array($offer->getExclusionReason(), self::EXCLUSIONS_A_HUMAN_LIFTS, true);
+
+        $this->decide($offer, 'needs_review', 'REOPENED', $comparable, $comparable ? null : $offer->getExclusionReason(), $reviewer);
     }
 
     private function decide(PwCompetitorOffer $offer, string $state, string $reason, bool $comparable, ?string $exclusion, string $reviewer): void

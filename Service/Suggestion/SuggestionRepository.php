@@ -68,8 +68,7 @@ final readonly class SuggestionRepository
             .' FROM pw_competitor_offer o'
             .' JOIN product_sale_elements pse ON pse.id = o.product_sale_elements_id'
             .' JOIN pw_competitor c ON c.id = o.competitor_id AND c.status = :watched'
-            .' WHERE o.active = 1 AND o.last_comparable = 1'
-            .' AND o.match_state IN ('.self::quoted(ComparatorView::MATCHED_STATES).')'
+            .' WHERE o.active = 1 AND '.ComparatorView::inGapSql('o.')
             .' AND o.last_delta_pct <= :dearer'
             .' GROUP BY pse.product_id ORDER BY gap ASC, pse.product_id LIMIT '.max(1, $limit),
             ['watched' => CompetitorStatus::Watched->value, 'dearer' => -PricePosition::EQUAL_BELOW],
@@ -100,7 +99,7 @@ final readonly class SuggestionRepository
             .' JOIN (SELECT DISTINCT pse.product_id FROM pw_competitor_offer o'
             .' JOIN product_sale_elements pse ON pse.id = o.product_sale_elements_id'
             .' JOIN pw_competitor c ON c.id = o.competitor_id AND c.status = :watched'
-            .' WHERE o.active = 1 AND o.match_state IN ('.self::quoted(ComparatorView::MATCHED_STATES).')) found'
+            .' WHERE o.active = 1 AND (o.match_state IN ('.self::quoted(ComparatorView::MATCHED_STATES).') OR '.ComparatorView::inGapSql('o.').')) found'
             .' ON found.product_id = i.product_id'
             .' WHERE i.monitored = 1 AND i.gtin_valid = 1 AND i.gtin_shared = 0'
             .' GROUP BY i.product_id HAVING last_collected < :before'

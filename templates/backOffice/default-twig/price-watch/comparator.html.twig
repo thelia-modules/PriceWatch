@@ -114,8 +114,16 @@
     <a class="btn btn-sm btn-link px-1 py-0 text-body-secondary" href="{{ url }}" target="_blank" rel="noopener noreferrer nofollow" data-bs-toggle="tooltip" title="{{ label }}" aria-label="{{ label }}" data-testid="{{ testid }}"><i class="bi {{ icon }}" aria-hidden="true"></i></a>
 {% endmacro %}
 
+{# Counted in the gaps although no human decided: said so, with why. #}
+{% macro to_check(row) %}
+    {% if row.toCheck %}
+        {% set why = 'to_check.help'|trans({'%reason%': ('reason.' ~ row.reason)|trans({}, 'pricewatch')|lower}, 'pricewatch') %}
+        <span class="badge text-bg-warning fw-normal ms-1" data-bs-toggle="tooltip" title="{{ why }}" aria-label="{{ why }}" data-testid="pw-to-check-{{ row.id }}">{{ 'to_check'|trans({}, 'pricewatch') }}</span>
+    {% endif %}
+{% endmacro %}
+
 {% macro competitor(row) %}
-    <span class="fw-semibold">{{ row.competitor }}</span>
+    <span class="fw-semibold">{{ row.competitor }}</span>{{ _self.to_check(row) }}
     {% if row.links.product %}
         {{ _self.external(row.links.product, 'bi-box-arrow-up-right', 'See the product on %site%'|trans({'%site%': row.competitor}, 'pricewatch'), 'pw-link-product-' ~ row.id) }}
     {% elseif row.links.search %}
@@ -353,6 +361,7 @@
                                     <span class="ms-1">{{ first.theirs ?? '–' }}</span>
                                     <span class="ms-1 fw-semibold {{ colours[first.position] ?? 'text-body-secondary' }}">{{ first.deltaPct ?? '–' }}</span>
                                     {% if competitor.lines|length > 1 %}<span class="ms-1 text-muted">+{{ competitor.lines|length - 1 }}</span>{% endif %}
+                                    {% if competitor.lines|filter(line => line.toCheck)|length > 0 %}<i class="bi bi-exclamation-circle-fill text-warning ms-1" aria-label="{{ 'to_check'|trans({}, 'pricewatch') }}" data-testid="pw-chip-to-check-{{ first.id }}"></i>{% endif %}
                                 </span>
                             {% endfor %}
                             </div>

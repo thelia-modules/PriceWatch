@@ -425,8 +425,9 @@ final readonly class ComparatorRepository
         $query = PwCompetitorOfferQuery::create()->filterByActive(1);
 
         match ($view) {
-            ComparatorView::Gaps => $query->filterByLastComparable(1)->filterByMatchState(ComparatorView::MATCHED_STATES, Criteria::IN),
-            ComparatorView::Review => $query->filterByMatchState('needs_review'),
+            // Equalities first, as idx_pw_offer_screen wants them.
+            ComparatorView::Gaps => $query->filterByLastComparable(1)->filterByMatchState(ComparatorView::GAP_STATES, Criteria::IN),
+            ComparatorView::Review => $query->filterByMatchState('needs_review')->filterByLastComparable(0),
             ComparatorView::Pending => $query->filterByMatchState('candidate'),
             ComparatorView::Excluded => $query
                 ->condition('rejected', PwCompetitorOfferTableMap::COL_MATCH_STATE.' = ?', 'rejected')

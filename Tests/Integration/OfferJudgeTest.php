@@ -149,7 +149,7 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         $offer->reload();
         self::assertSame('needs_review', $offer->getMatchState(), 'the same article at a fifth of our price: a human looks');
         self::assertSame('PRICE_GAP_IMPLAUSIBLE', $offer->getMatchReason());
-        self::assertSame(0, $offer->getLastComparable());
+        self::assertSame(1, $offer->getLastComparable(), 'counted meanwhile, tagged to check (2026-10-13)');
     }
 
     /**
@@ -165,8 +165,8 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         $offer->reload();
         self::assertSame('needs_review', $offer->getMatchState());
         self::assertSame('PRICE_GAP_SUSPECT', $offer->getMatchReason());
-        self::assertSame(0, $offer->getLastComparable());
-        self::assertSame(0, $this->latestQuote($offer)->getComparable());
+        self::assertSame(1, $offer->getLastComparable(), 'counted meanwhile, tagged to check (2026-10-13)');
+        self::assertSame(1, $this->latestQuote($offer)->getComparable());
     }
 
     public function testSameFactsAreNeverPaidTwice(): void

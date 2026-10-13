@@ -48,9 +48,8 @@ final readonly class ProductCardPresenter
 
         foreach ($identities as $identity) {
             $variantOffers = $byVariant[(int) $identity->getProductSaleElementsId()] ?? [];
-            $compared = array_values(array_filter($variantOffers, static fn (PwCompetitorOffer $offer): bool => (int) $offer->getLastComparable() === 1
-                && \in_array($offer->getMatchState(), ComparatorView::MATCHED_STATES, true)));
-            $review = \count(array_filter($variantOffers, static fn (PwCompetitorOffer $offer): bool => $offer->getMatchState() === 'needs_review'));
+            $compared = array_values(array_filter($variantOffers, static fn (PwCompetitorOffer $offer): bool => ComparatorView::inGap($offer->getMatchState(), $offer->getLastComparable())));
+            $review = \count(array_filter($variantOffers, static fn (PwCompetitorOffer $offer): bool => ComparatorView::inReview($offer->getMatchState(), $offer->getLastComparable())));
             // Offers come sorted by gap: the first comparable one is where
             // the competition is cheapest.
             $best = $compared[0] ?? null;

@@ -105,7 +105,8 @@ final readonly class WatchedRepository
         $params = ['locale' => $locale, 'fallback' => self::FALLBACK_LOCALE, 'read' => PageOutcome::Read->value];
         $competitors = array_keys($this->comparator->competitors());
         $competitorList = $competitors === [] ? '0' : implode(',', array_map('intval', $competitors));
-        $matched = "'".implode("','", ComparatorView::MATCHED_STATES)."'";
+        $inGap = ComparatorView::inGapSql();
+        $inReview = ComparatorView::inReviewSql();
 
         $where = '';
 
@@ -149,9 +150,9 @@ final readonly class WatchedRepository
             LEFT JOIN (
                 SELECT
                     product_sale_elements_id,
-                    SUM(match_state IN ($matched) AND last_comparable = 1) AS compared,
-                    SUM(match_state = 'needs_review') AS review,
-                    MIN(CASE WHEN match_state IN ($matched) AND last_comparable = 1 THEN last_delta_pct END) AS best_gap
+                    SUM($inGap) AS compared,
+                    SUM($inReview) AS review,
+                    MIN(CASE WHEN $inGap THEN last_delta_pct END) AS best_gap
                 FROM pw_competitor_offer
                 WHERE active = 1 AND competitor_id IN ($competitorList)
                 GROUP BY product_sale_elements_id

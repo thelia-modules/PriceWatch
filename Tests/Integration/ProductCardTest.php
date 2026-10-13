@@ -73,6 +73,20 @@ final class ProductCardTest extends PriceWatchIntegrationTestCase
         self::assertStringContainsString('q='.urlencode((string) $product->getRef()), $card['comparatorUrl'], 'the comparator opens on this product');
     }
 
+    public function testAnOfferToCheckCountsAsCompared(): void
+    {
+        $product = $this->product();
+        $small = $this->variant($product, 'S', '3660600123454');
+        // A doubt on the price only: comparable, tagged to check (2026-10-13).
+        $this->offer($small, $this->first, 'needs_review', true, '-30.000');
+        $this->offer($small, $this->second, 'needs_review', false, '-50.000');
+
+        $card = $this->presenter()->present((int) $product->getId(), 'fr_FR');
+
+        self::assertSame(['compared' => 1, 'review' => 1, 'weAreDearer' => 1], $card['totals']);
+        self::assertSame($this->first->getDomain(), $card['variants'][0]['best']['competitor'], 'the doubt on the article is never the best price');
+    }
+
     public function testAProductOutsideTheReferentialSaysSo(): void
     {
         $card = $this->presenter()->present((int) $this->product()->getId(), 'fr_FR');

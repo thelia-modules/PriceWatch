@@ -82,6 +82,30 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2));
     }
 
+    /**
+     * Asked 2026-10-13: a doubt on the price or the size is shown and counted
+     * in the gaps, tagged to check; only a doubt on the article stays in the
+     * review tab.
+     */
+    public function testDoubtsOnPriceOrSizeCountInTheGapsTaggedToCheck(): void
+    {
+        $product = $this->product('Blouson Segura Lady Funky '.$this->tag);
+        // As the judge leaves them: a doubt on the price or the size keeps
+        // the offer comparable, a doubt on the article does not.
+        $this->offer($product, 'needs_review', comparable: true, deltaPct: '49.500', size: 'T2')->setMatchReason('PRICE_GAP_SUSPECT')->save();
+        $this->offer($product, 'needs_review', comparable: true, deltaPct: '-3.000', size: 'T4')->setMatchReason('VARIANT_UNCLEAR')->save();
+        $article = $this->offer($product, 'needs_review', comparable: false, deltaPct: '-30.000', size: 'T5');
+        $article->setMatchReason('PRODUCT_UNCLEAR')->save();
+
+        $filters = new ComparatorFilters(search: $this->tag);
+
+        self::assertSame(['gaps' => 2, 'review' => 1, 'pending' => 0, 'excluded' => 0], $this->repository->counts($filters));
+        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2), 'counted like any other offer');
+        $lines = $this->presenter()->present($filters, 'fr_FR')['products'][0]['lines'];
+        self::assertSame([true, true], array_column($lines, 'toCheck'), 'tagged: no human decided');
+        self::assertSame([(int) $article->getId()], $this->ids(new ComparatorFilters(view: ComparatorView::Review, search: $this->tag)), 'another article maybe: still a human\'s call');
+    }
+
     public function testOffersOfCompetitorsOffTheWhitelistAreNeverShown(): void
     {
         $product = $this->product('Casque Nexx X.WED3 Keyo');
@@ -149,6 +173,12 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $offer->reload();
         self::assertSame('needs_review', $offer->getMatchState());
         self::assertSame('REOPENED', $offer->getMatchReason());
+        self::assertSame(1, $offer->getLastComparable(), 'counted again meanwhile, tagged to check (2026-10-13)');
+
+        $promotion = $this->offer($this->product('Premier Trophy'), 'matched_judged', comparable: false, deltaPct: '-40.000', exclusion: 'promotional');
+        $review->reopen($promotion, 'emmanuel');
+        $promotion->reload();
+        self::assertSame([0, 'promotional'], [$promotion->getLastComparable(), $promotion->getExclusionReason()], 'a price that never compares stays out');
     }
 
     /**

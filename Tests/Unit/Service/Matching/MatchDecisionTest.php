@@ -38,7 +38,9 @@ final class MatchDecisionTest extends TestCase
         // hundredth above the "no" band, sent to a human for nothing.
         yield 'product unlikely' => [0.21, 0.86, ['promotional', 0.65], MatchVerdict::REJECTED, 'PRODUCT_UNLIKELY', false, null];
         yield 'unlikely stops below 0.35' => [0.35, 0.86, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false, null];
-        yield 'variant in the middle band' => [0.92, 0.29, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', false, null];
+        // Asked 2026-10-13: same article, size unsure, counted and tagged to check.
+        yield 'variant in the middle band' => [0.92, 0.29, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', true, null];
+        yield 'variant unsure at a promotional price' => [0.92, 0.29, ['promotional', 0.90], MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', false, 'promotional'];
         yield 'product threshold is inclusive' => [0.80, 0.80, ['comparable', 0.80], MatchVerdict::MATCHED, 'JEV', true, null];
         yield 'reject threshold is inclusive' => [0.20, 0.96, ['comparable', 0.90], MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false, null];
     }
@@ -104,10 +106,11 @@ final class MatchDecisionTest extends TestCase
     {
         // Seen 2026-10-12: a Bell Moto 3 matched by Jev at +33 %, black
         // against matt black; the five offers beyond 70 % were other models.
-        yield 'a Jev match at +33 % waits for a human' => [MatchVerdict::MATCHED, 'JEV', '224.99', '299.99', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', false];
-        yield 'from 25 % on' => [MatchVerdict::MATCHED, 'JEV', '100.00', '75.00', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', false];
+        // Asked 2026-10-13: a doubt on the price alone still counts, tagged to check.
+        yield 'a Jev match at +33 % waits for a human' => [MatchVerdict::MATCHED, 'JEV', '224.99', '299.99', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', true];
+        yield 'from 25 % on' => [MatchVerdict::MATCHED, 'JEV', '100.00', '75.00', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', true];
         yield 'below 25 % a Jev match stands' => [MatchVerdict::MATCHED, 'JEV', '100.00', '76.00', MatchVerdict::MATCHED, 'JEV', true];
-        yield 'beyond 70 % a Jev match waits for a human' => [MatchVerdict::MATCHED, 'JEV', '69.90', '211.38', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', false];
+        yield 'beyond 70 % a Jev match waits for a human' => [MatchVerdict::MATCHED, 'JEV', '69.90', '211.38', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', true];
         yield 'beyond 70 % a doubt waits for a human' => [MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', '69.90', '211.38', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', false];
         yield 'another product stays rejected, with its reason' => [MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', '161.30', '329.99', MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false];
         yield 'a doubt under 70 % keeps its reason' => [MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', '129.99', '76.49', MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false];

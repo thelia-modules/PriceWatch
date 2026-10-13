@@ -78,6 +78,19 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
         self::assertSame(['Bottes en pause '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::Paused, $this->tag)), 'title'));
     }
 
+    public function testAnOfferToCheckCountsAsCompared(): void
+    {
+        $product = $this->product('À vérifier');
+        $variant = $this->variant($product, monitored: true, collectable: true);
+        $this->offer($variant, 'needs_review', true, '-30.000');
+        $this->offer($variant, 'needs_review', false, '-50.000');
+
+        $row = $this->rows(new WatchedFilters(search: $this->tag))[0];
+
+        self::assertSame([1, 1], [(int) $row['compared'], (int) $row['review']]);
+        self::assertEqualsWithDelta(-30.0, (float) $row['best_gap'], 1e-9, 'a doubt on the article never makes the best gap');
+    }
+
     public function testOffersOfCompetitorsOffTheWhitelistDoNotCount(): void
     {
         $product = $this->product('Casque');

@@ -229,6 +229,8 @@ final readonly class ComparatorPresenter
                 : null,
             'state' => $state,
             'reason' => $offer->getMatchReason(),
+            // In the gaps although a human has not decided: shown as such.
+            'toCheck' => ComparatorView::toCheck($state, $offer->getLastComparable()),
             'method' => $offer->getMatchMethod(),
             'exclusion' => $offer->getExclusionReason(),
             'reviewedBy' => $offer->getReviewedBy(),

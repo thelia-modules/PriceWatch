@@ -268,7 +268,7 @@ final readonly class DirectCollector
         // price itself doubtful, and a human looks. A wide but plausible gap
         // is a price like any other.
         $verdict = $ourPrice === null ? null : (MatchDecision::implausibleGap($ourPrice, $variant->price)
-            ? new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', false, 'PRICE_GAP_IMPLAUSIBLE', false)
+            ? new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', true, null, false)
             : $this->decision->prefilter($ourPrice, $variant->price, $product->currency, null));
         // A size read on a page only Jev vouches for is a Jev match: from a
         // suspect gap on, a human looks, as for any other Jev match.
@@ -279,7 +279,8 @@ final readonly class DirectCollector
             $verdict = $gapped->state === MatchVerdict::MATCHED ? null : $gapped;
         }
         $rejectedByHuman = $offer->getMatchState() === 'rejected' && $offer->getReviewedBy() !== null;
-        $comparable = !$rejectedByHuman && $verdict === null;
+        // A doubt on the price alone still counts, tagged to check.
+        $comparable = !$rejectedByHuman && ($verdict === null || $verdict->comparable);
 
         if (!$rejectedByHuman) {
             $offer

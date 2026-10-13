@@ -122,6 +122,21 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         self::assertArrayNotHasKey((int) $equal->getId(), $dearer, 'shown as 0.0 %: not dearer');
     }
 
+    public function testAnOfferToCheckCountsWhereWeWereDearer(): void
+    {
+        $jacket = $this->product('À vérifier '.$this->tag);
+        $this->offer($jacket, '-30.000');
+        // A doubt on the price only: still counted (2026-10-13).
+        \PriceWatch\Model\PwCompetitorOfferQuery::create()
+            ->filterByCompetitorId($this->watched->getId())
+            ->filterByLastDeltaPct('-30.000')
+            ->update(['MatchState' => 'needs_review', 'MatchReason' => 'PRICE_GAP_SUSPECT']);
+
+        $dearer = (new SuggestionRepository())->weWereDearer(1000);
+
+        self::assertSame(['gapPct' => -30.0, 'competitors' => 1], $dearer[(int) $jacket->getId()] ?? null);
+    }
+
     public function testAnOldReadingNeedsACompetitorFoundAndAnOldCollect(): void
     {
         $old = $this->product('Ancien '.$this->tag);

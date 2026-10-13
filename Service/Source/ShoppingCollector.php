@@ -12,6 +12,7 @@ use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
+use PriceWatch\Service\Comparator\ComparatorView;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
@@ -55,7 +56,6 @@ final readonly class ShoppingCollector
     private const REPORT_EVERY_SECONDS = 60;
     private const LOCALE = 'fr_FR';
     private const HUMAN_MATCH = 'matched_manual';
-    private const MATCHED_STATES = ['matched_exact', 'matched_judged', 'matched_manual'];
 
     /** Rows read per search allowed: sizes riding on another's search are skipped. */
     private const SCAN_PER_SEARCH = 20;
@@ -694,7 +694,7 @@ final readonly class ShoppingCollector
 
         // An unchanged matched offer keeps its verdict: today's reading counts
         // in the gap as yesterday's did.
-        $comparable = !$drifted && \in_array($model->getMatchState(), self::MATCHED_STATES, true) && (int) $model->getLastComparable() === 1;
+        $comparable = !$drifted && ComparatorView::inGap($model->getMatchState(), $model->getLastComparable());
 
         $price = $offer->priceExcludingShipping();
         $delta = $price !== null && $ourPrice !== null ? (float) $price - (float) $ourPrice : null;

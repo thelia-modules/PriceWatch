@@ -215,7 +215,7 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         $this->collector()->collect();
 
         $offer = $this->offer($identities['L']);
-        self::assertSame(['needs_review', 'PRICE_GAP_SUSPECT', 0], [$offer?->getMatchState(), $offer?->getMatchReason(), $offer?->getLastComparable()]);
+        self::assertSame(['needs_review', 'PRICE_GAP_SUSPECT', 1], [$offer?->getMatchState(), $offer?->getMatchReason(), $offer?->getLastComparable()], 'counted meanwhile, tagged to check (2026-10-13)');
     }
 
     /**
@@ -334,7 +334,7 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
 
         $offer = $this->offer($identities['M']);
         self::assertSame('needs_review', $offer?->getMatchState(), '638.70 against our 120.00: a data problem, not a price');
-        self::assertSame(0, $offer->getLastComparable());
+        self::assertSame(1, $offer->getLastComparable(), 'counted meanwhile, tagged to check (2026-10-13)');
     }
 
     public function testAPageOfACompetitorNoLongerWatchedIsNotRead(): void

@@ -61,6 +61,9 @@ final readonly class MatchDecision
      *   mislead the gap.
      *
      * A rejection keeps its own reason: it is the proof the gap only hinted.
+     *
+     * A price doubted on its gap alone still counts, tagged to check (asked
+     * 2026-10-13): it keeps the comparability the identity verdict gave it.
      */
     public function withGap(MatchVerdict $verdict, ?string $ourPriceInclTax, ?string $theirPrice): MatchVerdict
     {
@@ -71,11 +74,11 @@ final readonly class MatchDecision
         }
 
         if ($gap > self::IMPLAUSIBLE_GAP) {
-            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', false, 'PRICE_GAP_IMPLAUSIBLE', $verdict->judgedByJev);
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', $verdict->comparable, $verdict->exclusionReason, $verdict->judgedByJev);
         }
 
         if ($gap >= self::SUSPECT_GAP && $verdict->state === MatchVerdict::MATCHED && $verdict->comparable) {
-            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', false, 'PRICE_GAP_SUSPECT', $verdict->judgedByJev);
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', true, null, $verdict->judgedByJev);
         }
 
         return $verdict;
@@ -135,17 +138,16 @@ final readonly class MatchDecision
             return new MatchVerdict(MatchVerdict::REJECTED, 'VARIANT_MISMATCH', false, null, true);
         }
 
-        if ($variant->band !== JevAnswer::YES) {
-            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', false, null, true);
-        }
-
         // The price is what the seller asks today. Jev rarely has the evidence
         // to be sure of it (measured 2026-10-12: 19 answers out of 20 in the
         // middle band), so only a confident "not a plain price" excludes it.
-        if ($price->band !== JevAnswer::ACT || \in_array($price->value, self::PLAIN_PRICE, true)) {
-            return new MatchVerdict(MatchVerdict::MATCHED, 'JEV', true, null, true);
+        $plainPrice = $price->band !== JevAnswer::ACT || \in_array($price->value, self::PLAIN_PRICE, true);
+
+        // Same article, size unsure: counted, tagged to check (2026-10-13).
+        if ($variant->band !== JevAnswer::YES) {
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', $plainPrice, $plainPrice ? null : (string) $price->value, true);
         }
 
-        return new MatchVerdict(MatchVerdict::MATCHED, 'JEV', false, (string) $price->value, true);
+        return new MatchVerdict(MatchVerdict::MATCHED, 'JEV', $plainPrice, $plainPrice ? null : (string) $price->value, true);
     }
 }
