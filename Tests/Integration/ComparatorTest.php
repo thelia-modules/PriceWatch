@@ -343,7 +343,9 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame([(int) $helmet->getId()], array_column($review['products'], 'id'), 'one line for the product');
         self::assertCount(2, $review['products'][0]['competitors'], 'both competitors on it');
         self::assertCount(2, $review['products'][0]['lines'], 'each offer in the detail, decided on its own');
-        self::assertSame([(int) $jacket->getId()], array_column($excluded['products'], 'id'));
+        self::assertSame([(int) $jacket->getId()], array_column($excluded['products'], 'id'));        self::assertSame(1, $review['counts']['review'], 'the tabs count products, not offers: two offers, one product');
+        self::assertSame(1, array_column($review['tabs'], 'count', 'view')['review']);
+        self::assertSame(2, $this->repository->counts(new ComparatorFilters(search: $this->tag))['review'], 'offers are still counted where figures need them');
     }
 
     public function testADecisionOnALineReachesEveryOfferOfThatLineOnly(): void

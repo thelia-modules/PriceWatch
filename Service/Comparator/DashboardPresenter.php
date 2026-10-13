@@ -45,7 +45,8 @@ final readonly class DashboardPresenter
 
         return [
             'hasCompetitors' => $this->repository->competitors() !== [],
-            'counts' => $counts,
+            // Products waiting, as the review tab it links to counts them.
+            'counts' => ['review' => $this->repository->productCounts($all)[ComparatorView::Review->value]],
             'split' => $this->split($counts[ComparatorView::Gaps->value], $this->repository->gapSummary($all), $percent),
             'worstGaps' => $this->worstGaps($locale, $percent),
             'competitors' => $this->byCompetitor($percent),

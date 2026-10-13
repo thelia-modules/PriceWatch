@@ -145,6 +145,23 @@ final readonly class ComparatorRepository
     }
 
     /**
+     * What the tabs show (asked 2026-10-13): products, as the lists are, not
+     * offers.
+     *
+     * @return array<string, int> view value => number of products, same filters
+     */
+    public function productCounts(ComparatorFilters $filters): array
+    {
+        $counts = [];
+
+        foreach (ComparatorView::cases() as $view) {
+            $counts[$view->value] = $this->productCount($filters->withView($view));
+        }
+
+        return $counts;
+    }
+
+    /**
      * @return array<string, int> view value => number of offers, same filters
      */
     public function counts(ComparatorFilters $filters): array

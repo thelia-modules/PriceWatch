@@ -34,8 +34,10 @@ final readonly class ComparatorPresenter
         $productIds = $withRows ? $this->repository->productPage($filters) : [];
         // Another tab of the screen shows: the counts are needed, the rows not.
         $offers = $withRows ? $this->repository->offersOfProducts($filters, $productIds) : [];
+        // Offers for the figures, products for the tabs, as the lists are.
         $counts = $this->repository->counts($filters);
-        $total = $this->repository->productCount($filters);
+        $productCounts = $this->repository->productCounts($filters);
+        $total = $productCounts[$filters->view->value];
         $money = new \NumberFormatter($locale, \NumberFormatter::CURRENCY);
         $percent = new \NumberFormatter($locale, \NumberFormatter::PERCENT);
         $percent->setAttribute(\NumberFormatter::FRACTION_DIGITS, 1);
@@ -64,7 +66,7 @@ final readonly class ComparatorPresenter
             'view' => $filters->view->value,
             'rows' => $rows,
             'products' => self::products($rows, $productIds),
-            'counts' => $counts,
+            'counts' => $productCounts,
             'competitors' => $competitors,
             'summary' => [
                 'compared' => $counts[ComparatorView::Gaps->value],
@@ -75,7 +77,7 @@ final readonly class ComparatorPresenter
             ],
             'tabs' => array_map(fn (ComparatorView $view): array => [
                 'view' => $view->value,
-                'count' => $counts[$view->value],
+                'count' => $productCounts[$view->value],
                 'url' => $this->url($filters->withView($view)),
                 'active' => $view === $filters->view,
             ], ComparatorView::cases()),
