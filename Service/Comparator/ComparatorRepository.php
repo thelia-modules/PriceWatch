@@ -145,6 +145,21 @@ final readonly class ComparatorRepository
     }
 
     /**
+     * Products of the gaps tab a competitor lowered its price on, read since
+     * $since: what the admin home warns about (asked 2026-10-13).
+     */
+    public function droppedProductCount(\DateTimeInterface $since): int
+    {
+        $count = $this->productQuery(new ComparatorFilters(droppedOnly: true))
+            ?->filterByLastSeenAt($since, Criteria::GREATER_EQUAL)
+            ->withColumn('COUNT(DISTINCT '.ProductSaleElementsTableMap::COL_PRODUCT_ID.')', 'products')
+            ->select(['products'])
+            ->findOne();
+
+        return (int) $count;
+    }
+
+    /**
      * What the tabs show (asked 2026-10-13): products, as the lists are, not
      * offers.
      *
@@ -460,6 +475,10 @@ final readonly class ComparatorRepository
         if ($filters->cheaperOnly) {
             // Competitor cheaper, that is: we are dearer.
             $query->filterByLastDeltaPct(-PricePosition::EQUAL_BELOW, Criteria::LESS_EQUAL);
+        }
+
+        if ($filters->droppedOnly) {
+            $query->filterByPriceChangePct(-PriceChange::SHOWN_FROM_PCT, Criteria::LESS_EQUAL);
         }
 
         if ($filters->search !== '') {

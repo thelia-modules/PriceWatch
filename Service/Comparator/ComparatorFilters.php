@@ -26,6 +26,8 @@ final readonly class ComparatorFilters
         public bool $cheaperOnly = false,
         public int $page = 1,
         public ?string $sort = null,
+        /** Only the offers whose price fell since the reading before (asked 2026-10-13). */
+        public bool $droppedOnly = false,
     ) {
     }
 
@@ -46,6 +48,7 @@ final readonly class ComparatorFilters
             \in_array(self::scalar($query['cheaper'] ?? null), ['1', 'true', 'on'], true),
             self::positiveInt($query['page'] ?? null) ?? 1,
             \in_array(self::scalar($query['sort'] ?? null), [self::SORT_GAP, self::SORT_GAP_DESC], true) ? self::scalar($query['sort']) : null,
+            \in_array(self::scalar($query['dropped'] ?? null), ['1', 'true', 'on'], true),
         );
     }
 
@@ -81,17 +84,18 @@ final readonly class ComparatorFilters
             'cheaper' => $this->cheaperOnly ? 1 : 0,
             'page' => $this->page > 1 ? $this->page : 0,
             'sort' => $this->sort ?? '',
+            'dropped' => $this->droppedOnly ? 1 : 0,
         ], static fn (string|int $value): bool => $value !== '' && $value !== 0);
     }
 
     public function withView(ComparatorView $view): self
     {
-        return new self($view, $this->competitorId, $this->search, $this->cheaperOnly, 1, $this->sort);
+        return new self($view, $this->competitorId, $this->search, $this->cheaperOnly, 1, $this->sort, $this->droppedOnly);
     }
 
     public function withPage(int $page): self
     {
-        return new self($this->view, $this->competitorId, $this->search, $this->cheaperOnly, max(1, $page), $this->sort);
+        return new self($this->view, $this->competitorId, $this->search, $this->cheaperOnly, max(1, $page), $this->sort, $this->droppedOnly);
     }
 
     /**
@@ -99,7 +103,7 @@ final readonly class ComparatorFilters
      */
     public function withSort(?string $sort): self
     {
-        return new self($this->view, $this->competitorId, $this->search, $this->cheaperOnly, 1, $sort);
+        return new self($this->view, $this->competitorId, $this->search, $this->cheaperOnly, 1, $sort, $this->droppedOnly);
     }
 
     /**

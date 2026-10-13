@@ -22,6 +22,9 @@ final readonly class DashboardPresenter
 {
     private const WORST_GAPS = 5;
 
+    /** The competitor price drops the home page tells about: read this recently. */
+    public const DROPPED_DAYS = 7;
+
     public function __construct(
         private ComparatorRepository $repository,
         private RunStatus $runStatus,
@@ -47,6 +50,8 @@ final readonly class DashboardPresenter
             'hasCompetitors' => $this->repository->competitors() !== [],
             // Products waiting, as the review tab it links to counts them.
             'counts' => ['review' => $this->repository->productCounts($all)[ComparatorView::Review->value]],
+            'droppedDays' => self::DROPPED_DAYS,
+            'dropped' => $this->repository->droppedProductCount(($now ?? new \DateTimeImmutable())->modify('-'.self::DROPPED_DAYS.' days')),
             'split' => $this->split($counts[ComparatorView::Gaps->value], $this->repository->gapSummary($all), $percent),
             'worstGaps' => $this->worstGaps($locale, $percent),
             'competitors' => $this->byCompetitor($percent),
@@ -61,6 +66,7 @@ final readonly class DashboardPresenter
                 'comparator' => $this->urlGenerator->generate('pricewatch_comparator'),
                 'dearer' => $this->urlGenerator->generate('pricewatch_comparator', ['cheaper' => 1]),
                 'review' => $this->urlGenerator->generate('pricewatch_comparator', ['view' => ComparatorView::Review->value]),
+                'dropped' => $this->urlGenerator->generate('pricewatch_comparator', ['dropped' => 1]),
                 'competitors' => $this->urlGenerator->generate('pricewatch_competitors'),
                 'stale' => $this->urlGenerator->generate('pricewatch_watched', ['view' => WatchedView::Stale->value, 'sort' => 'collected']),
                 'never' => $this->urlGenerator->generate('pricewatch_watched', ['view' => WatchedView::Never->value]),

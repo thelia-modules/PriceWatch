@@ -272,6 +272,10 @@
                 <input class="form-check-input" type="checkbox" id="pw-cheaper" name="cheaper" value="1" {% if filters.cheaperOnly %}checked{% endif %}>
                 <label class="form-check-label small" for="pw-cheaper">{{ 'Only where we are dearer'|trans({}, 'pricewatch') }}</label>
             </div>
+            <div class="form-check mb-1">
+                <input class="form-check-input" type="checkbox" id="pw-dropped" name="dropped" value="1" {% if filters.droppedOnly %}checked{% endif %} data-testid="pw-filter-dropped">
+                <label class="form-check-label small" for="pw-dropped">{{ 'change.filter'|trans({}, 'pricewatch') }}</label>
+            </div>
         </div>
         <div class="col-12 col-md-2 d-flex gap-2">
             <button type="submit" class="btn btn-sm btn-primary flex-grow-1">{{ 'Filter'|trans({}, 'pricewatch') }}</button>
@@ -359,11 +363,12 @@
                                 {% set first = competitor.headline %}
                                 {# Every price read at this competitor, size by size, in the tooltip. #}
                                 {% set readings = competitor.lines|map(line => (line.sizes|length > 1 ? line.sizes|join(', ') : (line.product.size ?: '–')) ~ ' : ' ~ (line.theirs ?? '–') ~ ' (' ~ (line.deltaPct ?? '–') ~ ')')|join(' · ') %}
-                                <span class="badge rounded-pill border bg-body text-body fw-normal d-inline-flex align-items-center" data-bs-toggle="tooltip" title="{{ ('position.' ~ (first.position ?? 'equal'))|trans({}, 'pricewatch') }} · {{ 'Sizes'|trans({}, 'pricewatch') }} {{ readings }}" data-testid="pw-chip-{{ first.id }}" data-position="{{ first.position }}">
+                                <span class="badge rounded-pill border bg-body text-body fw-normal d-inline-flex align-items-center" data-bs-toggle="tooltip" title="{{ ('position.' ~ (first.position ?? 'equal'))|trans({}, 'pricewatch') }}{% if first.change %} · {{ ('change.' ~ first.change.direction)|trans({'%pct%': first.change.pct, '%since%': first.change.since, '%previous%': first.change.previous}, 'pricewatch') }}{% endif %} · {{ 'Sizes'|trans({}, 'pricewatch') }} {{ readings }}" data-testid="pw-chip-{{ first.id }}" data-position="{{ first.position }}">
                                     <span class="rounded-circle flex-shrink-0 me-2 {{ dots[first.position] ?? dots.equal }}" style="width: .55rem; height: .55rem" aria-hidden="true" data-testid="pw-chip-dot-{{ first.id }}"></span>
                                     <span class="fw-semibold">{{ competitor.name }}</span>
                                     <span class="ms-1">{{ first.theirs ?? '–' }}</span>
                                     <span class="ms-1 fw-semibold">{{ first.deltaPct ?? '–' }}</span>
+                                    {% if first.change %}<i class="bi {{ first.change.direction == 'down' ? 'bi-caret-down-fill' : 'bi-caret-up-fill' }} ms-1 text-body-secondary" aria-label="{{ ('change.' ~ first.change.direction)|trans({'%pct%': first.change.pct, '%since%': first.change.since, '%previous%': first.change.previous}, 'pricewatch') }}" data-testid="pw-chip-change-{{ first.id }}"></i>{% endif %}
                                     {% if competitor.lines|length > 1 %}<span class="ms-1 text-muted">+{{ competitor.lines|length - 1 }}</span>{% endif %}
                                     {% if competitor.lines|filter(line => line.toCheck)|length > 0 %}<i class="bi bi-exclamation-circle-fill text-warning ms-1" aria-label="{{ 'to_check'|trans({}, 'pricewatch') }}" data-testid="pw-chip-to-check-{{ first.id }}"></i>{% endif %}
                                 </span>
@@ -395,6 +400,7 @@
                                         <td data-testid="pw-sizes-{{ row.id }}">{{ row.sizes|length > 0 ? row.sizes|join(', ') : (row.product.size ?: '–') }}</td>
                                         <td class="text-end text-nowrap">
                                             <div class="fw-semibold text-body">{{ row.theirs ?? '–' }}</div>
+                                            {% if row.change %}<div class="small text-body-secondary" data-testid="pw-change-{{ row.id }}"><i class="bi {{ row.change.direction == 'down' ? 'bi-caret-down-fill' : 'bi-caret-up-fill' }} me-1" aria-hidden="true"></i>{{ ('change.' ~ row.change.direction)|trans({'%pct%': row.change.pct, '%since%': row.change.since, '%previous%': row.change.previous}, 'pricewatch') }}</div>{% endif %}
                                             <div class="small text-muted">{{ 'ours %price%'|trans({'%price%': row.ours ?? '–'}, 'pricewatch') }}</div>
                                         </td>
                                         <td class="text-end" style="width: 9rem" data-testid="pw-gap-{{ row.id }}" data-position="{{ row.position }}">{{ _self.gap(row) }}</td>

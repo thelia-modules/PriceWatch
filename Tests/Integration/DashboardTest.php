@@ -93,6 +93,21 @@ final class DashboardTest extends PriceWatchIntegrationTestCase
         self::assertSame('/w?view=never', $dashboard['links']['never']);
     }
 
+    public function testTheSummaryTellsOfRecentCompetitorPriceDrops(): void
+    {
+        $this->offer($this->often, 'matched_judged', true, '-12.000');
+        \PriceWatch\Model\PwCompetitorOfferQuery::create()->filterByCompetitorId($this->often->getId())
+            ->update(['PriceChangePct' => '-15.000', 'LastSeenAt' => new \DateTime('-2 days')]);
+        $this->offer($this->rarely, 'matched_judged', true, '-3.000');
+        \PriceWatch\Model\PwCompetitorOfferQuery::create()->filterByCompetitorId($this->rarely->getId())
+            ->update(['PriceChangePct' => '-15.000', 'LastSeenAt' => new \DateTime('-20 days')]);
+
+        $dashboard = $this->presenter()->present('fr_FR');
+
+        self::assertSame(1, $dashboard['dropped'], 'read in the last 7 days only');
+        self::assertSame('/c?dropped=1', $dashboard['links']['dropped']);
+    }
+
     public function testWithoutWhitelistTheBlockSaysSo(): void
     {
         PwCompetitorQuery::create()->filterByStatus(CompetitorStatus::Watched->value)->update(['Status' => CompetitorStatus::Proposed->value]);

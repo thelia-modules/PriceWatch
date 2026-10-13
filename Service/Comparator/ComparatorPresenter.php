@@ -229,6 +229,14 @@ final readonly class ComparatorPresenter
             'reason' => $offer->getMatchReason(),
             // In the gaps although a human has not decided: shown as such.
             'toCheck' => ComparatorView::toCheck($state, $offer->getLastComparable()),
+            // How the price moved since the reading of an earlier day, from 1 %.
+            'change' => PriceChange::shown($offer->getPriceChangePct()) ? [
+                // Unsigned: "down" or "up" says which way.
+                'pct' => $percent->format(abs((float) $offer->getPriceChangePct()) / 100),
+                'direction' => (float) $offer->getPriceChangePct() < 0 ? 'down' : 'up',
+                'previous' => $money->formatCurrency((float) $offer->getPreviousPrice(), 'EUR'),
+                'since' => $offer->getPreviousPriceDay()?->format('d/m'),
+            ] : null,
             'method' => $offer->getMatchMethod(),
             'exclusion' => $offer->getExclusionReason(),
             'reviewedBy' => $offer->getReviewedBy(),

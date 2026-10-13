@@ -177,6 +177,10 @@
 
         <column name="first_seen_at" type="TIMESTAMP"/>
         <column name="last_seen_at" type="TIMESTAMP"/>
+        <!-- The pair's reading of an earlier day, any source: what the price moved from. -->
+        <column name="previous_price" scale="6" size="16" type="DECIMAL"/>
+        <column name="previous_price_day" type="DATE"/>
+        <column name="price_change_pct" scale="3" size="9" type="DECIMAL"/>
         <column defaultValue="1" name="active" size="4" type="TINYINT"/>
 
         <column name="reviewed_by" size="100" type="VARCHAR"/>

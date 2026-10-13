@@ -13,6 +13,7 @@ use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Comparator\ComparatorView;
+use PriceWatch\Service\Comparator\PriceChange;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
@@ -715,8 +716,9 @@ final readonly class ShoppingCollector
             ->setLastDelta($delta === null ? null : number_format($delta, 6, '.', ''))
             ->setLastDeltaPct($delta === null || (float) $ourPrice === 0.0 ? null : number_format($delta / (float) $ourPrice * 100, 3, '.', ''))
             ->setLastSeenAt($now)
-            ->setActive(1)
-            ->save();
+            ->setActive(1);
+        PriceChange::apply($model);
+        $model->save();
 
         // One reading per offer, per day, per source: a rerun the same day
         // refreshes nothing and duplicates nothing.

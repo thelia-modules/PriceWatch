@@ -475,6 +475,29 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, $today?->getComparable(), 'today\'s reading counts as yesterday\'s did');
     }
 
+    /**
+     * Asked 2026-10-13: how a competitor's price moved since the reading of
+     * an earlier day, kept on the offer.
+     */
+    public function testAReadingKeepsHowThePriceMovedSinceAnEarlierDay(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
+        self::assertNotNull($offer);
+        self::assertNull($offer->getPreviousPrice(), 'first reading: nothing to compare with');
+        // Yesterday the seller asked 150.00.
+        PwPriceQuoteQuery::create()->filterByOfferId($offer->getId())->update(['CollectedDay' => new \DateTime('yesterday'), 'Price' => '150.000000']);
+
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        $offer->reload();
+        self::assertEqualsWithDelta(150.0, (float) $offer->getPreviousPrice(), 0.001, 'yesterday\'s, not this morning\'s: a second pass the same day compares with yesterday');
+        self::assertSame((new \DateTime('yesterday'))->format('Y-m-d'), $offer->getPreviousPriceDay()?->format('Y-m-d'));
+        self::assertEqualsWithDelta(-16.673, (float) $offer->getPriceChangePct(), 0.001, '124.99 against 150.00');
+    }
+
     public function testTheProductPageIsKeptWhenItIsOnThisCompetitorsSite(): void
     {
         $identity = $this->identity('3660600123454');

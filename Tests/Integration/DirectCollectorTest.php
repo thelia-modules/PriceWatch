@@ -269,6 +269,26 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(0, $result['run']->getPagesFetched(), 'read by the pass before the collect one');
     }
 
+    public function testTheHistoryGoesOnWhenThePairIsReadOnThePageInsteadOfGoogle(): void
+    {
+        $identities = $this->helmet(['M' => self::SIZES['M']]);
+        $google = (new PwCompetitorOffer())
+            ->setCompetitorId($this->competitor->getId())
+            ->setProductSaleElementsId($identities['M']->getProductSaleElementsId())
+            ->setOfferKey('shopping:'.$identities['M']->getProductSaleElementsId())
+            ->setMatchState('matched_judged')
+            ->setActive(1);
+        $google->save();
+        (new \PriceWatch\Model\PwPriceQuote())->setOfferId($google->getId())->setCollectedDay(new \DateTime('-3 days'))->setSource('dataforseo')->setCollectedAt(new \DateTime('-3 days'))->setPrice('700.000000')->save();
+        $this->pages->add((int) $this->competitor->getId(), $this->productId($identities), self::DAFY_URL, 'shopping');
+
+        $this->collector()->collect();
+
+        $offer = $this->offer($identities['M']);
+        self::assertEqualsWithDelta(700.0, (float) $offer?->getPreviousPrice(), 0.001, 'Google\'s reading of the same pair, three days ago');
+        self::assertEqualsWithDelta(-8.757, (float) $offer?->getPriceChangePct(), 0.001, '638.70 against 700.00');
+    }
+
     public function testAPageListingOtherGtinsIsRejected(): void
     {
         $identities = $this->helmet(['M' => '3660600123454']);

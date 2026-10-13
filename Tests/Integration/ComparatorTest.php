@@ -106,6 +106,32 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame([(int) $article->getId()], $this->ids(new ComparatorFilters(view: ComparatorView::Review, search: $this->tag)), 'another article maybe: still a human\'s call');
     }
 
+    /**
+     * Asked 2026-10-13: see where a competitor lowered its price since the
+     * reading before.
+     */
+    public function testAPriceDropShowsAndCanBeFilteredOn(): void
+    {
+        $dropped = $this->product('Baisse '.$this->tag);
+        $this->offer($dropped, 'matched_judged', comparable: true, deltaPct: '-10.000')
+            ->setPreviousPrice('112.500000')->setPreviousPriceDay(new \DateTime('2026-10-12'))->setPriceChangePct('-20.000')->save();
+        $risen = $this->product('Hausse '.$this->tag);
+        $this->offer($risen, 'matched_judged', comparable: true, deltaPct: '5.000')->setPreviousPrice('85.000000')->setPriceChangePct('5.882')->save();
+        $noise = $this->product('Centimes '.$this->tag);
+        $this->offer($noise, 'matched_judged', comparable: true, deltaPct: '1.000')->setPreviousPrice('90.40')->setPriceChangePct('-0.442')->save();
+
+        $filtered = $this->presenter()->present(new ComparatorFilters(search: $this->tag, droppedOnly: true), 'fr_FR');
+        $all = array_column($this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['products'], null, 'id');
+
+        self::assertSame([(int) $dropped->getId()], array_column($filtered['products'], 'id'), 'only where the price fell, from 1 %');
+        self::assertSame('down', $all[(int) $dropped->getId()]['lines'][0]['change']['direction']);
+        self::assertSame('12/10', $all[(int) $dropped->getId()]['lines'][0]['change']['since']);
+        self::assertSame('20,0 %', str_replace("\u{a0}", ' ', $all[(int) $dropped->getId()]['lines'][0]['change']['pct']), 'unsigned: "down" already says which way');
+        self::assertSame('up', $all[(int) $risen->getId()]['lines'][0]['change']['direction']);
+        self::assertNull($all[(int) $noise->getId()]['lines'][0]['change'], 'under 1 %: noise, not shown');
+        self::assertArrayHasKey('dropped', (new ComparatorFilters(droppedOnly: true))->withPage(2)->toQueryParams(), 'the filter survives paging');
+    }
+
     public function testOffersOfCompetitorsOffTheWhitelistAreNeverShown(): void
     {
         $product = $this->product('Casque Nexx X.WED3 Keyo');

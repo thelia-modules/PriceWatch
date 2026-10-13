@@ -13,6 +13,7 @@ use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
+use PriceWatch\Service\Comparator\PriceChange;
 use PriceWatch\Service\Jev\JevException;
 use PriceWatch\Service\Matching\MatchDecision;
 use PriceWatch\Service\Matching\MatchVerdict;
@@ -310,8 +311,9 @@ final readonly class DirectCollector
             ->setLastDeltaPct($delta === null || (float) $ourPrice === 0.0 ? null : number_format($delta / (float) $ourPrice * 100, 3, '.', ''))
             ->setLastComparable($comparable ? 1 : 0)
             ->setLastSeenAt($now)
-            ->setActive(1)
-            ->save();
+            ->setActive(1);
+        PriceChange::apply($offer);
+        $offer->save();
 
         // The same pair read through Google Shopping steps aside: one offer
         // per competitor and variant on the screen, the proven one.
