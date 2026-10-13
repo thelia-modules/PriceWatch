@@ -24,8 +24,12 @@ final readonly class LastWatch
         return \DateTimeImmutable::createFromInterface($now)->modify('-'.self::STALE_DAYS.' days');
     }
 
+    /**
+     * Calendar days, as a reader counts them: yesterday at 14:57 is one day
+     * ago the next morning, though less than 24 hours old.
+     */
     public static function daysAgo(\DateTimeInterface $lastWatched, \DateTimeInterface $now): int
     {
-        return (int) \DateTimeImmutable::createFromInterface($lastWatched)->diff(\DateTimeImmutable::createFromInterface($now))->days;
+        return (int) \DateTimeImmutable::createFromInterface($lastWatched)->setTime(0, 0)->diff(\DateTimeImmutable::createFromInterface($now)->setTime(0, 0))->days;
     }
 }
