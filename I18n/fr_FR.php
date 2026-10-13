@@ -357,6 +357,8 @@ return [
     'dashboard.stale' => '%count% produit(s) surveillé(s) relevé(s) il y a plus de %days% jours',
     'dashboard.never' => '%count% produit(s) surveillé(s) jamais relevé(s)',
     'dashboard.see' => 'Les voir',
+    'suggestion.last_watch' => 'dernier relevé le %at% (%ago%)',
+    'suggestion.never_watched' => 'surveillé, jamais relevé',
     'Variants watched' => 'Déclinaisons surveillées',
     'Last collect' => 'Dernier relevé',
     'Actions' => 'Actions',

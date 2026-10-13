@@ -55,15 +55,37 @@ final readonly class WatchedRepository
      */
     public function lastWatched(int $productId): ?\DateTimeImmutable
     {
-        $row = $this->fetch(
-            'SELECT '.self::lastWatchedSql().' AS last_watched_at
+        return $this->lastWatchedOf([$productId])[$productId] ?? null;
+    }
+
+    /**
+     * @param list<int> $productIds
+     *
+     * @return array<int, \DateTimeImmutable> product id => last watched, for those of the referential ever watched
+     */
+    public function lastWatchedOf(array $productIds): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+
+        $rows = $this->fetch(
+            'SELECT i.product_id, '.self::lastWatchedSql().' AS last_watched_at
             FROM pw_product_identity i
             LEFT JOIN ('.self::pagesReadSql().') pg ON pg.product_id = i.product_id
-            WHERE i.product_id = :product',
-            ['product' => $productId, 'read' => PageOutcome::Read->value],
-        )[0] ?? [];
+            WHERE i.product_id IN ('.implode(',', array_map('intval', $productIds)).')
+            GROUP BY i.product_id',
+            ['read' => PageOutcome::Read->value],
+        );
+        $lastWatched = [];
 
-        return ($row['last_watched_at'] ?? null) === null ? null : new \DateTimeImmutable((string) $row['last_watched_at']);
+        foreach ($rows as $row) {
+            if ($row['last_watched_at'] !== null) {
+                $lastWatched[(int) $row['product_id']] = new \DateTimeImmutable((string) $row['last_watched_at']);
+            }
+        }
+
+        return $lastWatched;
     }
 
     /**

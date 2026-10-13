@@ -210,6 +210,27 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         self::assertLessThan(array_search((int) $noEan->getId(), $order, true), array_search((int) $soldOnly->getId(), $order, true), 'what can be collected comes first');
     }
 
+    /**
+     * Asked 2026-10-13: a watched product says when it was last read, so a
+     * fresh reading is not paid for again.
+     */
+    public function testAWatchedProductSaysWhenItWasLastRead(): void
+    {
+        $this->isolateFromTheShop();
+        $recent = $this->product('Relevé hier '.$this->tag);
+        $this->offer($recent, '-20.000', collectedDaysAgo: 1);
+        $old = $this->product('Relevé il y a longtemps '.$this->tag);
+        $this->offer($old, '-20.000', collectedDaysAgo: 20);
+        $unwatched = $this->product('Pas surveillé '.$this->tag);
+        $this->sale($unwatched, 'paid', 3, '900.00');
+
+        $rows = array_column($this->presenter()->present('fr_FR'), null, 'id');
+
+        self::assertSame([1, false], [$rows[(int) $recent->getId()]['lastWatch']['daysAgo'] ?? null, $rows[(int) $recent->getId()]['lastWatch']['stale'] ?? null]);
+        self::assertSame([20, true], [$rows[(int) $old->getId()]['lastWatch']['daysAgo'] ?? null, $rows[(int) $old->getId()]['lastWatch']['stale'] ?? null], 'beyond 14 days: shown as old');
+        self::assertNull($rows[(int) $unwatched->getId()]['lastWatch'], 'not watched: nothing to say');
+    }
+
     public function testWhatWeCannotSellIsNeverSuggested(): void
     {
         $this->isolateFromTheShop();
@@ -476,7 +497,7 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
         $settings->setExcludedFamilies($excludedFamilies);
 
-        return new SuggestionPresenter(new SuggestionRepository(), new ComparatorRepository(), new CatalogThumbnails($dispatcher), new UrlGenerator($routes, new RequestContext()), new GtinNormalizer(), $settings);
+        return new SuggestionPresenter(new SuggestionRepository(), new ComparatorRepository(), new CatalogThumbnails($dispatcher), new UrlGenerator($routes, new RequestContext()), new GtinNormalizer(), $settings, new \PriceWatch\Service\Watched\WatchedRepository(new ComparatorRepository()));
     }
 
     /**

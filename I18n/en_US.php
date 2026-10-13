@@ -135,6 +135,8 @@ return [
     'dashboard.stale' => '%count% watched product(s) last read over %days% days ago',
     'dashboard.never' => '%count% watched product(s) never read',
     'dashboard.see' => 'See them',
+    'suggestion.last_watch' => 'last read on %at% (%ago%)',
+    'suggestion.never_watched' => 'watched, never read',
     'watched.status.collected' => 'Collected',
     'watched.status.never' => 'Never collected',
     'watched.status.not_collectable' => 'Not collectable',

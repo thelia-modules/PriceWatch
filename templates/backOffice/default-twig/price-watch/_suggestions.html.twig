@@ -74,6 +74,10 @@
                                         {{ row.ref }}
                                         {% if row.variants == 0 %} · <span class="text-warning-emphasis">{{ 'no variant with a valid EAN code of its own'|trans({}, 'pricewatch') }}</span>
                                         {% elseif not row.watched %} · <span class="text-primary-emphasis">{{ 'not watched yet, added when collected'|trans({}, 'pricewatch') }}</span>{% endif %}
+                                        {% if row.watched %} · <span class="{{ row.lastWatch and row.lastWatch.stale ? 'text-warning-emphasis' : '' }}" data-testid="pw-suggestion-last-watch">
+                                            {%- if row.lastWatch -%}{{ 'suggestion.last_watch'|trans({'%at%': row.lastWatch.at, '%ago%': 'watched.days_ago'|trans({'%count%': row.lastWatch.daysAgo}, 'pricewatch')}, 'pricewatch') }}
+                                            {%- else -%}{{ 'suggestion.never_watched'|trans({}, 'pricewatch') }}{%- endif -%}
+                                        </span>{% endif %}
                                     </span>
                                 </span>
                             </label>

@@ -9,6 +9,8 @@ use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Settings\PriceWatchSettings;
+use PriceWatch\Service\Watched\LastWatch;
+use PriceWatch\Service\Watched\WatchedRepository;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
@@ -40,6 +42,7 @@ final readonly class SuggestionPresenter
         private UrlGeneratorInterface $urlGenerator,
         private GtinNormalizer $gtin,
         private PriceWatchSettings $settings,
+        private WatchedRepository $watched,
     ) {
     }
 
@@ -72,6 +75,9 @@ final readonly class SuggestionPresenter
         $ranked = self::lines($ranked, $familyOf, $family === null ? $quota : [$family => self::SHOWN]);
         $eanCodes = $this->repository->eanCodes(array_values(array_filter($ranked, static fn (int $productId): bool => $products[$productId]['watched'] === 0)));
         $pictures = $this->comparator->cardImages($ranked);
+        // Already watched: when it was last read, so a recent reading is not
+        // paid for again by mistake.
+        $lastWatched = $this->watched->lastWatchedOf(array_values(array_filter($ranked, static fn (int $productId): bool => $products[$productId]['watched'] > 0)));
         $pictures += $this->thumbnails->urls(array_values(array_diff($ranked, array_keys($pictures))));
 
         $money = new \NumberFormatter($locale, \NumberFormatter::CURRENCY);
@@ -121,6 +127,11 @@ final readonly class SuggestionPresenter
                 'image' => $pictures[$productId] ?? null,
                 'editUrl' => $this->urlGenerator->generate('admin.products.update', ['product_id' => $productId]),
                 'watched' => $product['watched'] > 0,
+                'lastWatch' => isset($lastWatched[$productId]) ? [
+                    'at' => $lastWatched[$productId]->format('d/m/Y H:i'),
+                    'daysAgo' => LastWatch::daysAgo($lastWatched[$productId], $now),
+                    'stale' => LastWatch::isStale($lastWatched[$productId], $now),
+                ] : null,
                 'variants' => $variants,
                 'cost' => $usd->formatCurrency(ManualRun::worstCaseUsd($variants), 'USD'),
                 'reasons' => $reasons,
