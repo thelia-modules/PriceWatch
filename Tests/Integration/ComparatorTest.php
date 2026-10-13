@@ -324,6 +324,28 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame([(int) $helmet->getId(), (int) $jacket->getId()], $reversed, 'we are cheapest first: ranked by the dearest competitor');
     }
 
+    /**
+     * Asked 2026-10-13: the gaps tab's layout on every tab, one line per
+     * product with its competitors, the offers in the detail.
+     */
+    public function testEveryTabListsProductsWithTheirCompetitors(): void
+    {
+        $other = (new CompetitorRepository())->create('other-'.$this->tag.'.example', CompetitorStatus::Watched, 'manual');
+        $helmet = $this->product('Casque à revoir '.$this->tag);
+        $this->offer($helmet, 'needs_review', comparable: false, deltaPct: '-30.000', size: 'S');
+        $this->offer($helmet, 'needs_review', comparable: false, deltaPct: '-10.000', competitor: $other, size: 'M');
+        $jacket = $this->product('Blouson écarté '.$this->tag);
+        $this->offer($jacket, 'rejected', comparable: false, deltaPct: '-5.000');
+
+        $review = $this->presenter()->present(new ComparatorFilters(view: ComparatorView::Review, search: $this->tag), 'fr_FR');
+        $excluded = $this->presenter()->present(new ComparatorFilters(view: ComparatorView::Excluded, search: $this->tag), 'fr_FR');
+
+        self::assertSame([(int) $helmet->getId()], array_column($review['products'], 'id'), 'one line for the product');
+        self::assertCount(2, $review['products'][0]['competitors'], 'both competitors on it');
+        self::assertCount(2, $review['products'][0]['lines'], 'each offer in the detail, decided on its own');
+        self::assertSame([(int) $jacket->getId()], array_column($excluded['products'], 'id'));
+    }
+
     public function testADecisionOnALineReachesEveryOfferOfThatLineOnly(): void
     {
         $product = $this->product('Casque Arai '.$this->tag);

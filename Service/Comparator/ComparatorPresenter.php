@@ -28,18 +28,14 @@ final readonly class ComparatorPresenter
      */
     public function present(ComparatorFilters $filters, string $locale, bool $withRows = true): array
     {
-        // The gaps tab lists products, every competitor of a product on its
-        // line; the other tabs list offers, each decided on its own.
-        $byProduct = $filters->view === ComparatorView::Gaps;
-        $productIds = $withRows && $byProduct ? $this->repository->productPage($filters) : [];
+        // Every tab lists products, every competitor of a product on its line,
+        // the offers in the detail (asked 2026-10-13: the gaps tab's layout
+        // on every tab).
+        $productIds = $withRows ? $this->repository->productPage($filters) : [];
         // Another tab of the screen shows: the counts are needed, the rows not.
-        $offers = match (true) {
-            !$withRows => [],
-            $byProduct => $this->repository->offersOfProducts($filters, $productIds),
-            default => $this->repository->page($filters),
-        };
+        $offers = $withRows ? $this->repository->offersOfProducts($filters, $productIds) : [];
         $counts = $this->repository->counts($filters);
-        $total = $byProduct ? $this->repository->productCount($filters) : $counts[$filters->view->value];
+        $total = $this->repository->productCount($filters);
         $money = new \NumberFormatter($locale, \NumberFormatter::CURRENCY);
         $percent = new \NumberFormatter($locale, \NumberFormatter::PERCENT);
         $percent->setAttribute(\NumberFormatter::FRACTION_DIGITS, 1);
@@ -67,7 +63,7 @@ final readonly class ComparatorPresenter
             'filters' => $filters,
             'view' => $filters->view->value,
             'rows' => $rows,
-            'products' => $byProduct ? self::products($rows, $productIds) : [],
+            'products' => self::products($rows, $productIds),
             'counts' => $counts,
             'competitors' => $competitors,
             'summary' => [

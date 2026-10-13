@@ -67,8 +67,9 @@ final readonly class ComparatorRepository
     }
 
     /**
-     * The gaps tab lists products, each with all its competitors (asked
-     * 2026-10-12): paged by product, so a product never spans two pages.
+     * Every tab lists products, each with all its competitors (asked
+     * 2026-10-12 for the gaps, 2026-10-13 for the others): paged by
+     * product, so a product never spans two pages.
      * A product ranks by its most telling gap in the asked direction: the
      * cheapest competitor first, or the dearest when reversed.
      *
@@ -112,8 +113,8 @@ final readonly class ComparatorRepository
     /**
      * @param list<int> $productIds
      *
-     * @return list<PwCompetitorOffer> the gaps tab's offers on these products,
-     *                                 in the order of the gap sort
+     * @return list<PwCompetitorOffer> the tab's offers on these products, in
+     *                                 the order of the gap sort
      */
     public function offersOfProducts(ComparatorFilters $filters, array $productIds): array
     {
@@ -134,11 +135,11 @@ final readonly class ComparatorRepository
     }
 
     /**
-     * The gaps tab's offers, joined to their variant for the product id.
+     * The tab's offers, joined to their variant for the product id.
      */
     private function productQuery(ComparatorFilters $filters): ?PwCompetitorOfferQuery
     {
-        return $this->query($filters, ComparatorView::Gaps)
+        return $this->query($filters, $filters->view)
             ?->useProductSaleElementsQuery()
             ->endUse();
     }

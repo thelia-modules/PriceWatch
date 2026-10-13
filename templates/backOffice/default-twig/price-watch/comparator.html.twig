@@ -317,9 +317,9 @@
             {% endif %}
         </div>
     {% else %}
-        {% if view == 'gaps' %}
-        {# One line per product, every competitor on it; the competitors'
-           lines and their proof in the detail. #}
+        {# Every tab: one line per product, every competitor on it; the
+           competitors' lines and their proof in the detail (asked 2026-10-13). #}
+        {% set fifth = {gaps: 'Reliability', review: 'Why', pending: 'Reliability', excluded: 'Why'} %}
         {# A dot in each competitor chip tells our position at a glance: red
            where we are dearer, green where we are cheaper, grey at the same
            price, as in _gap.html.twig (asked 2026-10-13). #}
@@ -384,7 +384,7 @@
                                         <th scope="col">{{ 'Sizes'|trans({}, 'pricewatch') }}</th>
                                         <th scope="col" class="text-end">{{ 'Their price / ours'|trans({}, 'pricewatch') }}</th>
                                         <th scope="col" class="text-end">{{ 'Gap'|trans({}, 'pricewatch') }}</th>
-                                        <th scope="col" class="ps-4">{{ 'Reliability'|trans({}, 'pricewatch') }}</th>
+                                        <th scope="col" class="ps-4">{{ fifth[view]|trans({}, 'pricewatch') }}</th>
                                         <th scope="col" class="text-end"><span class="visually-hidden">{{ 'Details'|trans({}, 'pricewatch') }}</span></th>
                                     </tr>
                                 </thead>
@@ -398,8 +398,26 @@
                                             <div class="small text-muted">{{ 'ours %price%'|trans({'%price%': row.ours ?? '–'}, 'pricewatch') }}</div>
                                         </td>
                                         <td class="text-end" style="width: 9rem" data-testid="pw-gap-{{ row.id }}" data-position="{{ row.position }}">{{ _self.gap(row) }}</td>
-                                        <td class="ps-4">{{ _self.trust(row) }}</td>
+                                        <td class="ps-4">
+                                        {% if view in ['review', 'excluded'] %}
+                                            {# To review: the reason the code sent it there. Excluded: the
+                                               most telling cause, a price that does not compare, a human's
+                                               decision, the question Jev said no to, then the reason. #}
+                                            {% set refused = row.confidence.gauges|filter(gauge => gauge.band == 'no')|first %}
+                                            {% set why = view == 'review' and row.reason ? ('reason.' ~ row.reason)|trans({}, 'pricewatch')
+                                                : (row.exclusion ? ('exclusion.' ~ row.exclusion)|trans({}, 'pricewatch')
+                                                : (row.state == 'rejected' and row.method == 'human' ? 'Excluded by hand by %who%'|trans({'%who%': row.reviewedBy ?: '?'}, 'pricewatch')
+                                                : (refused ? ('refused.' ~ refused.question)|trans({}, 'pricewatch')
+                                                : (row.reason ? ('reason.' ~ row.reason)|trans({}, 'pricewatch') : ('state.' ~ row.state)|trans({}, 'pricewatch'))))) %}
+                                            <div class="small text-muted text-truncate mb-1" style="max-width: 14rem" title="{{ why }}" data-testid="pw-why-{{ row.id }}">{{ why }}</div>
+                                        {% endif %}
+                                            {{ _self.trust(row) }}
+                                        </td>
                                         <td class="text-end text-nowrap">
+                                            {% if view == 'review' %}
+                                                {% if row.actions.confirm %}{{ _self.icon_form(row, 'confirm', 'Confirm: same product, same size'|trans({}, 'pricewatch'), 'btn-success', csrfToken, returnQuery, 'bi-check-lg') }}{% endif %}
+                                                {% if row.actions.reject %}{{ _self.icon_form(row, 'reject', 'Exclude this offer'|trans({}, 'pricewatch'), 'btn-outline-danger', csrfToken, returnQuery, 'bi-x-lg') }}{% endif %}
+                                            {% endif %}
                                             <button type="button" class="btn btn-sm btn-outline-secondary border-0 pw-toggle" data-bs-toggle="collapse" data-bs-target="#pw-detail-{{ row.id }}" aria-expanded="false" aria-controls="pw-detail-{{ row.id }}" aria-label="{{ 'Details'|trans({}, 'pricewatch') }}" data-testid="pw-toggle-{{ row.id }}"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>
                                         </td>
                                     </tr>
@@ -415,74 +433,6 @@
                 </tbody>
             </table>
         </div>
-        {% else %}
-        {% set fifth = {review: 'Why', pending: 'Reliability', excluded: 'Why'} %}
-        <div class="table-responsive">
-            <table class="table align-middle mb-2 pw-offers" data-testid="pw-offers">
-                <thead>
-                    <tr>
-                        <th scope="col">{{ 'Product'|trans({}, 'pricewatch') }}</th>
-                        <th scope="col">{{ 'Competitor'|trans({}, 'pricewatch') }}</th>
-                        <th scope="col" class="text-end">{{ 'Their price / ours'|trans({}, 'pricewatch') }}</th>
-                        {{ _self.gap_header(sort) }}
-                        <th scope="col">{{ fifth[view]|trans({}, 'pricewatch') }}</th>
-                        <th scope="col" class="text-end"><span class="visually-hidden">{{ 'Details'|trans({}, 'pricewatch') }}</span></th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% for row in rows %}
-                    <tr class="pw-row" data-testid="pw-offer-{{ row.id }}">
-                        {# max-width 0 lets the title shrink to the column and truncate. #}
-                        <td style="width: 32%; max-width: 0; min-width: 15rem">
-                            <div class="d-flex align-items-center gap-2">
-                                {% if row.image %}
-                                    <img src="{{ row.image }}" alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" class="rounded border flex-shrink-0 bg-white" style="object-fit: contain" data-testid="pw-image-{{ row.id }}">
-                                {% else %}
-                                    <span class="d-inline-flex align-items-center justify-content-center rounded border flex-shrink-0 bg-body-tertiary text-secondary" style="width: 40px; height: 40px" aria-hidden="true" data-testid="pw-image-{{ row.id }}"><i class="bi bi-image"></i></span>
-                                {% endif %}
-                                <div style="min-width: 0">
-                                    {% if row.product.editUrl %}<a href="{{ row.product.editUrl }}" class="fw-semibold d-block text-truncate" title="{{ row.product.title }}">{{ row.product.title }}</a>{% else %}<span class="fw-semibold d-block text-truncate">{{ row.product.title }}</span>{% endif %}
-                                    <div class="small text-muted text-truncate">{{ row.product.ref }}{% if row.sizes|length > 1 %} · {{ 'Sizes'|trans({}, 'pricewatch') }} <strong class="text-body" data-testid="pw-sizes-{{ row.id }}">{{ row.sizes|join(', ') }}</strong>{% elseif row.product.size %} · {{ 'Size'|trans({}, 'pricewatch') }} <strong class="text-body">{{ row.product.size }}</strong>{% endif %}</div>
-                                </div>
-                            </div>
-                        </td>
-                        <td class="text-nowrap" data-testid="pw-links-{{ row.id }}">{{ _self.competitor(row) }}</td>
-                        <td class="text-end text-nowrap">
-                            <div class="fw-semibold text-body">{{ row.theirs ?? '–' }}</div>
-                            <div class="small text-muted">{{ 'ours %price%'|trans({'%price%': row.ours ?? '–'}, 'pricewatch') }}</div>
-                        </td>
-                        <td class="text-end" style="width: 9rem" data-testid="pw-gap-{{ row.id }}" data-position="{{ row.position }}">{{ _self.gap(row) }}</td>
-                        <td>
-                            {% if view in ['review', 'excluded'] %}
-                                {# To review: the reason the code sent it there. Excluded: the
-                                   most telling cause, a price that does not compare, a human's
-                                   decision, the question Jev said no to, then the reason. #}
-                                {% set refused = row.confidence.gauges|filter(gauge => gauge.band == 'no')|first %}
-                                {% set why = view == 'review' and row.reason ? ('reason.' ~ row.reason)|trans({}, 'pricewatch')
-                                    : (row.exclusion ? ('exclusion.' ~ row.exclusion)|trans({}, 'pricewatch')
-                                    : (row.state == 'rejected' and row.method == 'human' ? 'Excluded by hand by %who%'|trans({'%who%': row.reviewedBy ?: '?'}, 'pricewatch')
-                                    : (refused ? ('refused.' ~ refused.question)|trans({}, 'pricewatch')
-                                    : (row.reason ? ('reason.' ~ row.reason)|trans({}, 'pricewatch') : ('state.' ~ row.state)|trans({}, 'pricewatch'))))) %}
-                                <div class="small text-muted text-truncate mb-1" style="max-width: 14rem" title="{{ why }}" data-testid="pw-why-{{ row.id }}">{{ why }}</div>
-                            {% endif %}
-                            {{ _self.trust(row) }}
-                        </td>
-                        <td class="text-end text-nowrap">
-                            {% if view == 'review' %}
-                                {% if row.actions.confirm %}{{ _self.icon_form(row, 'confirm', 'Confirm: same product, same size'|trans({}, 'pricewatch'), 'btn-success', csrfToken, returnQuery, 'bi-check-lg') }}{% endif %}
-                                {% if row.actions.reject %}{{ _self.icon_form(row, 'reject', 'Exclude this offer'|trans({}, 'pricewatch'), 'btn-outline-danger', csrfToken, returnQuery, 'bi-x-lg') }}{% endif %}
-                            {% endif %}
-                            <button type="button" class="btn btn-sm btn-outline-secondary border-0 pw-toggle" data-bs-toggle="collapse" data-bs-target="#pw-detail-{{ row.id }}" aria-expanded="false" aria-controls="pw-detail-{{ row.id }}" aria-label="{{ 'Details'|trans({}, 'pricewatch') }}" data-testid="pw-toggle-{{ row.id }}"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>
-                        </td>
-                    </tr>
-                    <tr class="collapse pw-detail" id="pw-detail-{{ row.id }}" data-testid="pw-proof-{{ row.id }}">
-                        {{ _self.proof(row, view, csrfToken, returnQuery, 6) }}
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
         <script>
             (function () {
                 // A click anywhere on a line opens its detail, except on what
