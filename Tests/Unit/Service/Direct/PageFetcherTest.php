@@ -28,6 +28,7 @@ final class PageFetcherTest extends TestCase
         self::assertNull($page->failure);
         self::assertSame('<html>ok</html>', $page->html);
         self::assertStringContainsString('PriceWatch', implode(' ', $this->options[1]['headers'] ?? []), 'a robot says it is one');
+        self::assertSame(120.0, (float) ($this->options[1]['max_duration'] ?? 0), 'a dripping answer cannot hold the pass: seen 29 minutes on one page');
     }
 
     public function testAPathRobotsTxtForbidsIsNeverRequested(): void

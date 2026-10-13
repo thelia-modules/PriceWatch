@@ -23,6 +23,12 @@ final class PageFetcher
     private const USER_AGENT = 'Mozilla/5.0 (compatible; PriceWatch/1.0; competitor price monitoring)';
     private const TIMEOUT_SECONDS = 20;
 
+    /**
+     * The timeout above is between two chunks: a server dripping its answer
+     * held one Dafy page 29 minutes (2026-10-13). Room for a sitemap file.
+     */
+    private const MAX_DURATION_SECONDS = 120;
+
     /** @var array<string, RobotsRules> */
     private array $robots = [];
 
@@ -147,6 +153,7 @@ final class PageFetcher
         $response = $this->http->request('GET', $url, [
             'headers' => ['User-Agent' => self::USER_AGENT, 'Accept' => 'text/html,application/xhtml+xml', 'Accept-Language' => 'fr-FR,fr;q=0.9'],
             'timeout' => self::TIMEOUT_SECONDS,
+            'max_duration' => self::MAX_DURATION_SECONDS,
             'max_redirects' => 5,
         ]);
         // The status is what waits for the answer: the clock starts after it.
