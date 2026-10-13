@@ -14,6 +14,7 @@ use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Matching\MatchDecision;
 use PriceWatch\Service\Matching\MatchVerdict;
+use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Run\PriceWatchLog;
 use PriceWatch\Service\Source\OurPrice;
 use Psr\Log\LoggerInterface;
@@ -78,9 +79,12 @@ final readonly class DirectCollector
         $this->log->info('Direct pass #{run} started: {pages} page(s) to read.', ['run' => $run->getId(), 'pages' => \count($pages)]);
 
         try {
-            foreach ($pages as $page) {
+            foreach ($pages as $index => $page) {
+                PassStep::DirectPages->record($run, $index, \count($pages));
                 $report[] = $this->readPage($page, $fetcher, (int) $run->getId(), $counts);
             }
+
+            PassStep::DirectPages->record($run, \count($pages), \count($pages));
         } catch (\Throwable $error) {
             $this->close($run, 'failed', $counts, [\sprintf('Stopped by an error: %s (%s)', $error->getMessage(), $error::class)]);
 

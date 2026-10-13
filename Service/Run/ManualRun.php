@@ -9,7 +9,7 @@ use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Process\PhpExecutableFinder;
 
 /**
- * A collect pass followed by a judge pass, started from the back office.
+ * A collect pass, a direct pass, then a judge pass, started from the back office.
  *
  * Manual passes use DataForSEO's priority queue: whoever clicked is waiting
  * for an answer within minutes, not within the 45 minutes of the standard
@@ -27,7 +27,7 @@ final readonly class ManualRun
     public const LOG_FILE = 'var/log/pricewatch-manual.log';
 
     /** Same lock names as the commands: a click cannot start a second pass. */
-    private const LOCKS = ['pricewatch.collect', 'pricewatch.judge'];
+    private const LOCKS = ['pricewatch.collect', 'pricewatch.direct', 'pricewatch.judge'];
 
     /**
      * The page shown after the click is rendered before the background
@@ -106,12 +106,17 @@ final readonly class ManualRun
             '--no-ansi',
         ];
 
+        // The pages Google led to are read straight after the collect pass,
+        // free, before the judge pass.
+        $direct = [$php, $console, 'pricewatch:direct', '--no-ansi'];
+
         foreach ($productRefs as $productRef) {
             $collect[] = '--product='.$productRef;
+            $direct[] = '--product='.$productRef;
         }
 
         $this->runner->start(
-            [$collect, [$php, $console, 'pricewatch:judge', '--no-ansi']],
+            [$collect, $direct, [$php, $console, 'pricewatch:judge', '--no-ansi']],
             $this->projectDir.'/'.self::LOG_FILE,
         );
         touch($this->startMarker);

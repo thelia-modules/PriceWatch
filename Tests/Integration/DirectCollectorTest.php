@@ -90,6 +90,7 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame('in_stock', $quote->getAvailability());
         self::assertSame(5, $result['run']->getQuotesWritten());
         self::assertSame(1, $result['run']->getPagesFetched());
+        self::assertSame(['direct_pages', 1, 1], [$result['run']->getProgressStep(), $result['run']->getProgressDone(), $result['run']->getProgressTotal()], 'the progress bar sees the pages read');
     }
 
     public function testAPageWithoutGtinIsOnlyReadOnceAHumanConfirmedIt(): void

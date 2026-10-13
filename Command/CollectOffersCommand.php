@@ -6,6 +6,7 @@ namespace PriceWatch\Command;
 
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\ShoppingCollector;
+use PriceWatch\Service\Direct\PageRepository;
 use PriceWatch\Service\Run\AbandonedRuns;
 use PriceWatch\Service\Run\ManualRun;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -31,6 +32,7 @@ final class CollectOffersCommand extends Command
         private readonly ShoppingCollector $collector,
         private readonly LockFactory $lockFactory,
         private readonly AbandonedRuns $abandonedRuns,
+        private readonly PageRepository $pages,
     ) {
         parent::__construct();
     }
@@ -103,6 +105,10 @@ final class CollectOffersCommand extends Command
             $lock->release();
         }
 
+        // The merchant pages Google led to, kept for pricewatch:direct: read
+        // straight and free from then on.
+        $seeded = $this->pages->seedFromShoppingOffers();
+
         $run = $result['run'];
         $io->table(['', ''], [
             ['Variants searched', $run->getTargetsPlanned()],
@@ -112,6 +118,7 @@ final class CollectOffersCommand extends Command
             ['DataForSEO tasks', $run->getDataforseoTasks()],
             ['DataForSEO cost (USD)', $run->getDataforseoCostUsd()],
             ['Worst case announced (USD)', number_format($worstCase, 3)],
+            ['Competitor pages added for direct reading', $seeded],
         ]);
 
         if ($result['noPlausibleCard'] !== []) {
@@ -138,7 +145,7 @@ final class CollectOffersCommand extends Command
             $io->warning($errors);
         }
 
-        $io->note('Next: pricewatch:judge checks that each recorded offer is the same product and variant.');
+        $io->note('Next: pricewatch:direct reads the competitor pages, then pricewatch:judge checks each recorded offer.');
 
         return self::SUCCESS;
     }

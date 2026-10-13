@@ -60,9 +60,10 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
     public function testThePercentCountsTheStepsAlreadyDone(): void
     {
         self::assertSame(0, PassStep::TitleSearch->percent(0, 4));
-        self::assertSame(12, PassStep::TitleSearch->percent(2, 4), 'half of the first of four steps');
-        self::assertSame(31, PassStep::Sellers->percent(1, 4));
-        self::assertSame(50, PassStep::Recording->percent(0, 0), 'nothing to count yet: the step has just begun');
+        self::assertSame(10, PassStep::TitleSearch->percent(2, 4), 'half of the first of five steps');
+        self::assertSame(25, PassStep::Sellers->percent(1, 4));
+        self::assertSame(40, PassStep::Recording->percent(0, 0), 'nothing to count yet: the step has just begun');
+        self::assertSame(70, PassStep::DirectPages->percent(1, 2));
         self::assertSame(100, PassStep::Judging->percent(3, 3));
         self::assertSame(100, PassStep::Judging->percent(9, 3), 'never past the end');
     }
@@ -77,9 +78,9 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
         self::assertTrue($progress['running']);
         self::assertSame('sellers', $progress['step']);
-        self::assertSame([2, 4], [$progress['position'], $progress['steps']]);
+        self::assertSame([2, 5], [$progress['position'], $progress['steps']]);
         self::assertSame([1, 3], [$progress['done'], $progress['total']]);
-        self::assertSame(33, $progress['percent']);
+        self::assertSame(26, $progress['percent']);
         self::assertSame($run->getStartedAt()?->getTimestamp(), $progress['startedAt']);
     }
 
@@ -95,6 +96,21 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
         self::assertSame([42], array_column($items['items'], 'id'));
         self::assertSame(3, $items['items'][0]['offers']);
+    }
+
+    public function testTheDirectPassShowsAsItsOwnStepWithTheCollectedProducts(): void
+    {
+        $collect = $this->passRow(ShoppingCollector::PASS, PassStep::Recording, 2, 2);
+        $collect->setStatus('success')->setProgressItems((string) json_encode([['id' => 42, 'title' => 'Casque Shark', 'sizes' => ['M'], 'status' => 'done', 'offers' => 3]]))->save();
+        $this->passRow(\PriceWatch\Service\Direct\DirectCollector::PASS, null, 0, 0);
+        $held = $this->locks->createLock('pricewatch.direct');
+        $held->acquire();
+
+        $progress = $this->progress()->present();
+
+        self::assertTrue($progress['running'], 'between the collect and the judge passes, still running');
+        self::assertSame(['direct_pages', 4], [$progress['step'], $progress['position']]);
+        self::assertSame([42], array_column($progress['items']['items'], 'id'));
     }
 
     public function testNoOlderListWhileThePassHasNoRowYet(): void
@@ -122,7 +138,7 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
         $progress = RunProgress::of($run);
 
-        self::assertSame(['judging', 4, 75], [$progress['step'], $progress['position'], $progress['percent']]);
+        self::assertSame(['judging', 5, 80], [$progress['step'], $progress['position'], $progress['percent']]);
     }
 
     public function testACollectPassStillChoosingItsVariantsStartsAtZero(): void

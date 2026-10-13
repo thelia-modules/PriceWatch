@@ -145,6 +145,8 @@ return [
     'progress.step.title_search' => 'Google Shopping search by title',
     'progress.step.sellers' => 'reading the sellers',
     'progress.step.recording' => 'recording the offers',
+    'progress.step.direct_pages' => 'reading the competitor pages',
+    'progress.count.direct_pages' => '%done% / %total% pages read',
     'progress.step.judging' => 'checks',
     'progress.count.title_search' => '%done% / %total% searches answered',
     'progress.count.sellers' => '%done% / %total% seller lists answered',

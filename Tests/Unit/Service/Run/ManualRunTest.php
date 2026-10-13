@@ -42,18 +42,20 @@ final class ManualRunTest extends TestCase
         self::assertNull($this->manualRun()->startedAt(), 'long enough ago, only the lock tells');
     }
 
-    public function testAProductPassCollectsItsVariantsThenJudges(): void
+    public function testAProductPassCollectsItsVariantsReadsItsPagesThenJudges(): void
     {
         $this->manualRun()->start(4, ['1520190076NN']);
 
         self::assertCount(1, $this->started);
-        [$collect, $judge] = $this->started[0]['commands'];
+        [$collect, $direct, $judge] = $this->started[0]['commands'];
         self::assertSame('/var/www/html/Thelia', $collect[1]);
         self::assertSame('pricewatch:collect', $collect[2]);
         self::assertContains('--limit=4', $collect);
         self::assertContains('--priority', $collect, 'whoever clicked waits for an answer in minutes');
         self::assertContains('--product=1520190076NN', $collect);
         self::assertContains('--budget-usd=0.016', $collect, 'the cap is the worst case announced on the button');
+        self::assertSame('pricewatch:direct', $direct[2], 'the pages Google led to, read straight before the checks');
+        self::assertContains('--product=1520190076NN', $direct);
         self::assertSame('pricewatch:judge', $judge[2], 'judged right after, so the comparator fills up');
         self::assertSame('/var/www/html/var/log/pricewatch-manual.log', $this->started[0]['log']);
     }
@@ -103,6 +105,10 @@ final class ManualRunTest extends TestCase
         $judgeLock->acquire();
         self::assertTrue($this->manualRun()->isRunning(), 'a judge pass counts too');
         $judgeLock->release();
+        $directLock = $this->locks->createLock('pricewatch.direct');
+        $directLock->acquire();
+        self::assertTrue($this->manualRun()->isRunning(), 'between the two, the direct pass counts too');
+        $directLock->release();
 
         self::assertFalse($this->manualRun()->isRunning());
     }

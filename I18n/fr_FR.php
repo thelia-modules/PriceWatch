@@ -380,6 +380,8 @@ return [
     'progress.step.title_search' => 'recherche Google Shopping par titre',
     'progress.step.sellers' => 'lecture des vendeurs',
     'progress.step.recording' => 'enregistrement des offres',
+    'progress.step.direct_pages' => 'lecture des pages concurrentes',
+    'progress.count.direct_pages' => '%done% / %total% pages lues',
     'progress.step.judging' => 'contrôles',
     'progress.count.title_search' => '%done% / %total% recherches revenues',
     'progress.count.sellers' => '%done% / %total% listes de vendeurs revenues',
