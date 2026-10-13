@@ -27,6 +27,7 @@ use PriceWatch\Service\Source\CardRelevance;
 use PriceWatch\Service\Source\DataForSeoClient;
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\OurPrice;
+use PriceWatch\Service\Source\PageCoverage;
 use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Service\Source\ShownSize;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
@@ -540,6 +541,62 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($other->getProductSaleElementsId())->count(), 'the second product is reached despite the limit');
     }
 
+    /**
+     * Asked 2026-10-13: direct first, Google only where no page is known.
+     */
+    public function testAProductEverySellerOfWhichHasAConfirmedPageIsLeftToTheDirectPass(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-3 days'))->save();
+        $this->confirmedPage($identity, $this->watched);
+        $this->shoppingOffer($identity, $this->watched, 'matched_judged');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, $result['run']->getDataforseoTasks(), 'nothing to ask Google');
+        self::assertSame(0, $result['run']->getTargetsPlanned());
+    }
+
+    public function testACoveredProductIsSearchedAgainAfterThirtyDays(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-31 days'))->save();
+        $this->confirmedPage($identity, $this->watched);
+        $this->shoppingOffer($identity, $this->watched, 'matched_judged');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getTargetsPlanned(), 'for the sellers that appeared since');
+    }
+
+    public function testASellerWithoutAPageKeepsTheGoogleSearch(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-3 days'))->save();
+        $this->confirmedPage($identity, $this->watched);
+        $other = 'other-'.bin2hex(random_bytes(4)).'.example';
+        (new CompetitorRepository())->create($other, CompetitorStatus::Watched, 'manual');
+        $this->shoppingOffer($identity, $other, 'candidate');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getTargetsPlanned(), 'its price only comes through Google');
+    }
+
+    public function testASellerWhoseOfferWasAnotherArticleNeedsNoPage(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-3 days'))->save();
+        $this->confirmedPage($identity, $this->watched);
+        $other = 'other-'.bin2hex(random_bytes(4)).'.example';
+        (new CompetitorRepository())->create($other, CompetitorStatus::Watched, 'manual');
+        $this->shoppingOffer($identity, $other, 'rejected');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, $result['run']->getTargetsPlanned());
+    }
+
     public function testWithoutWhitelistNothingIsPaidFor(): void
     {
         \PriceWatch\Model\PwCompetitorQuery::create()->filterByDomain($this->watched)->update(['Status' => CompetitorStatus::Proposed->value]);
@@ -592,6 +649,28 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $identity->save();
 
         return $identity;
+    }
+
+    private function confirmedPage(PwProductIdentity $identity, string $domain): void
+    {
+        $competitor = \PriceWatch\Model\PwCompetitorQuery::create()->findOneByDomain($domain);
+        self::assertNotNull($competitor);
+        $pages = new \PriceWatch\Service\Direct\PageRepository();
+        $page = $pages->add((int) $competitor->getId(), (int) $identity->getProductId(), 'https://www.'.$domain.'/casque-'.bin2hex(random_bytes(3)).'.html', 'manual');
+        $pages->setStatus($page, \PriceWatch\Service\Direct\PageRepository::CONFIRMED, 'manual');
+    }
+
+    private function shoppingOffer(PwProductIdentity $identity, string $domain, string $state): void
+    {
+        $competitor = \PriceWatch\Model\PwCompetitorQuery::create()->findOneByDomain($domain);
+        self::assertNotNull($competitor);
+        (new \PriceWatch\Model\PwCompetitorOffer())
+            ->setCompetitorId($competitor->getId())
+            ->setProductSaleElementsId($identity->getProductSaleElementsId())
+            ->setOfferKey('shopping:'.$identity->getProductSaleElementsId())
+            ->setMatchState($state)
+            ->setActive(1)
+            ->save();
     }
 
     /**
@@ -752,6 +831,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
             new OurPrice(new TaxCalculatorFactory()),
             new CardRelevance($text),
             new ShownSize(new SizeNormalizer($text)),
+            new PageCoverage(),
             $sleep ?? static function (int $seconds): void {},
             null,
             $now,

@@ -80,6 +80,7 @@ final readonly class ShoppingCollector
         private OurPrice $ourPrice,
         private CardRelevance $relevance,
         private ShownSize $shownSize,
+        private PageCoverage $coverage,
         ?\Closure $sleep = null,
         ?PriceWatchLog $log = null,
         ?\Closure $now = null,
@@ -526,6 +527,9 @@ final readonly class ShoppingCollector
      * Only variants with a valid GTIN of their own, as when Google was
      * searched by GTIN: the back office calls the others "not collectable".
      *
+     * A product whose sellers all have a confirmed page is left to the direct
+     * pass (PageCoverage).
+     *
      * A product whose sizes we all sell at one price costs one search: its
      * other sizes ride on the card the searched one leads to, and the limit,
      * which counts searches, moves on to other products.
@@ -558,9 +562,20 @@ final readonly class ShoppingCollector
         $identities = [];
         $searchedByProduct = [];
         $onePrice = [];
+        $rows = $query->find()->getData();
+        // Read straight from every seller Google showed: no search needed.
+        $covered = $this->coverage->covered(array_values(array_unique(array_map(static fn (PwProductIdentity $identity): int => (int) $identity->getProductId(), $rows))), new \DateTimeImmutable());
 
-        foreach ($query->find() as $identity) {
+        if ($covered !== []) {
+            $this->log->info('Collect: {count} product(s) left to the direct pass: every seller Google showed has a confirmed page, searched again after {days} days.', ['count' => \count($covered), 'days' => PageCoverage::REDISCOVER_DAYS]);
+        }
+
+        foreach ($rows as $identity) {
             $productId = (int) $identity->getProductId();
+
+            if (isset($covered[$productId])) {
+                continue;
+            }
 
             if (isset($searchedByProduct[$productId])) {
                 if ($onePerProduct) {

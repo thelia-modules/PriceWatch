@@ -149,6 +149,11 @@ A back-office pass runs `pricewatch:collect`, then `pricewatch:direct`, then
 `pricewatch:judge`; each collect pass first turns the merchant pages Google
 led to into candidate pages.
 
+A product every seller of which (as Google showed them, rejected offers aside)
+has a confirmed page is no longer searched on Google: the direct pass reads it,
+free. Google is asked again 30 days after its last search, for new sellers
+(`PageCoverage`).
+
 A page listing GTINs that are not ours is rejected. Anything uncertain (no
 price in euros, structured data that disagree, data naming another page after
 a redirect) records nothing. Extractors: JSON-LD, and the `__NUXT_DATA__`

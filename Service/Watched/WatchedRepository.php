@@ -165,8 +165,9 @@ final readonly class WatchedRepository
 
     /**
      * Per product, over pw_product_identity i joined to pagesReadSql() as pg.
+     * Shared with the suggestions, so both screens agree on "old reading".
      */
-    private static function lastWatchedSql(): string
+    public static function lastWatchedSql(): string
     {
         return "NULLIF(GREATEST(COALESCE(MAX(i.last_collected_at), '".self::NEVER."'), COALESCE(MAX(pg.last_read), '".self::NEVER."')), '".self::NEVER."')";
     }
@@ -175,7 +176,7 @@ final readonly class WatchedRepository
      * When each product last had a competitor page read with a price: a page
      * that failed or showed nothing of ours watched nothing. Binds :read.
      */
-    private static function pagesReadSql(): string
+    public static function pagesReadSql(): string
     {
         return 'SELECT product_id, MAX(last_fetched_at) AS last_read FROM pw_competitor_page WHERE last_outcome = :read GROUP BY product_id';
     }

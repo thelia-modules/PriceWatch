@@ -138,6 +138,30 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         self::assertArrayNotHasKey((int) $unknown->getId(), $stale, 'no competitor ever found: the rotation is enough');
     }
 
+    /**
+     * A product left to the direct pass is searched on Google once a month,
+     * but read every pass: not an old reading.
+     */
+    public function testAProductReadOnACompetitorPageIsNoOldReading(): void
+    {
+        $readDirectly = $this->product('Lu en direct '.$this->tag);
+        $this->offer($readDirectly, '3.000', collectedDaysAgo: 20);
+        $url = 'https://'.$this->watched->getDomain().'/'.bin2hex(random_bytes(4));
+        (new \PriceWatch\Model\PwCompetitorPage())
+            ->setCompetitorId($this->watched->getId())
+            ->setProductId($readDirectly->getId())
+            ->setUrl($url)
+            ->setUrlKey(sha1($url))
+            ->setStatus('confirmed')
+            ->setLastFetchedAt(new \DateTime('-1 day'))
+            ->setLastOutcome('read')
+            ->save();
+
+        $stale = (new SuggestionRepository())->stale(new \DateTimeImmutable('-14 days'), 1000);
+
+        self::assertArrayNotHasKey((int) $readDirectly->getId(), $stale);
+    }
+
     public function testTheHighestScoreComesFirst(): void
     {
         $this->isolateFromTheShop();

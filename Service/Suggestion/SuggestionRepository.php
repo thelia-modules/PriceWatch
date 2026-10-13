@@ -7,6 +7,8 @@ namespace PriceWatch\Service\Suggestion;
 use PriceWatch\Service\Comparator\ComparatorView;
 use PriceWatch\Service\Comparator\PricePosition;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Direct\PageOutcome;
+use PriceWatch\Service\Watched\WatchedRepository;
 use Propel\Runtime\Propel;
 
 /**
@@ -83,25 +85,27 @@ final readonly class SuggestionRepository
     }
 
     /**
-     * Products a whitelisted competitor was found selling, last collected
-     * before $before: what they showed may no longer hold.
+     * Products a whitelisted competitor was found selling, last watched
+     * before $before (Google search or competitor page read, LastWatch):
+     * what they showed may no longer hold.
      *
      * @return array<int, \DateTimeImmutable> product id => last collected, oldest first
      */
     public function stale(\DateTimeInterface $before, int $limit): array
     {
         $rows = $this->rows(
-            'SELECT i.product_id, MAX(i.last_collected_at) AS last_collected'
+            'SELECT i.product_id, '.WatchedRepository::lastWatchedSql().' AS last_collected'
             .' FROM pw_product_identity i'
+            .' LEFT JOIN ('.WatchedRepository::pagesReadSql().') pg ON pg.product_id = i.product_id'
             .' JOIN (SELECT DISTINCT pse.product_id FROM pw_competitor_offer o'
             .' JOIN product_sale_elements pse ON pse.id = o.product_sale_elements_id'
             .' JOIN pw_competitor c ON c.id = o.competitor_id AND c.status = :watched'
             .' WHERE o.active = 1 AND o.match_state IN ('.self::quoted(ComparatorView::MATCHED_STATES).')) found'
             .' ON found.product_id = i.product_id'
             .' WHERE i.monitored = 1 AND i.gtin_valid = 1 AND i.gtin_shared = 0'
-            .' GROUP BY i.product_id HAVING MAX(i.last_collected_at) < :before'
+            .' GROUP BY i.product_id HAVING last_collected < :before'
             .' ORDER BY last_collected ASC, i.product_id LIMIT '.max(1, $limit),
-            ['watched' => CompetitorStatus::Watched->value, 'before' => $before->format('Y-m-d H:i:s')],
+            ['watched' => CompetitorStatus::Watched->value, 'before' => $before->format('Y-m-d H:i:s'), 'read' => PageOutcome::Read->value],
         );
 
         $stale = [];
