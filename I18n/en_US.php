@@ -19,7 +19,7 @@ return [
     'view.review' => 'To review',
     'view.pending' => 'Waiting for judgment',
     'view.excluded' => 'Excluded',
-    'view.gaps.help' => 'Offers recognised as the same product in the same size, at a comparable price. From the cheapest competitor to the dearest.',
+    'view.gaps.help' => 'Offers recognised as the same product in the same size, at a comparable price. One line per product with the gap of every competitor, the detail by size on click. From the cheapest competitor to the dearest.',
     'view.review.help' => 'The automatic check could not decide. Confirm if it is the same product in the same size, otherwise exclude the offer.',
     'view.pending.help' => 'Offers collected but not judged yet: they will be at the next pricewatch:judge pass.',
     'view.excluded.help' => 'Another product, another size, or a price that does not compare (promotion, bundle, second-hand…). A decision can always be revisited.',

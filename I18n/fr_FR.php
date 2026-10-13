@@ -134,7 +134,7 @@ return [
     'view.review' => 'À vérifier',
     'view.pending' => 'En attente de jugement',
     'view.excluded' => 'Écartées',
-    'view.gaps.help' => 'Offres reconnues comme le même produit dans la même taille, à un prix comparable. Du concurrent le moins cher au plus cher.',
+    'view.gaps.help' => 'Offres reconnues comme le même produit dans la même taille, à un prix comparable. Une ligne par produit avec l’écart de chaque concurrent, le détail par taille au clic. Du concurrent le moins cher au plus cher.',
     'view.review.help' => 'Le contrôle automatique n\'a pas pu trancher. Confirmez s\'il s\'agit du même produit dans la même taille, sinon écartez l\'offre.',
     'view.pending.help' => 'Offres relevées mais pas encore jugées : elles le seront au prochain passage de pricewatch:judge.',
     'view.excluded.help' => 'Autre produit, autre taille, ou prix qui ne se compare pas (promotion, lot, occasion…). Une décision peut toujours être revue.',

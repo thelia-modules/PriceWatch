@@ -152,8 +152,10 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     }
 
     /**
-     * Plan stage E8: the gaps tab must be read through idx_pw_offer_screen,
-     * filter and order alike, without a sort pass, at a realistic volume.
+     * Plan stage E8: the offer list sorted by gap must be read through
+     * idx_pw_offer_screen, filter and order alike, without a sort pass, at a
+     * realistic volume. Since 2026-10-12 the gaps tab pages by product
+     * (productPage): its filter still reads this index, its groups are sorted.
      */
     public function testTheGapsTabIsServedByTheScreenIndexWithoutSorting(): void
     {
@@ -257,6 +259,39 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertEqualsCanonicalizing(['M', 'S', 'L'], $grouped['sizes']);
         self::assertEqualsCanonicalizing([(int) $medium->getId(), (int) $small->getId(), (int) $large->getId()], $grouped['groupIds']);
         self::assertContains([(int) $dearer->getId()], array_column($rows, 'groupIds'));
+    }
+
+    /**
+     * Asked 2026-10-12: on the gaps tab, a product is one line carrying every
+     * competitor, paged and sorted by product.
+     */
+    public function testTheGapsTabHasOneLinePerProductWithEveryCompetitor(): void
+    {
+        $other = (new CompetitorRepository())->create('other-'.$this->tag.'.example', CompetitorStatus::Watched, 'manual');
+        $helmet = $this->product('Casque Arai SZ-R '.$this->tag);
+        $small = $this->offer($helmet, 'matched_exact', comparable: true, deltaPct: '10.900', size: 'S', price: '110.90');
+        $atOther = $this->offer($helmet, 'matched_exact', comparable: true, deltaPct: '-4.000', competitor: $other, price: '96.00');
+        $otherSize = $this->offer($helmet, 'matched_exact', comparable: true, deltaPct: '-4.000', competitor: $other, size: 'L', price: '96.00');
+        $jacket = $this->product('Blouson Segura '.$this->tag);
+        $jacketOffer = $this->offer($jacket, 'matched_judged', comparable: true, deltaPct: '-20.000');
+
+        $filters = new ComparatorFilters(search: $this->tag);
+        $screen = $this->presenter()->present($filters, 'fr_FR');
+        $products = $screen['products'];
+
+        self::assertSame([(int) $jacket->getId(), (int) $helmet->getId()], array_column($products, 'id'), 'competitor cheapest first, by product');
+        self::assertSame(2, $this->repository->productCount($filters));
+        self::assertSame(1, $screen['pagination']['pages']);
+        $line = $products[1];
+        self::assertSame(['other-'.$this->tag.'.example', 'cmp-'.$this->tag.'.example'], array_column($line['competitors'], 'name'), 'every competitor on the line, the cheapest first');
+        self::assertSame((int) $atOther->getId(), $line['headline']['id'], 'the line shows its most telling gap');
+        self::assertEqualsCanonicalizing([(int) $atOther->getId(), (int) $otherSize->getId()], $line['competitors'][0]['headline']['groupIds'], 'sizes at one price stay one line in the detail');
+        self::assertSame([(int) $small->getId()], $line['competitors'][1]['headline']['groupIds']);
+        self::assertCount(2, $line['lines']);
+        self::assertSame([(int) $jacketOffer->getId()], $products[0]['lines'][0]['groupIds']);
+
+        $reversed = $this->repository->productPage(new ComparatorFilters(search: $this->tag, sort: ComparatorFilters::SORT_GAP_DESC));
+        self::assertSame([(int) $helmet->getId(), (int) $jacket->getId()], $reversed, 'we are cheapest first: ranked by the dearest competitor');
     }
 
     public function testADecisionOnALineReachesEveryOfferOfThatLineOnly(): void

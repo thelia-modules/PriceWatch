@@ -16,6 +16,7 @@ use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use Propel\Runtime\ActiveQuery\Criteria;
 use Propel\Runtime\Propel;
+use Thelia\Model\Map\ProductSaleElementsTableMap;
 use Thelia\Model\ProductI18nQuery;
 use Thelia\Model\ProductQuery;
 use Thelia\Model\ProductSaleElementsQuery;
@@ -63,6 +64,83 @@ final readonly class ComparatorRepository
         };
 
         return $query->offset($filters->offset())->limit(ComparatorFilters::PAGE_SIZE);
+    }
+
+    /**
+     * The gaps tab lists products, each with all its competitors (asked
+     * 2026-10-12): paged by product, so a product never spans two pages.
+     * A product ranks by its most telling gap in the asked direction: the
+     * cheapest competitor first, or the dearest when reversed.
+     *
+     * @return list<int> product ids of the page, in order
+     */
+    public function productPage(ComparatorFilters $filters): array
+    {
+        $query = $this->productQuery($filters);
+
+        if ($query === null) {
+            return [];
+        }
+
+        $direction = $filters->gapDirection() ?? 'ASC';
+        $headline = ($direction === 'ASC' ? 'MIN(' : 'MAX(').PwCompetitorOfferTableMap::COL_LAST_DELTA_PCT.')';
+
+        // Both computed columns come back, the sort one included.
+        return array_map('intval', array_column($query
+            ->withColumn(ProductSaleElementsTableMap::COL_PRODUCT_ID, 'productId')
+            ->withColumn($headline, 'headlineGap')
+            ->groupBy('productId')
+            ->orderBy('headlineGap', $direction)
+            ->orderBy('productId', $direction)
+            ->select(['productId'])
+            ->offset($filters->offset())
+            ->limit(ComparatorFilters::PAGE_SIZE)
+            ->find()
+            ->getData(), 'productId'));
+    }
+
+    public function productCount(ComparatorFilters $filters): int
+    {
+        $count = $this->productQuery($filters)
+            ?->withColumn('COUNT(DISTINCT '.ProductSaleElementsTableMap::COL_PRODUCT_ID.')', 'products')
+            ->select(['products'])
+            ->findOne();
+
+        return (int) $count;
+    }
+
+    /**
+     * @param list<int> $productIds
+     *
+     * @return list<PwCompetitorOffer> the gaps tab's offers on these products,
+     *                                 in the order of the gap sort
+     */
+    public function offersOfProducts(ComparatorFilters $filters, array $productIds): array
+    {
+        $query = $this->productQuery($filters);
+
+        if ($query === null || $productIds === []) {
+            return [];
+        }
+
+        $direction = $filters->gapDirection() ?? 'ASC';
+
+        return $query
+            ->where(ProductSaleElementsTableMap::COL_PRODUCT_ID.' IN ?', $productIds)
+            ->orderByLastDeltaPct($direction)
+            ->orderById($direction)
+            ->find()
+            ->getData();
+    }
+
+    /**
+     * The gaps tab's offers, joined to their variant for the product id.
+     */
+    private function productQuery(ComparatorFilters $filters): ?PwCompetitorOfferQuery
+    {
+        return $this->query($filters, ComparatorView::Gaps)
+            ?->useProductSaleElementsQuery()
+            ->endUse();
     }
 
     /**
