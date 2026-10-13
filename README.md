@@ -145,14 +145,22 @@ Sizes read on such a page are Jev matches (`match_method = jev_page`), never
 proofs: from a 25 % gap they go to a human like any Jev match. Jev's answers
 stay on the page (`judgment_json`) and show on its offers.
 
-A back-office pass runs `pricewatch:collect`, then `pricewatch:direct`, then
-`pricewatch:judge`; each collect pass first turns the merchant pages Google
-led to into candidate pages.
+Pages are found free first. `pricewatch:direct --discover` reads the
+sitemaps each watched competitor announces in its robots.txt (French and
+product files only when the names say so, kept a week in
+`var/pricewatch/sitemaps/`), and keeps as candidates at most three addresses
+per product and competitor that name our brand, our model and our product
+family, never a spare part (`SitemapMatcher`). A product with a page there
+already is not looked up.
 
-A product every seller of which (as Google showed them, rejected offers aside)
-has a confirmed page is no longer searched on Google: the direct pass reads it,
-free. Google is asked again 30 days after its last search, for new sellers
-(`PageCoverage`).
+A back-office pass runs `pricewatch:direct --discover`, `pricewatch:collect`,
+`pricewatch:direct --candidates` (the pages Google led to, which each collect
+pass turns into candidates), then `pricewatch:judge`.
+
+Google Shopping (DataForSEO) is the last resort: a product with a confirmed
+page at a watched competitor is not searched there, except every 90 days,
+counted from its last search or from its first page found, for the sellers
+outside our list (`PageCoverage`).
 
 A page listing GTINs that are not ours is rejected. Anything uncertain (no
 price in euros, structured data that disagree, data naming another page after
@@ -166,7 +174,7 @@ ddev exec php Thelia pricewatch:page seed        # candidates from the merchant 
 ddev exec php Thelia pricewatch:page add --competitor=motoblouz.com --product=REF --url=https://... [--confirm]
 ddev exec php Thelia pricewatch:page list
 ddev exec php Thelia pricewatch:page confirm --id=71
-ddev exec php Thelia pricewatch:direct [--product=REF] [--competitor=domain]
+ddev exec php Thelia pricewatch:direct [--discover] [--candidates] [--product=REF] [--competitor=domain]
 ```
 
 A variant read directly steps the Google Shopping offer of the same pair aside,

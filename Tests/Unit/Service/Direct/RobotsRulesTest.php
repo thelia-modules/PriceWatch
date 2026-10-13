@@ -34,4 +34,19 @@ final class RobotsRulesTest extends TestCase
     {
         self::assertSame($allowed, RobotsRules::parse($robots, 'PriceWatch')->allows($path));
     }
+
+    /**
+     * Motoblouz's robots.txt (2026-10-13, excerpt): Sitemap lines sit
+     * outside any group and apply to every robot.
+     */
+    public function testTheSitemapsAnnouncedAreReadWhateverTheGroup(): void
+    {
+        $robots = "User-agent: *\nDisallow: /panier\nSitemap: https://www.motoblouz.com/enjoytheride/sitemap_index.xml\n\nUser-agent: BadBot\nDisallow: /\nsitemap:https://media.motoblouz.com/sitemap/fr_FR/motoblouz/sitemap-index.xml\n";
+
+        self::assertSame(
+            ['https://www.motoblouz.com/enjoytheride/sitemap_index.xml', 'https://media.motoblouz.com/sitemap/fr_FR/motoblouz/sitemap-index.xml'],
+            RobotsRules::sitemaps($robots),
+        );
+        self::assertSame([], RobotsRules::sitemaps(''));
+    }
 }

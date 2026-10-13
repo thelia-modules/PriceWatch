@@ -64,6 +64,19 @@ final readonly class RobotsRules
         return new self($groups[strtolower($agent)] ?? $groups['*'] ?? []);
     }
 
+    /**
+     * The sitemaps a robots.txt announces: a Sitemap line belongs to no
+     * group, it applies whoever reads it.
+     *
+     * @return list<string>
+     */
+    public static function sitemaps(string $robots): array
+    {
+        preg_match_all('/^\s*sitemap\s*:\s*(\S+)/im', $robots, $matches);
+
+        return array_values(array_unique($matches[1]));
+    }
+
     public static function allowEverything(): self
     {
         return new self([]);

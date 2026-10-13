@@ -26,6 +26,9 @@ final class PageFetcher
     /** @var array<string, RobotsRules> */
     private array $robots = [];
 
+    /** @var array<string, list<string>> origin => the sitemaps its robots.txt announces */
+    private array $sitemaps = [];
+
     /** @var array<string, int> */
     private array $lastRequest = [];
 
@@ -81,6 +84,30 @@ final class PageFetcher
     }
 
     /**
+     * @return list<string> the sitemaps the site's robots.txt announces
+     */
+    public function sitemapsOf(string $origin): array
+    {
+        $this->rules($origin);
+
+        return $this->sitemaps[$origin] ?? [];
+    }
+
+    /**
+     * Sitemaps can be gzipped files: inflated here, whatever the headers said.
+     */
+    public function fetchText(string $url): ?string
+    {
+        $fetched = $this->fetch($url);
+
+        if ($fetched->html === null) {
+            return null;
+        }
+
+        return str_starts_with($fetched->html, "\x1f\x8b") ? (gzdecode($fetched->html) ?: null) : $fetched->html;
+    }
+
+    /**
      * RFC 9309: no robots.txt (4xx) allows everything; one that cannot be
      * read (5xx, network) forbids everything.
      */
@@ -93,8 +120,10 @@ final class PageFetcher
         try {
             $response = $this->request($origin, $origin.'/robots.txt');
             $status = $response->getStatusCode();
+            $content = $status === 200 ? $response->getContent() : '';
+            $this->sitemaps[$origin] = RobotsRules::sitemaps($content);
             $rules = match (true) {
-                $status === 200 => RobotsRules::parse($response->getContent(), self::AGENT),
+                $status === 200 => RobotsRules::parse($content, self::AGENT),
                 $status >= 400 && $status < 500 => RobotsRules::allowEverything(),
                 default => RobotsRules::parse("User-agent: *\nDisallow: /", self::AGENT),
             };

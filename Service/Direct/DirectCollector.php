@@ -63,6 +63,7 @@ final readonly class DirectCollector
         private OurPrice $ourPrice,
         private MatchDecision $decision,
         private PageConfirmation $confirmation,
+        private SitemapDiscovery $discovery,
         ?PriceWatchLog $log = null,
         ?\Closure $sleep = null,
         ?\Closure $now = null,
@@ -74,17 +75,26 @@ final readonly class DirectCollector
 
     /**
      * @param list<string> $productRefs
+     * @param bool         $discover       search the sitemaps for the pages still unknown first
+     * @param bool         $candidatesOnly read only the pages still to prove
      *
-     * @return array{run: PwCollectRun, pages: list<array{id: int, url: string, status: string, outcome: string, detail: ?string, recorded: int}>}
+     * @return array{run: PwCollectRun, pages: list<array{id: int, url: string, status: string, outcome: string, detail: ?string, recorded: int}>, discovered: array{competitors: int, searched: int, added: int}}
      */
-    public function collect(array $productRefs = [], ?string $competitorDomain = null): array
+    public function collect(array $productRefs = [], ?string $competitorDomain = null, bool $discover = false, bool $candidatesOnly = false): array
     {
         $run = (new PwCollectRun())->setPassName(self::PASS)->setStatus('started')->setStartedAt(new \DateTime());
         $run->save();
         $fetcher = new PageFetcher($this->http, $this->sleep, $this->now);
         $report = [];
         $counts = ['fetched' => 0, 'httpErrors' => 0, 'seen' => 0, 'matched' => 0, 'written' => 0, 'jevRequests' => 0, 'jevCacheHits' => 0, 'jevFailed' => 0, 'jevInputTokens' => 0, 'jevCostUsd' => 0.0];
-        $pages = $this->pages->toRead($productRefs, $competitorDomain);
+        $discovered = ['competitors' => 0, 'searched' => 0, 'added' => 0];
+
+        if ($discover) {
+            $discovered = $this->discovery->discover($productRefs, $competitorDomain, $fetcher);
+            $this->log->info('Direct: {added} candidate page(s) found in the sitemaps of {competitors} competitor(s).', $discovered);
+        }
+
+        $pages = $this->pages->toRead($productRefs, $competitorDomain, $candidatesOnly);
         $this->log->info('Direct pass #{run} started: {pages} page(s) to read.', ['run' => $run->getId(), 'pages' => \count($pages)]);
 
         try {
@@ -109,7 +119,7 @@ final readonly class DirectCollector
             'errors' => $counts['httpErrors'],
         ]);
 
-        return ['run' => $run, 'pages' => $report];
+        return ['run' => $run, 'pages' => $report, 'discovered' => $discovered];
     }
 
     /**

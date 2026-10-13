@@ -20,12 +20,16 @@ use PriceWatch\Service\Direct\JsonLdExtractor;
 use PriceWatch\Service\Direct\NuxtStateExtractor;
 use PriceWatch\Service\Direct\PageConfirmation;
 use PriceWatch\Service\Direct\PageReader;
+use PriceWatch\Service\Direct\SitemapDiscovery;
+use PriceWatch\Service\Direct\SitemapIndex;
+use PriceWatch\Service\Direct\SitemapMatcher;
 use PriceWatch\Service\Direct\PageRepository;
 use PriceWatch\Service\Jev\CachedJev;
 use PriceWatch\Service\Jev\JevClient;
 use PriceWatch\Service\Jev\OfferQuestions;
 use PriceWatch\Service\Jev\OfferState;
 use PriceWatch\Service\Matching\MatchDecision;
+use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Normalizer\SizeNormalizer;
 use PriceWatch\Service\Normalizer\TextNormalizer;
@@ -64,6 +68,10 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
     /** @var list<string> */
     private array $requested = [];
 
+    /** @var array<string, string> path => body, the sitemaps a test publishes */
+    private array $sitemaps = [];
+    private string $sitemapDirectory;
+
     /** @var list<MockResponse> what Jev answers, in order; nothing left is a failure */
     private array $jevAnswers = [];
     private int $jevCalls = 0;
@@ -76,6 +84,16 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         PwCompetitorQuery::create()->filterByStatus(CompetitorStatus::Watched->value)->update(['Status' => CompetitorStatus::Proposed->value]);
         $this->competitor = (new CompetitorRepository())->create('direct-'.bin2hex(random_bytes(4)).'.example', CompetitorStatus::Watched, 'manual');
         $this->pages = new PageRepository();
+        $this->sitemapDirectory = sys_get_temp_dir().'/pw-sitemap-test-'.bin2hex(random_bytes(4));
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (glob($this->sitemapDirectory.'/var/pricewatch/sitemaps/*') ?: [] as $file) {
+            unlink($file);
+        }
+
+        parent::tearDown();
     }
 
     public function testAPageWithOurGtinsIsConfirmedAndEverySizeRecordedAsAnExactMatch(): void
@@ -198,6 +216,57 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
 
         $offer = $this->offer($identities['L']);
         self::assertSame(['needs_review', 'PRICE_GAP_SUSPECT', 0], [$offer?->getMatchState(), $offer?->getMatchReason(), $offer?->getLastComparable()]);
+    }
+
+    /**
+     * Asked 2026-10-13: the competitors' sitemaps first, DataForSEO as a last
+     * resort.
+     */
+    public function testTheSitemapLeadsToOurPageWhichOurGtinThenProves(): void
+    {
+        $dafy = $this->dafyPublishingItsSitemap();
+        $identities = $this->helmet(self::SIZES);
+
+        $result = $this->collector()->collect([], null, discover: true);
+
+        $page = \PriceWatch\Model\PwCompetitorPageQuery::create()->filterByCompetitorId($dafy->getId())->filterByProductId($this->productId($identities))->find();
+        self::assertSame([self::DAFY_URL], $page->getColumnValues('Url'), 'the product page only: not the spare visor, not the advice article');
+        self::assertSame([SitemapDiscovery::BY, PageRepository::CONFIRMED, 'ean'], [$page[0]->getDiscoveredBy(), $page[0]->getStatus(), $page[0]->getConfirmedBy()]);
+        self::assertSame(1, $result['discovered']['added']);
+        self::assertSame(5, $result['run']->getQuotesWritten(), 'found, proven and read in the same pass, without Google');
+    }
+
+    public function testAProductWithAPageAlreadyIsNotLookedUpAgain(): void
+    {
+        $dafy = $this->dafyPublishingItsSitemap();
+        $identities = $this->helmet(self::SIZES);
+        $this->pages->add((int) $dafy->getId(), $this->productId($identities), self::DAFY_URL, 'shopping');
+
+        $this->collector()->collect([], null, discover: true);
+
+        self::assertNotContains('https://www.dafy-moto.com/sitemap-index.xml', $this->requested, 'nothing to find: the sitemap is not even downloaded');
+    }
+
+    public function testASitemapIsDownloadedOnceAWeek(): void
+    {
+        $this->dafyPublishingItsSitemap();
+        $this->helmet(['M' => null]);
+
+        $this->collector()->collect([], null, discover: true);
+        $this->collector()->collect([], null, discover: true);
+
+        self::assertCount(1, array_keys($this->requested, 'https://www.dafy-moto.com/sitemap-produits.xml', true));
+    }
+
+    public function testTheCandidatesOnlyPassLeavesTheConfirmedPagesUnread(): void
+    {
+        $identities = $this->helmet(self::SIZES);
+        $page = $this->pages->add((int) $this->competitor->getId(), $this->productId($identities), self::DAFY_URL, 'shopping');
+        $this->pages->setStatus($page, PageRepository::CONFIRMED, 'ean');
+
+        $result = $this->collector()->collect([], null, candidatesOnly: true);
+
+        self::assertSame(0, $result['run']->getPagesFetched(), 'read by the pass before the collect one');
     }
 
     public function testAPageListingOtherGtinsIsRejected(): void
@@ -332,6 +401,7 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
                 ->setGtinValid($gtin === null ? 0 : 1)
                 ->setGtinShared(0)
                 ->setSizeLabel($size)
+                ->setBrandLabel('Arai')
                 ->setMonitored(1);
             $identity->save();
             $identities[$size] = $identity;
@@ -351,6 +421,31 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         $price->copy()->setProductSaleElementsId($saleElement->getId())->save();
 
         return $saleElement;
+    }
+
+    /**
+     * The real Dafy competitor, watched for the test only (rolled back after),
+     * with a sitemap that holds our helmet's page among others.
+     */
+    private function dafyPublishingItsSitemap(): PwCompetitor
+    {
+        $dafy = PwCompetitorQuery::create()->findOneByDomain('dafy-moto.com') ?? (new CompetitorRepository())->create('dafy-moto.com', CompetitorStatus::Watched, 'manual');
+        $dafy->setStatus(CompetitorStatus::Watched->value)->save();
+        // The only watched competitor: the robots.txt below answers for every host.
+        $this->competitor->setStatus(CompetitorStatus::Proposed->value)->save();
+        $this->robots = "User-agent: *\nDisallow: /recherche\nSitemap: https://www.dafy-moto.com/sitemap-index.xml\n";
+        $this->sitemaps = [
+            '/sitemap-index.xml' => '<?xml version="1.0"?><sitemapindex><sitemap><loc>https://www.dafy-moto.com/sitemap-cms.xml</loc></sitemap><sitemap><loc>https://www.dafy-moto.com/sitemap-produits.xml</loc></sitemap></sitemapindex>',
+            '/sitemap-produits.xml' => '<?xml version="1.0"?><urlset>'
+                .'<url><loc>https://www.dafy-moto.com/ecran-casque-sz-r-vas-evo-arai.html</loc></url>'
+                .'<url><loc>'.self::DAFY_URL.'</loc></url>'
+                .'<url><loc>https://www.dafy-moto.com/casque-j-cruise-shoei-noir-mat.html</loc></url>'
+                .'<url><loc>https://www.motoblouz.com/vente-casque-jet-arai-sz-r-vas-evo-solid-271011.html</loc></url>'
+                .'</urlset>',
+            '/sitemap-cms.xml' => '<?xml version="1.0"?><urlset><url><loc>https://www.dafy-moto.com/conseils-casque-sz-r-vas-evo-frost-arai.html</loc></url></urlset>',
+        ];
+
+        return $dafy;
     }
 
     /**
@@ -383,6 +478,10 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
                 return new MockResponse($this->robots);
             }
 
+            if (isset($this->sitemaps[$path])) {
+                return new MockResponse($this->sitemaps[$path]);
+            }
+
             return isset($pages[$path])
                 ? new MockResponse((string) file_get_contents(self::FIXTURES.$pages[$path]))
                 : new MockResponse('', ['http_code' => 404]);
@@ -406,6 +505,7 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
             new OurPrice(new TaxCalculatorFactory()),
             new MatchDecision(),
             new PageConfirmation(new CachedJev(new JevClient($jevHttp, $settings, static function (int $seconds): void {}), $offerState), $offerState, new OfferQuestions()),
+            new SitemapDiscovery(new SitemapIndex($this->sitemapDirectory, new DomainNormalizer()), new SitemapMatcher(new TextNormalizer()), $this->pages),
             null,
             static function (int $seconds): void {},
         );

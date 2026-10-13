@@ -527,8 +527,8 @@ final readonly class ShoppingCollector
      * Only variants with a valid GTIN of their own, as when Google was
      * searched by GTIN: the back office calls the others "not collectable".
      *
-     * A product whose sellers all have a confirmed page is left to the direct
-     * pass (PageCoverage).
+     * A product with a confirmed competitor page is left to the direct pass
+     * (PageCoverage).
      *
      * A product whose sizes we all sell at one price costs one search: its
      * other sizes ride on the card the searched one leads to, and the limit,
@@ -563,11 +563,11 @@ final readonly class ShoppingCollector
         $searchedByProduct = [];
         $onePrice = [];
         $rows = $query->find()->getData();
-        // Read straight from every seller Google showed: no search needed.
+        // A confirmed competitor page covers them: no search needed.
         $covered = $this->coverage->covered(array_values(array_unique(array_map(static fn (PwProductIdentity $identity): int => (int) $identity->getProductId(), $rows))), new \DateTimeImmutable());
 
         if ($covered !== []) {
-            $this->log->info('Collect: {count} product(s) left to the direct pass: every seller Google showed has a confirmed page, searched again after {days} days.', ['count' => \count($covered), 'days' => PageCoverage::REDISCOVER_DAYS]);
+            $this->log->info('Collect: {count} product(s) left to the direct pass: a confirmed competitor page covers them, Google asked again after {days} days.', ['count' => \count($covered), 'days' => PageCoverage::REDISCOVER_DAYS]);
         }
 
         foreach ($rows as $identity) {

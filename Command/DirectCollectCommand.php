@@ -34,7 +34,9 @@ final class DirectCollectCommand extends Command
     {
         $this
             ->addOption('product', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only the pages of these product refs (repeatable)')
-            ->addOption('competitor', null, InputOption::VALUE_REQUIRED, 'Only the pages of this competitor domain');
+            ->addOption('competitor', null, InputOption::VALUE_REQUIRED, 'Only the pages of this competitor domain')
+            ->addOption('discover', null, InputOption::VALUE_NONE, 'First search the competitors\' sitemaps for the pages still unknown (free)')
+            ->addOption('candidates', null, InputOption::VALUE_NONE, 'Read only the pages still to prove');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -56,6 +58,8 @@ final class DirectCollectCommand extends Command
             $result = $this->collector->collect(
                 array_values(array_filter((array) $input->getOption('product'), 'is_string')),
                 \is_string($input->getOption('competitor')) ? $input->getOption('competitor') : null,
+                (bool) $input->getOption('discover'),
+                (bool) $input->getOption('candidates'),
             );
         } finally {
             $lock->release();
@@ -63,6 +67,7 @@ final class DirectCollectCommand extends Command
 
         $run = $result['run'];
         $io->table(['', ''], [
+            ['Candidate pages found in the sitemaps', $result['discovered']['added']],
             ['Pages fetched', $run->getPagesFetched()],
             ['HTTP errors', $run->getHttpErrors()],
             ['Variants read on the pages', $run->getOffersSeen()],

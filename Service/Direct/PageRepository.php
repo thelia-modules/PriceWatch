@@ -52,10 +52,11 @@ final readonly class PageRepository
      * proof that would confirm them. Only whitelisted competitors.
      *
      * @param list<string> $productRefs
+     * @param bool         $candidatesOnly the pages still to prove, after the collect pass seeded some
      *
      * @return list<PwCompetitorPage>
      */
-    public function toRead(array $productRefs = [], ?string $competitorDomain = null): array
+    public function toRead(array $productRefs = [], ?string $competitorDomain = null, bool $candidatesOnly = false): array
     {
         $watched = PwCompetitorQuery::create()->filterByStatus(CompetitorStatus::Watched->value);
 
@@ -71,7 +72,7 @@ final readonly class PageRepository
 
         $query = PwCompetitorPageQuery::create()
             ->filterByCompetitorId($competitorIds, Criteria::IN)
-            ->filterByStatus([self::CANDIDATE, self::CONFIRMED], Criteria::IN)
+            ->filterByStatus($candidatesOnly ? [self::CANDIDATE] : [self::CANDIDATE, self::CONFIRMED], Criteria::IN)
             ->orderByLastFetchedAt(Criteria::ASC)
             ->orderById();
 
