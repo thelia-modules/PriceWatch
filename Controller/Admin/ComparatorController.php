@@ -54,7 +54,10 @@ final readonly class ComparatorController
         // ComparatorView, whose tabs hold every offer exactly once.
         $suggesting = ($request->query->all()['view'] ?? null) === SuggestionPresenter::VIEW;
         $screen = $this->presenter->present(ComparatorFilters::fromRequest($request), $request->getLocale(), !$suggesting);
-        $suggestions = $suggesting ? $this->suggestions->present($request->getLocale()) : null;
+        // Read from all(): getInt() throws on a value that is not a number.
+        $family = $request->query->all()['family'] ?? null;
+        $suggestionScreen = $suggesting ? $this->suggestions->screen($request->getLocale(), null, \is_string($family) && ctype_digit($family) ? (int) $family : null) : null;
+        $suggestions = $suggestionScreen['rows'] ?? null;
 
         if ($suggesting) {
             $screen['view'] = SuggestionPresenter::VIEW;
@@ -64,7 +67,9 @@ final readonly class ComparatorController
         return new Response($this->twig->render('@PriceWatchModule/backOffice/default-twig/price-watch/comparator.html.twig', [
             ...$screen,
             'suggestions' => $suggestions,
-            'suggestionCount' => $suggestions === null ? $this->suggestions->count() : \count($suggestions),
+            'suggestionCount' => $suggestionScreen === null ? $this->suggestions->count() : array_sum(array_column($suggestionScreen['families'], 'lines')),
+            'suggestionFamilies' => $suggestionScreen['families'] ?? [],
+            'suggestionFamily' => $suggestionScreen['family'] ?? null,
             'suggestionMax' => SuggestionPresenter::MAX_SELECTED,
             'suggestionDays' => ['sales' => SuggestionPresenter::SALES_DAYS, 'stale' => SuggestionPresenter::STALE_DAYS],
             'costPerVariant' => ManualRun::worstCaseUsd(1),
@@ -97,12 +102,17 @@ final readonly class ComparatorController
         }
 
         $reviewer = $this->guard->adminLogin();
+        // A line of the screen can stand for several sizes: the decision
+        // reaches those the repository confirms are on the same line.
+        $also = array_map('intval', array_filter((array) $request->request->all('also'), 'is_numeric'));
 
-        match ($action) {
-            'confirm' => $this->review->confirm($offer, $reviewer),
-            'reject' => $this->review->reject($offer, $reviewer),
-            'reopen' => $this->review->reopen($offer, $reviewer),
-        };
+        foreach ([$offer, ...$this->repository->sameLine($offer, array_values($also))] as $decided) {
+            match ($action) {
+                'confirm' => $this->review->confirm($decided, $reviewer),
+                'reject' => $this->review->reject($decided, $reviewer),
+                'reopen' => $this->review->reopen($decided, $reviewer),
+            };
+        }
 
         return $this->back($request, 'success', match ($action) {
             'confirm' => 'Offer confirmed: same product, same size. It will not be judged again.',

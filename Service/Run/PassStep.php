@@ -7,16 +7,18 @@ namespace PriceWatch\Service\Run;
 use PriceWatch\Model\PwCollectRun;
 
 /**
- * The steps of a pass started from the back office: a collect pass, then a
- * judge pass. Each step reports how far it is on the pass's own row, which
- * the back office reads to draw a progress bar.
+ * The steps of a pass started from the back office: a collect pass, a direct
+ * pass, then a judge pass. Each step reports how far it is on the pass's own
+ * row, which the back office reads to draw a progress bar.
  */
 enum PassStep: string
 {
-    case GtinSearch = 'gtin_search';
     case TitleSearch = 'title_search';
     case Sellers = 'sellers';
     case Recording = 'recording';
+
+    /** The competitor pages read straight, between the collect and the judge passes. */
+    case DirectPages = 'direct_pages';
     case Judging = 'judging';
 
     /** 1-based position among all the steps of a collect-then-judge run. */

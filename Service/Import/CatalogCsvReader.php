@@ -17,6 +17,9 @@ final readonly class CatalogCsvReader
     public const DELIMITER = ';';
     public const ENCLOSURE = '"';
 
+    /** RFC 4180: a quote is escaped by doubling it, never by a backslash (PHP 8.4 asks for it explicitly). */
+    public const ESCAPE = '';
+
     private const REQUIRED_HEADER = 'product_ref';
 
     /**
@@ -63,7 +66,7 @@ final readonly class CatalogCsvReader
         try {
             $lineNumber = 1;
 
-            while (($cells = fgetcsv($handle, 0, self::DELIMITER, self::ENCLOSURE)) !== false) {
+            while (($cells = fgetcsv($handle, 0, self::DELIMITER, self::ENCLOSURE, self::ESCAPE)) !== false) {
                 ++$lineNumber;
 
                 if ($cells === [null]) {
@@ -86,7 +89,7 @@ final readonly class CatalogCsvReader
      */
     private function readHeader($handle, string $path): array
     {
-        $cells = fgetcsv($handle, 0, self::DELIMITER, self::ENCLOSURE);
+        $cells = fgetcsv($handle, 0, self::DELIMITER, self::ENCLOSURE, self::ESCAPE);
 
         if ($cells === false || $cells === [null]) {
             throw new MalformedReferenceFileException(sprintf('Reference file "%s" has no header line.', $path));

@@ -6,7 +6,9 @@ namespace PriceWatch\Command;
 
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\ShoppingCollector;
+use PriceWatch\Service\Direct\PageRepository;
 use PriceWatch\Service\Run\AbandonedRuns;
+use PriceWatch\Service\Run\ManualRun;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -30,6 +32,7 @@ final class CollectOffersCommand extends Command
         private readonly ShoppingCollector $collector,
         private readonly LockFactory $lockFactory,
         private readonly AbandonedRuns $abandonedRuns,
+        private readonly PageRepository $pages,
     ) {
         parent::__construct();
     }
@@ -64,9 +67,7 @@ final class CollectOffersCommand extends Command
         $priority = $input->getOption('priority') ? 2 : 1;
         $sandbox = (bool) $input->getOption('sandbox');
 
-        // Three tasks per variant at most: a GTIN search, a title search
-        // when the GTIN leads nowhere, one sellers lookup.
-        $worstCase = $sandbox ? 0.0 : $limit * 3 * self::COST_PER_TASK[$priority];
+        $worstCase = $sandbox ? 0.0 : $limit * ManualRun::TASKS_PER_VARIANT * self::COST_PER_TASK[$priority];
 
         if (self::exceedsBudget($worstCase, (string) $input->getOption('budget-usd'))) {
             $io->error(\sprintf('Worst case %.3f USD exceeds the budget. Lower --limit or raise --budget-usd.', $worstCase));
@@ -104,6 +105,10 @@ final class CollectOffersCommand extends Command
             $lock->release();
         }
 
+        // The merchant pages Google led to, kept for pricewatch:direct: read
+        // straight and free from then on.
+        $seeded = $this->pages->seedFromShoppingOffers();
+
         $run = $result['run'];
         $io->table(['', ''], [
             ['Variants searched', $run->getTargetsPlanned()],
@@ -113,6 +118,7 @@ final class CollectOffersCommand extends Command
             ['DataForSEO tasks', $run->getDataforseoTasks()],
             ['DataForSEO cost (USD)', $run->getDataforseoCostUsd()],
             ['Worst case announced (USD)', number_format($worstCase, 3)],
+            ['Competitor pages added for direct reading', $seeded],
         ]);
 
         if ($result['noPlausibleCard'] !== []) {
@@ -139,7 +145,7 @@ final class CollectOffersCommand extends Command
             $io->warning($errors);
         }
 
-        $io->note('Next: pricewatch:judge checks that each recorded offer is the same product and variant.');
+        $io->note('Next: pricewatch:direct reads the competitor pages, then pricewatch:judge checks each recorded offer.');
 
         return self::SUCCESS;
     }

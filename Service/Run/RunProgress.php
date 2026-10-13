@@ -6,6 +6,7 @@ namespace PriceWatch\Service\Run;
 
 use PriceWatch\Model\PwCollectRun;
 use PriceWatch\Model\PwCollectRunQuery;
+use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Matching\OfferJudge;
 use PriceWatch\Service\Source\ShoppingCollector;
 use Propel\Runtime\ActiveQuery\Criteria;
@@ -45,13 +46,13 @@ final readonly class RunProgress
         }
 
         $run = PwCollectRunQuery::create()
-            ->filterByPassName([ShoppingCollector::PASS, OfferJudge::PASS], Criteria::IN)
+            ->filterByPassName([ShoppingCollector::PASS, DirectCollector::PASS, OfferJudge::PASS], Criteria::IN)
             ->filterByStatus('started')
             ->filterByDryRun(0)
             ->orderById(Criteria::DESC)
             ->findOne();
 
-        // The judge pass follows a collect pass: its products stay listed. No
+        // The direct and judge passes follow a collect pass: its products stay listed. No
         // row yet: nothing to list, never the products of an older pass.
         $collect = $run === null || $run->getPassName() === ShoppingCollector::PASS ? $run : PwCollectRunQuery::create()
             ->filterByPassName(ShoppingCollector::PASS)
@@ -76,8 +77,12 @@ final readonly class RunProgress
     public static function of(?PwCollectRun $run): array
     {
         $step = PassStep::tryFrom((string) $run?->getProgressStep())
-            // A judge pass that has not counted its offers yet is still judging.
-            ?? ($run?->getPassName() === OfferJudge::PASS ? PassStep::Judging : null);
+            // A pass that has not counted yet is already at its own step.
+            ?? match ($run?->getPassName()) {
+                OfferJudge::PASS => PassStep::Judging,
+                DirectCollector::PASS => PassStep::DirectPages,
+                default => null,
+            };
         $done = (int) $run?->getProgressDone();
         $total = (int) $run?->getProgressTotal();
 

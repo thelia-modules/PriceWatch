@@ -14,7 +14,6 @@ use PriceWatch\Model\PwCollectRun;
 final class PassItems
 {
     public const QUEUED = 'queued';
-    public const GTIN = 'gtin';
     public const TITLE = 'title';
     public const SELLERS = 'sellers';
     public const DONE = 'done';
@@ -22,7 +21,7 @@ final class PassItems
     public const ERROR = 'error';
 
     /** Still being worked on: listed first. */
-    private const ACTIVE = [self::GTIN, self::TITLE, self::SELLERS];
+    private const ACTIVE = [self::TITLE, self::SELLERS];
 
     /** @var array<int, array{id: int, title: string, sizes: list<string>, status: string, offers: int}> product id => item */
     private array $items = [];

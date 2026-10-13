@@ -18,7 +18,7 @@ final class PassItemsTest extends TestCase
             self::item(4, PassItems::DONE, 2),
             self::item(5, PassItems::TITLE),
             self::item(6, PassItems::ERROR),
-            self::item(7, PassItems::GTIN),
+            self::item(7, PassItems::SELLERS),
         ]);
 
         $shown = PassItems::forDisplay($json, 10);

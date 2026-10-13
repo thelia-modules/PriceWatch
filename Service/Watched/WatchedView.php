@@ -12,8 +12,11 @@ enum WatchedView: string
 {
     case All = 'all';
 
-    /** Watched, never searched yet. */
+    /** Watched, never searched nor read on a competitor page yet. */
     case Never = 'never';
+
+    /** Watched, last watched over LastWatch::STALE_DAYS days ago. */
+    case Stale = 'stale';
 
     /** Watched, but no variant has a valid GTIN of its own: never collected. */
     case NotCollectable = 'not_collectable';

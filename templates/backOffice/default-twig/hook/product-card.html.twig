@@ -51,6 +51,19 @@
                 {{ '%count% watched variant(s) have no valid GTIN of their own: Google Shopping is searched by GTIN, so they are not collected. Fill in their EAN code in the catalogue, then add the product again.'|trans({'%count%': watch.notCollectable}, 'pricewatch') }}
             </div>
         {% endif %}
+        {% if watch.monitored > 0 and lastWatch and lastWatch.stale %}
+            <div class="alert alert-warning py-2 small" data-testid="pw-card-stale">
+                {{ 'card.stale'|trans({'%at%': lastWatch.at, '%days%': lastWatch.daysAgo}, 'pricewatch') }}
+            </div>
+        {% else %}
+            <p class="small text-muted mb-1" data-testid="pw-card-last-watch">
+                {% if lastWatch %}
+                    {{ 'card.last_watch'|trans({'%at%': lastWatch.at, '%ago%': 'watched.days_ago'|trans({'%count%': lastWatch.daysAgo}, 'pricewatch')}, 'pricewatch') }}
+                {% else %}
+                    {{ 'card.never_watched'|trans({}, 'pricewatch') }}
+                {% endif %}
+            </p>
+        {% endif %}
         <p class="mb-2">
             {{ '%compared% offer(s) compared, %dearer% where we are dearer, %review% waiting for your review.'|trans({'%compared%': totals.compared, '%dearer%': totals.weAreDearer, '%review%': totals.review}, 'pricewatch') }}
             <a href="{{ comparatorUrl }}" class="ms-1">{{ 'Open in the comparator'|trans({}, 'pricewatch') }}</a>

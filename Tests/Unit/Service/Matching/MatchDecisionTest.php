@@ -23,11 +23,24 @@ final class MatchDecisionTest extends TestCase
     {
         yield 'confirmed and comparable' => [0.94, 0.96, ['comparable', 0.90], MatchVerdict::MATCHED, 'JEV', true, null];
         yield 'confirmed, clearance price' => [0.95, 0.97, ['promotional', 0.98], MatchVerdict::MATCHED, 'JEV', false, 'promotional'];
-        yield 'confirmed, price unclear' => [0.94, 0.96, ['comparable', 0.54], MatchVerdict::MATCHED, 'JEV', false, 'PRICE_UNCLEAR'];
+        // Measured 2026-10-12: 19 price answers out of 20 fell in the middle
+        // band, and excluding them left one comparable price out of four
+        // matches. Unsure counts; only a confident "not a plain price" excludes.
+        yield 'confirmed, Jev unsure about the price' => [0.94, 0.96, ['comparable', 0.54], MatchVerdict::MATCHED, 'JEV', true, null];
+        yield 'confirmed, Jev unsure it is a promotion' => [0.94, 0.96, ['promotional', 0.50], MatchVerdict::MATCHED, 'JEV', true, null];
+        yield 'confirmed, Jev sure the evidence is unclear' => [0.94, 0.96, ['unclear', 0.90], MatchVerdict::MATCHED, 'JEV', true, null];
+        yield 'confirmed, a bundle' => [0.94, 0.96, ['bundle', 0.85], MatchVerdict::MATCHED, 'JEV', false, 'bundle'];
+        yield 'confirmed, a starting price' => [0.94, 0.96, ['from_price', 0.85], MatchVerdict::MATCHED, 'JEV', false, 'from_price'];
         yield 'other size' => [0.93, 0.03, ['comparable', 0.90], MatchVerdict::REJECTED, 'VARIANT_MISMATCH', false, null];
         yield 'other article' => [0.02, 0.91, ['comparable', 0.90], MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false, null];
         yield 'product in the middle band' => [0.60, 0.96, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false, null];
-        yield 'variant in the middle band' => [0.92, 0.29, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', false, null];
+        // Seen 2026-10-12: Stormer History against a Ride Path at 0.21, one
+        // hundredth above the "no" band, sent to a human for nothing.
+        yield 'product unlikely' => [0.21, 0.86, ['promotional', 0.65], MatchVerdict::REJECTED, 'PRODUCT_UNLIKELY', false, null];
+        yield 'unlikely stops below 0.35' => [0.35, 0.86, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false, null];
+        // Asked 2026-10-13: same article, size unsure, counted and tagged to check.
+        yield 'variant in the middle band' => [0.92, 0.29, ['comparable', 0.90], MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', true, null];
+        yield 'variant unsure at a promotional price' => [0.92, 0.29, ['promotional', 0.90], MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', false, 'promotional'];
         yield 'product threshold is inclusive' => [0.80, 0.80, ['comparable', 0.80], MatchVerdict::MATCHED, 'JEV', true, null];
         yield 'reject threshold is inclusive' => [0.20, 0.96, ['comparable', 0.90], MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false, null];
     }
@@ -63,8 +76,10 @@ final class MatchDecisionTest extends TestCase
      */
     public static function prefilters(): iterable
     {
-        yield 'helmet at 419 seen at 89' => ['419.00', '89.00', 'EUR', 'New', 'PRICE_GAP_IMPLAUSIBLE'];
-        yield 'seen at triple the price' => ['100.00', '350.00', 'EUR', null, 'PRICE_GAP_IMPLAUSIBLE'];
+        // A far price is checked, never rejected blind (asked 2026-10-12):
+        // see testAPriceFarFromOursIsCheckedNeverTrustedAlone.
+        yield 'helmet at 419 seen at 89 goes to Jev' => ['419.00', '89.00', 'EUR', 'New', null];
+        yield 'seen at triple the price goes to Jev' => ['100.00', '350.00', 'EUR', null, null];
         yield 'second-hand' => ['100.00', '95.00', 'EUR', 'Used', 'USED_OR_REFURBISHED'];
         yield 'refurbished' => ['100.00', '95.00', 'EUR', 'Refurbished', 'USED_OR_REFURBISHED'];
         yield 'foreign currency' => ['100.00', '95.00', 'GBP', 'New', 'CURRENCY_MISMATCH'];
@@ -82,6 +97,47 @@ final class MatchDecisionTest extends TestCase
             self::assertFalse($verdict->judgedByJev, 'code decided, nothing was paid for');
             self::assertFalse($verdict->comparable);
         }
+    }
+
+    /**
+     * @return iterable<string, array{string, string, string, string, string, string, bool}>
+     */
+    public static function gaps(): iterable
+    {
+        // Seen 2026-10-12: a Bell Moto 3 matched by Jev at +33 %, black
+        // against matt black; the five offers beyond 70 % were other models.
+        // Asked 2026-10-13: a doubt on the price alone still counts, tagged to check.
+        yield 'a Jev match at +33 % waits for a human' => [MatchVerdict::MATCHED, 'JEV', '224.99', '299.99', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', true];
+        yield 'from 25 % on' => [MatchVerdict::MATCHED, 'JEV', '100.00', '75.00', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', true];
+        yield 'below 25 % a Jev match stands' => [MatchVerdict::MATCHED, 'JEV', '100.00', '76.00', MatchVerdict::MATCHED, 'JEV', true];
+        yield 'beyond 70 % a Jev match waits for a human' => [MatchVerdict::MATCHED, 'JEV', '69.90', '211.38', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', true];
+        yield 'beyond 70 % a doubt waits for a human' => [MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', '69.90', '211.38', MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', false];
+        yield 'another product stays rejected, with its reason' => [MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', '161.30', '329.99', MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false];
+        yield 'a doubt under 70 % keeps its reason' => [MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', '129.99', '76.49', MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false];
+    }
+
+    #[DataProvider('gaps')]
+    public function testAPriceFarFromOursIsCheckedNeverTrustedAlone(string $state, string $reason, string $ours, string $theirs, string $expectedState, string $expectedReason, bool $comparable): void
+    {
+        $verdict = (new MatchDecision())->withGap(new MatchVerdict($state, $reason, $state === MatchVerdict::MATCHED, null, true), $ours, $theirs);
+
+        self::assertSame($expectedState, $verdict->state);
+        self::assertSame($expectedReason, $verdict->reason);
+        self::assertSame($comparable, $verdict->comparable);
+    }
+
+    public function testAPromotionExplainsItsGapAndStaysOutOfIt(): void
+    {
+        $promotion = new MatchVerdict(MatchVerdict::MATCHED, 'JEV', false, 'promotional', true);
+
+        self::assertSame($promotion, (new MatchDecision())->withGap($promotion, '22.00', '9.90'), 'kept out of the gap already: nothing to mislead');
+    }
+
+    public function testOnlyAnImplausibleGapIsFlaggedForAProvenMatch(): void
+    {
+        self::assertTrue(MatchDecision::implausibleGap('100.00', '171.00'));
+        self::assertFalse(MatchDecision::implausibleGap('100.00', '170.00'));
+        self::assertFalse(MatchDecision::implausibleGap('100.00', '140.00'), 'a GTIN match at +40 % is a price, not a doubt');
     }
 
     private function noul(float $value): JevAnswer

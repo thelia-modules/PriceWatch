@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Comparator;
 
+use PriceWatch\Service\Direct\DirectMatcher;
 use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\OfferQuestions;
 
@@ -24,6 +25,9 @@ final readonly class MatchConfidence
     public const HUMAN = 'human';
     public const RULE = 'rule';
     public const NONE = 'none';
+
+    /** Read on the competitor's own page: one of our GTINs, or a size on a page confirmed by hand. */
+    public const PROOF = 'proof';
 
     /** Same threshold as the decisive band: below it, Jev would not decide. */
     private const HIGH_FROM = JevAnswer::DECISIVE;
@@ -72,6 +76,7 @@ final readonly class MatchConfidence
         $level = match (true) {
             $method === 'human' => self::HUMAN,
             $method === 'code' => self::RULE,
+            $method === DirectMatcher::BY_GTIN || $method === DirectMatcher::BY_SIZE => self::PROOF,
             $score === null => self::NONE,
             $score >= (int) round(self::HIGH_FROM * 100) => self::HIGH,
             $score >= (int) round(self::MEDIUM_FROM * 100) => self::MEDIUM,
@@ -82,6 +87,6 @@ final readonly class MatchConfidence
             ? array_column(array_filter($gauges, static fn (array $gauge): bool => $gauge['band'] === JevAnswer::NO), 'question')
             : [];
 
-        return ['level' => $level, 'score' => $score, 'gauges' => $gauges, 'disagreements' => array_values($disagreements)];
+        return ['level' => $level, 'score' => $score, 'gauges' => $gauges, 'disagreements' => $disagreements];
     }
 }

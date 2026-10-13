@@ -6,6 +6,7 @@ namespace PriceWatch\Tests\Integration;
 
 use PriceWatch\Model\PwCompetitor;
 use PriceWatch\Model\PwCompetitorOffer;
+use PriceWatch\Model\PwCompetitorPage;
 use PriceWatch\Model\PwCompetitorQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Comparator\ComparatorRepository;
@@ -70,11 +71,75 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
         self::assertSame('Blouson comparé '.$this->tag, $rows[0]['title'], 'sorted by best gap first, products without one after');
 
         self::assertSame(
-            ['all' => 5, 'never' => 3, 'not_collectable' => 1, 'compared' => 1, 'paused' => 1],
-            $this->repository()->counts(new WatchedFilters(search: $this->tag), 'fr_FR'),
+            ['all' => 5, 'never' => 3, 'stale' => 0, 'not_collectable' => 1, 'compared' => 1, 'paused' => 1],
+            $this->repository()->counts(new WatchedFilters(search: $this->tag), 'fr_FR', new \DateTimeImmutable('2026-10-12 12:00:00')),
         );
         self::assertSame(['Gants sans GTIN '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::NotCollectable, $this->tag)), 'title'));
         self::assertSame(['Bottes en pause '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::Paused, $this->tag)), 'title'));
+    }
+
+    public function testAnOfferToCheckCountsAsCompared(): void
+    {
+        $product = $this->product('À vérifier');
+        $variant = $this->variant($product, monitored: true, collectable: true);
+        $this->offer($variant, 'needs_review', true, '-30.000');
+        $this->offer($variant, 'needs_review', false, '-50.000');
+
+        $row = $this->rows(new WatchedFilters(search: $this->tag))[0];
+
+        self::assertSame([1, 1], [(int) $row['compared'], (int) $row['review']]);
+        self::assertEqualsWithDelta(-30.0, (float) $row['best_gap'], 1e-9, 'a doubt on the article never makes the best gap');
+    }
+
+    /**
+     * Asked 2026-10-13: one click collects the products never read, another
+     * the ones read too long ago, a pass's worth at a time.
+     */
+    public function testTheBatchesToCollectTakeTheSearchableFirstThenTheOldest(): void
+    {
+        $this->isolate();
+        $noEan = $this->product('Jamais sans EAN');
+        $this->variant($noEan, monitored: true, collectable: false);
+        $never = $this->product('Jamais');
+        $this->variant($never, monitored: true, collectable: true);
+        $this->variant($never, monitored: true, collectable: true);
+        $older = $this->product('Ancien');
+        $this->variant($older, monitored: true, collectable: true, collectedAt: '-40 days');
+        $old = $this->product('Vieux');
+        $this->variant($old, monitored: true, collectable: true, collectedAt: '-20 days');
+        $fresh = $this->product('Récent');
+        $this->variant($fresh, monitored: true, collectable: true, collectedAt: '-2 days');
+        $paused = $this->product('En pause');
+        $this->variant($paused, monitored: false, collectable: true);
+
+        $repository = $this->repository();
+
+        self::assertSame(['productIds' => [(int) $never->getId(), (int) $noEan->getId()], 'searchable' => 1, 'variants' => 2, 'total' => 2], $repository->toCollect(WatchedView::Never, 20), 'what can be searched first; a paused product is no part of it');
+        self::assertSame(['productIds' => [(int) $never->getId()], 'searchable' => 1, 'variants' => 2, 'total' => 2], $repository->toCollect(WatchedView::Never, 1), 'a pass\'s worth, and how many are left');
+        self::assertSame([(int) $older->getId(), (int) $old->getId()], $repository->toCollect(WatchedView::Stale, 20)['productIds'], 'the oldest reading first, the fresh one left alone');
+    }
+
+    public function testOfflineAndOutOfStockProductsAreFoundToBePaused(): void
+    {
+        $this->isolate();
+        $offline = $this->product('Hors ligne');
+        $this->variant($offline, monitored: true, collectable: true);
+        $offline->setVisible(0)->save();
+        ProductSaleElementsQuery::create()->filterByProductId($offline->getId())->update(['Quantity' => 5]);
+        $sold = $this->product('Épuisé');
+        $soldVariant = $this->variant($sold, monitored: true, collectable: true);
+        ProductSaleElementsQuery::create()->filterByProductId($sold->getId())->update(['Quantity' => 0]);
+        $inStock = $this->product('En stock');
+        $this->variant($inStock, monitored: true, collectable: true);
+        ProductSaleElementsQuery::create()->filterByProductId($inStock->getId())->update(['Quantity' => 3]);
+        // One size sold out is no product out of stock.
+        $this->variant($inStock, monitored: true, collectable: true)->setQuantity(0)->save();
+        $alreadyPaused = $this->product('Hors ligne en pause');
+        $this->variant($alreadyPaused, monitored: false, collectable: true);
+        $alreadyPaused->setVisible(0)->save();
+
+        self::assertSame([(int) $offline->getId()], $this->repository()->offline());
+        self::assertSame([(int) $sold->getId()], $this->repository()->outOfStock(), 'no stock in any size; '.$soldVariant->getRef());
     }
 
     public function testOffersOfCompetitorsOffTheWhitelistDoNotCount(): void
@@ -103,6 +168,48 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
             ['Récent '.$this->tag, 'Ancien '.$this->tag, 'Jamais '.$this->tag],
             array_column($this->rows(new WatchedFilters(search: $this->tag, sort: 'collected')), 'title'),
         );
+    }
+
+    /**
+     * Asked 2026-10-12: show when a product was last watched, and say so
+     * when it was long ago.
+     */
+    public function testAProductLastWatchedOverFourteenDaysAgoIsStale(): void
+    {
+        $old = $this->product('Ancien');
+        $this->variant($old, monitored: true, collectable: true, collectedAt: '-20 days');
+        $recent = $this->product('Récent');
+        $this->variant($recent, monitored: true, collectable: true, collectedAt: '-3 days');
+        // Searched on Google long ago, but read on a competitor page yesterday.
+        $readDirectly = $this->product('Lu en direct');
+        $this->variant($readDirectly, monitored: true, collectable: true, collectedAt: '-20 days');
+        $this->page($readDirectly, 'read', '-1 day');
+        // A page that failed to read watched nothing.
+        $failedPage = $this->product('Page en erreur');
+        $this->variant($failedPage, monitored: true, collectable: true);
+        $this->page($failedPage, 'http_error', '-1 day');
+        $paused = $this->product('En pause');
+        $this->variant($paused, monitored: false, collectable: true, collectedAt: '-40 days');
+
+        self::assertSame(['Ancien '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::Stale, $this->tag)), 'title'));
+        $counts = $this->repository()->counts(new WatchedFilters(search: $this->tag), 'fr_FR');
+        self::assertSame(1, $counts['stale'], 'a paused product raises no alert');
+        self::assertSame(1, $counts['never']);
+        self::assertSame(['Page en erreur '.$this->tag], array_column($this->rows(new WatchedFilters(WatchedView::Never, $this->tag)), 'title'));
+
+        $byTitle = array_column($this->rows(new WatchedFilters(search: $this->tag)), null, 'title');
+        self::assertSame((new \DateTimeImmutable('-1 day'))->format('Y-m-d'), substr((string) $byTitle['Lu en direct '.$this->tag]['last_watched_at'], 0, 10), 'the latest of the Google search and the page read');
+
+        self::assertEqualsWithDelta((new \DateTimeImmutable('-20 days'))->getTimestamp(), $this->repository()->lastWatched((int) $old->getId())?->getTimestamp(), 5);
+        self::assertNull($this->repository()->lastWatched((int) $failedPage->getId()));
+    }
+
+    /**
+     * Only this test's products are watched while it runs (rolled back after).
+     */
+    private function isolate(): void
+    {
+        \PriceWatch\Model\PwProductIdentityQuery::create()->update(['Monitored' => 0]);
     }
 
     /**
@@ -146,6 +253,21 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
             ->save();
 
         return $saleElement;
+    }
+
+    private function page(Product $product, string $outcome, string $fetchedAt): void
+    {
+        $url = 'https://'.$this->watched->getDomain().'/'.bin2hex(random_bytes(4));
+
+        (new PwCompetitorPage())
+            ->setCompetitorId($this->watched->getId())
+            ->setProductId($product->getId())
+            ->setUrl($url)
+            ->setUrlKey(sha1($url))
+            ->setStatus('confirmed')
+            ->setLastFetchedAt(new \DateTime($fetchedAt))
+            ->setLastOutcome($outcome)
+            ->save();
     }
 
     private function offer(ProductSaleElements $variant, string $state, bool $comparable, string $gapPct, ?PwCompetitor $competitor = null): void

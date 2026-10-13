@@ -28,10 +28,16 @@ final readonly class ComparatorPresenter
      */
     public function present(ComparatorFilters $filters, string $locale, bool $withRows = true): array
     {
+        // Every tab lists products, every competitor of a product on its line,
+        // the offers in the detail (asked 2026-10-13: the gaps tab's layout
+        // on every tab).
+        $productIds = $withRows ? $this->repository->productPage($filters) : [];
         // Another tab of the screen shows: the counts are needed, the rows not.
-        $offers = $withRows ? $this->repository->page($filters) : [];
+        $offers = $withRows ? $this->repository->offersOfProducts($filters, $productIds) : [];
+        // Offers for the figures, products for the tabs, as the lists are.
         $counts = $this->repository->counts($filters);
-        $total = $counts[$filters->view->value];
+        $productCounts = $this->repository->productCounts($filters);
+        $total = $productCounts[$filters->view->value];
         $money = new \NumberFormatter($locale, \NumberFormatter::CURRENCY);
         $percent = new \NumberFormatter($locale, \NumberFormatter::PERCENT);
         $percent->setAttribute(\NumberFormatter::FRACTION_DIGITS, 1);
@@ -49,6 +55,8 @@ final readonly class ComparatorPresenter
             $rows[] = $this->row($offer, $quotes[(int) $offer->getId()] ?? null, $identity, $products[$identity['productId']] ?? null, $competitors[(int) $offer->getCompetitorId()] ?? '', $money, $percent, $pictures[$identity['productId']] ?? null);
         }
 
+        $rows = self::lines($rows);
+
         $direction = $filters->gapDirection();
 
         $summary = $this->repository->gapSummary($filters);
@@ -57,7 +65,8 @@ final readonly class ComparatorPresenter
             'filters' => $filters,
             'view' => $filters->view->value,
             'rows' => $rows,
-            'counts' => $counts,
+            'products' => self::products($rows, $productIds),
+            'counts' => $productCounts,
             'competitors' => $competitors,
             'summary' => [
                 'compared' => $counts[ComparatorView::Gaps->value],
@@ -68,7 +77,7 @@ final readonly class ComparatorPresenter
             ],
             'tabs' => array_map(fn (ComparatorView $view): array => [
                 'view' => $view->value,
-                'count' => $counts[$view->value],
+                'count' => $productCounts[$view->value],
                 'url' => $this->url($filters->withView($view)),
                 'active' => $view === $filters->view,
             ], ComparatorView::cases()),
@@ -210,8 +219,24 @@ final readonly class ComparatorPresenter
 
         return [
             'id' => (int) $offer->getId(),
+            'productId' => $identity['productId'],
+            'groupIds' => [(int) $offer->getId()],
+            'sizes' => $identity['size'] === null || $identity['size'] === '' ? [] : [$identity['size']],
+            'lineKey' => $identity['productId'] > 0 && $theirs !== null && $ours !== null
+                ? implode('|', [$offer->getCompetitorId(), $identity['productId'], $theirs, $ours, $deltaPct, $state, $offer->getLastComparable(), $offer->getExclusionReason(), $offer->getMatchMethod()])
+                : null,
             'state' => $state,
             'reason' => $offer->getMatchReason(),
+            // In the gaps although a human has not decided: shown as such.
+            'toCheck' => ComparatorView::toCheck($state, $offer->getLastComparable()),
+            // How the price moved since the reading of an earlier day, from 1 %.
+            'change' => PriceChange::shown($offer->getPriceChangePct()) ? [
+                // Unsigned: "down" or "up" says which way.
+                'pct' => $percent->format(abs((float) $offer->getPriceChangePct()) / 100),
+                'direction' => (float) $offer->getPriceChangePct() < 0 ? 'down' : 'up',
+                'previous' => $money->formatCurrency((float) $offer->getPreviousPrice(), 'EUR'),
+                'since' => $offer->getPreviousPriceDay()?->format('d/m'),
+            ] : null,
             'method' => $offer->getMatchMethod(),
             'exclusion' => $offer->getExclusionReason(),
             'reviewedBy' => $offer->getReviewedBy(),
@@ -235,6 +260,7 @@ final readonly class ComparatorPresenter
             'image' => (\is_array($payload) ? self::safeUrl(\is_string($payload['card']['image'] ?? null) ? $payload['card']['image'] : null) : null) ?? $picture,
             'theirs' => $theirs === null ? null : $money->formatCurrency((float) $theirs, (string) ($offer->getLastCurrencyCode() ?? 'EUR')),
             'ours' => $ours === null ? null : $money->formatCurrency((float) $ours, 'EUR'),
+            'oursValue' => $ours === null ? null : (float) $ours,
             'shipping' => $quote?->getShippingPrice() === null ? null : $money->formatCurrency((float) $quote->getShippingPrice(), (string) ($quote->getCurrencyCode() ?? 'EUR')),
             'delta' => $delta === null ? null : ((float) $delta > 0 ? '+' : '').$money->formatCurrency((float) $delta, 'EUR'),
             'deltaPct' => $deltaPct === null ? null : self::percent((float) $deltaPct, $percent),
@@ -251,6 +277,94 @@ final readonly class ComparatorPresenter
                 'reopen' => $state !== 'needs_review',
             ],
         ];
+    }
+
+    /**
+     * The sizes of one product read at one competitor at one price, in one
+     * state, are one line (asked 2026-10-12: five lines said the same thing).
+     * Sizes at another price, or decided otherwise, keep a line of their own.
+     * Nothing is inferred: a size shows only where it was read.
+     *
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function lines(array $rows): array
+    {
+        $lines = [];
+        $lineOf = [];
+
+        foreach ($rows as $row) {
+            $key = $row['lineKey'] ?? null;
+
+            if (\is_string($key) && isset($lineOf[$key])) {
+                $line = &$lines[$lineOf[$key]];
+                $line['groupIds'][] = $row['id'];
+                $line['sizes'] = [...$line['sizes'], ...$row['sizes']];
+                unset($line);
+                continue;
+            }
+
+            if (\is_string($key)) {
+                $lineOf[$key] = \count($lines);
+            }
+
+            $lines[] = $row;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * One line per product on the gaps tab, every competitor on it (asked
+     * 2026-10-12: one helmet showed as a line per competitor). The lines
+     * arrive in the order of the gap sort, so the first line of a product,
+     * or of a competitor within it, is the one its gap is shown by.
+     *
+     * @param list<array<string, mixed>> $lines     from lines()
+     * @param list<int>                  $productIds the page's products, in order
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function products(array $lines, array $productIds): array
+    {
+        $byProduct = array_fill_keys($productIds, []);
+
+        foreach ($lines as $line) {
+            // A variant missing from the referential has no product: its
+            // offer stands alone rather than joining another's line.
+            $key = $line['productId'] > 0 ? $line['productId'] : -$line['id'];
+            $byProduct[$key][] = $line;
+        }
+
+        $products = [];
+
+        foreach (array_filter($byProduct) as $key => $productLines) {
+            $competitors = [];
+
+            foreach ($productLines as $line) {
+                $competitors[$line['competitor']] ??= ['name' => $line['competitor'], 'headline' => $line, 'lines' => []];
+                $competitors[$line['competitor']]['lines'][] = $line;
+            }
+
+            $priced = array_values(array_filter($productLines, static fn (array $line): bool => $line['oursValue'] !== null));
+            usort($priced, static fn (array $a, array $b): int => $a['oursValue'] <=> $b['oursValue']);
+            $cheapest = $priced[0]['ours'] ?? null;
+            $dearest = $priced === [] ? null : $priced[\count($priced) - 1]['ours'];
+            $pictured = array_values(array_filter(array_column($productLines, 'image')));
+
+            $products[] = [
+                'id' => $key,
+                'product' => $productLines[0]['product'],
+                'image' => $pictured[0] ?? null,
+                'headline' => $productLines[0],
+                'ours' => ['from' => $cheapest, 'to' => $dearest === $cheapest ? null : $dearest],
+                'competitors' => array_values($competitors),
+                'lines' => $productLines,
+            ];
+        }
+
+        return $products;
     }
 
     private function url(ComparatorFilters $filters): string

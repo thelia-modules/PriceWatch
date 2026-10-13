@@ -8,20 +8,35 @@ use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\OfferQuestions;
 
 /**
- * Where code decides. Two stages:
+ * Where code decides. Three stages:
  *
  * 1. prefilter(): what code can see for itself, before paying for anything.
- *    A price gap no same-article offer would show, a second-hand item, a
- *    foreign currency. Jev is never asked about those.
+ *    A second-hand item, a foreign currency. Jev is never asked about those.
  * 2. decide(): Jev's typed answers turned into a state, only in the decisive
  *    bands. Anything in between goes to a human; it is never a pass.
+ * 3. withGap(): a price far from ours is a doubt, checked, never decided by
+ *    the gap alone (asked 2026-10-12). Beyond 70 % it used to be rejected
+ *    blind; from 25 % a Jev "yes" alone let it into the gap.
  */
 final readonly class MatchDecision
 {
-    /** Beyond this gap, whatever the titles say, it is not the same article. */
+    /** Beyond this gap, even a proven match is a data problem for a human. */
     public const IMPLAUSIBLE_GAP = 0.70;
 
+    /** From this gap on, Jev's word alone does not let an offer into the gap. */
+    public const SUSPECT_GAP = 0.25;
+
     private const USED_CONDITIONS = ['used', 'refurbished', 'pre-owned', 'occasion', 'reconditionne'];
+
+    /**
+     * Below this, "same article?" is a no in all but name: measured
+     * 2026-10-12, true matches all scored 0.80 or more, nothing fell between
+     * 0.21 and 0.50, and the 0.21 was another model.
+     */
+    public const PRODUCT_UNLIKELY_BELOW = 0.35;
+
+    /** Price answers that leave the price in the gap, even when Jev is sure of them. */
+    private const PLAIN_PRICE = ['comparable', 'unclear'];
 
     public function prefilter(string $ourPriceInclTax, ?string $theirPrice, ?string $currency, ?string $condition): ?MatchVerdict
     {
@@ -33,14 +48,63 @@ final readonly class MatchDecision
             return new MatchVerdict(MatchVerdict::REJECTED, 'USED_OR_REFURBISHED', false, 'used_or_refurbished', false);
         }
 
+        return null;
+    }
+
+    /**
+     * The gap weighed after the identity verdict:
+     *
+     * - beyond IMPLAUSIBLE_GAP, whatever Jev said short of "not this article"
+     *   or "not this size" goes to a human;
+     * - from SUSPECT_GAP on, a Jev match whose price would count in the gap
+     *   goes to a human; a price already kept out (a promotion) cannot
+     *   mislead the gap.
+     *
+     * A rejection keeps its own reason: it is the proof the gap only hinted.
+     *
+     * A price doubted on its gap alone still counts, tagged to check (asked
+     * 2026-10-13): it keeps the comparability the identity verdict gave it.
+     */
+    public function withGap(MatchVerdict $verdict, ?string $ourPriceInclTax, ?string $theirPrice): MatchVerdict
+    {
+        $gap = self::gap($ourPriceInclTax, $theirPrice);
+
+        if ($gap === null || $verdict->state === MatchVerdict::REJECTED) {
+            return $verdict;
+        }
+
+        if ($gap > self::IMPLAUSIBLE_GAP) {
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', $verdict->comparable, $verdict->exclusionReason, $verdict->judgedByJev);
+        }
+
+        if ($gap >= self::SUSPECT_GAP && $verdict->state === MatchVerdict::MATCHED && $verdict->comparable) {
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', true, null, $verdict->judgedByJev);
+        }
+
+        return $verdict;
+    }
+
+    /**
+     * For a match proven by a GTIN or a human: the article is certain, only a
+     * gap no shop would show makes the price itself doubtful.
+     */
+    public static function implausibleGap(?string $ourPriceInclTax, ?string $theirPrice): bool
+    {
+        $gap = self::gap($ourPriceInclTax, $theirPrice);
+
+        return $gap !== null && $gap > self::IMPLAUSIBLE_GAP;
+    }
+
+    /**
+     * Relative to our price; rounded to the basis point, so 75.00 against
+     * 100.00 is 25 % and not a float a hair below it.
+     */
+    private static function gap(?string $ourPriceInclTax, ?string $theirPrice): ?float
+    {
         $ours = (float) $ourPriceInclTax;
         $theirs = (float) $theirPrice;
 
-        if ($ours > 0.0 && $theirs > 0.0 && abs($theirs - $ours) / $ours > self::IMPLAUSIBLE_GAP) {
-            return new MatchVerdict(MatchVerdict::REJECTED, 'PRICE_GAP_IMPLAUSIBLE', false, 'PRICE_GAP_IMPLAUSIBLE', false);
-        }
-
-        return null;
+        return $ours > 0.0 && $theirs > 0.0 ? round(abs($theirs - $ours) / $ours, 4) : null;
     }
 
     /**
@@ -62,6 +126,10 @@ final readonly class MatchDecision
             return new MatchVerdict(MatchVerdict::REJECTED, 'PRODUCT_MISMATCH', false, null, true);
         }
 
+        if ($product->band !== JevAnswer::YES && is_numeric($product->value) && (float) $product->value < self::PRODUCT_UNLIKELY_BELOW) {
+            return new MatchVerdict(MatchVerdict::REJECTED, 'PRODUCT_UNLIKELY', false, null, true);
+        }
+
         if ($product->band !== JevAnswer::YES) {
             return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRODUCT_UNCLEAR', false, null, true);
         }
@@ -70,16 +138,16 @@ final readonly class MatchDecision
             return new MatchVerdict(MatchVerdict::REJECTED, 'VARIANT_MISMATCH', false, null, true);
         }
 
+        // The price is what the seller asks today. Jev rarely has the evidence
+        // to be sure of it (measured 2026-10-12: 19 answers out of 20 in the
+        // middle band), so only a confident "not a plain price" excludes it.
+        $plainPrice = $price->band !== JevAnswer::ACT || \in_array($price->value, self::PLAIN_PRICE, true);
+
+        // Same article, size unsure: counted, tagged to check (2026-10-13).
         if ($variant->band !== JevAnswer::YES) {
-            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', false, null, true);
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', $plainPrice, $plainPrice ? null : (string) $price->value, true);
         }
 
-        if ($price->band !== JevAnswer::ACT) {
-            return new MatchVerdict(MatchVerdict::MATCHED, 'JEV', false, 'PRICE_UNCLEAR', true);
-        }
-
-        return $price->value === 'comparable'
-            ? new MatchVerdict(MatchVerdict::MATCHED, 'JEV', true, null, true)
-            : new MatchVerdict(MatchVerdict::MATCHED, 'JEV', false, (string) $price->value, true);
+        return new MatchVerdict(MatchVerdict::MATCHED, 'JEV', $plainPrice, $plainPrice ? null : (string) $price->value, true);
     }
 }

@@ -16,6 +16,7 @@ use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use Propel\Runtime\ActiveQuery\Criteria;
 use Propel\Runtime\Propel;
+use Thelia\Model\Map\ProductSaleElementsTableMap;
 use Thelia\Model\ProductI18nQuery;
 use Thelia\Model\ProductQuery;
 use Thelia\Model\ProductSaleElementsQuery;
@@ -63,6 +64,116 @@ final readonly class ComparatorRepository
         };
 
         return $query->offset($filters->offset())->limit(ComparatorFilters::PAGE_SIZE);
+    }
+
+    /**
+     * Every tab lists products, each with all its competitors (asked
+     * 2026-10-12 for the gaps, 2026-10-13 for the others): paged by
+     * product, so a product never spans two pages.
+     * A product ranks by its most telling gap in the asked direction: the
+     * cheapest competitor first, or the dearest when reversed.
+     *
+     * @return list<int> product ids of the page, in order
+     */
+    public function productPage(ComparatorFilters $filters): array
+    {
+        $query = $this->productQuery($filters);
+
+        if ($query === null) {
+            return [];
+        }
+
+        $direction = $filters->gapDirection() ?? 'ASC';
+        $headline = ($direction === 'ASC' ? 'MIN(' : 'MAX(').PwCompetitorOfferTableMap::COL_LAST_DELTA_PCT.')';
+
+        // Both computed columns come back, the sort one included.
+        return array_map('intval', array_column($query
+            ->withColumn(ProductSaleElementsTableMap::COL_PRODUCT_ID, 'productId')
+            ->withColumn($headline, 'headlineGap')
+            ->groupBy('productId')
+            ->orderBy('headlineGap', $direction)
+            ->orderBy('productId', $direction)
+            ->select(['productId'])
+            ->offset($filters->offset())
+            ->limit(ComparatorFilters::PAGE_SIZE)
+            ->find()
+            ->getData(), 'productId'));
+    }
+
+    public function productCount(ComparatorFilters $filters): int
+    {
+        $count = $this->productQuery($filters)
+            ?->withColumn('COUNT(DISTINCT '.ProductSaleElementsTableMap::COL_PRODUCT_ID.')', 'products')
+            ->select(['products'])
+            ->findOne();
+
+        return (int) $count;
+    }
+
+    /**
+     * @param list<int> $productIds
+     *
+     * @return list<PwCompetitorOffer> the tab's offers on these products, in
+     *                                 the order of the gap sort
+     */
+    public function offersOfProducts(ComparatorFilters $filters, array $productIds): array
+    {
+        $query = $this->productQuery($filters);
+
+        if ($query === null || $productIds === []) {
+            return [];
+        }
+
+        $direction = $filters->gapDirection() ?? 'ASC';
+
+        return $query
+            ->where(ProductSaleElementsTableMap::COL_PRODUCT_ID.' IN ?', $productIds)
+            ->orderByLastDeltaPct($direction)
+            ->orderById($direction)
+            ->find()
+            ->getData();
+    }
+
+    /**
+     * The tab's offers, joined to their variant for the product id.
+     */
+    private function productQuery(ComparatorFilters $filters): ?PwCompetitorOfferQuery
+    {
+        return $this->query($filters, $filters->view)
+            ?->useProductSaleElementsQuery()
+            ->endUse();
+    }
+
+    /**
+     * Products of the gaps tab a competitor lowered its price on, read since
+     * $since: what the admin home warns about (asked 2026-10-13).
+     */
+    public function droppedProductCount(\DateTimeInterface $since): int
+    {
+        $count = $this->productQuery(new ComparatorFilters(droppedOnly: true))
+            ?->filterByLastSeenAt($since, Criteria::GREATER_EQUAL)
+            ->withColumn('COUNT(DISTINCT '.ProductSaleElementsTableMap::COL_PRODUCT_ID.')', 'products')
+            ->select(['products'])
+            ->findOne();
+
+        return (int) $count;
+    }
+
+    /**
+     * What the tabs show (asked 2026-10-13): products, as the lists are, not
+     * offers.
+     *
+     * @return array<string, int> view value => number of products, same filters
+     */
+    public function productCounts(ComparatorFilters $filters): array
+    {
+        $counts = [];
+
+        foreach (ComparatorView::cases() as $view) {
+            $counts[$view->value] = $this->productCount($filters->withView($view));
+        }
+
+        return $counts;
     }
 
     /**
@@ -300,6 +411,35 @@ final readonly class ComparatorRepository
     }
 
     /**
+     * The other offers of a line of the screen, among the ids the form sent:
+     * same competitor, same product, same prices, same state. An id that
+     * does not share all of it is ignored, never decided on.
+     *
+     * @param list<int> $ids
+     *
+     * @return list<PwCompetitorOffer>
+     */
+    public function sameLine(PwCompetitorOffer $offer, array $ids): array
+    {
+        $productId = ProductSaleElementsQuery::create()->findPk($offer->getProductSaleElementsId())?->getProductId();
+        $ids = array_values(array_diff(array_filter($ids, static fn (int $id): bool => $id > 0), [(int) $offer->getId()]));
+
+        if ($productId === null || $ids === []) {
+            return [];
+        }
+
+        return PwCompetitorOfferQuery::create()
+            ->filterById($ids, Criteria::IN)
+            ->filterByCompetitorId($offer->getCompetitorId())
+            ->filterByMatchState($offer->getMatchState())
+            ->filterByLastPrice($offer->getLastPrice())
+            ->filterByLastOurPrice($offer->getLastOurPrice())
+            ->useProductSaleElementsQuery()->filterByProductId($productId)->endUse()
+            ->find()
+            ->getData();
+    }
+
+    /**
      * Null when the filters cannot match anything: no whitelisted competitor,
      * or a search that finds no product.
      */
@@ -318,8 +458,9 @@ final readonly class ComparatorRepository
         $query = PwCompetitorOfferQuery::create()->filterByActive(1);
 
         match ($view) {
-            ComparatorView::Gaps => $query->filterByLastComparable(1)->filterByMatchState(ComparatorView::MATCHED_STATES, Criteria::IN),
-            ComparatorView::Review => $query->filterByMatchState('needs_review'),
+            // Equalities first, as idx_pw_offer_screen wants them.
+            ComparatorView::Gaps => $query->filterByLastComparable(1)->filterByMatchState(ComparatorView::GAP_STATES, Criteria::IN),
+            ComparatorView::Review => $query->filterByMatchState('needs_review')->filterByLastComparable(0),
             ComparatorView::Pending => $query->filterByMatchState('candidate'),
             ComparatorView::Excluded => $query
                 ->condition('rejected', PwCompetitorOfferTableMap::COL_MATCH_STATE.' = ?', 'rejected')
@@ -334,6 +475,10 @@ final readonly class ComparatorRepository
         if ($filters->cheaperOnly) {
             // Competitor cheaper, that is: we are dearer.
             $query->filterByLastDeltaPct(-PricePosition::EQUAL_BELOW, Criteria::LESS_EQUAL);
+        }
+
+        if ($filters->droppedOnly) {
+            $query->filterByPriceChangePct(-PriceChange::SHOWN_FROM_PCT, Criteria::LESS_EQUAL);
         }
 
         if ($filters->search !== '') {

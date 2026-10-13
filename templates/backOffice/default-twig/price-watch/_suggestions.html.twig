@@ -1,16 +1,42 @@
 {# Products worth collecting now, each with why. Ticking them and clicking
    starts one pass on them; the cost shown is the worst case, enforced. #}
-<p class="small text-muted mb-2">{{ 'Products to collect now: they sell, we were dearer last time, or what a competitor showed is over %stale% days old. The ones with the most reasons first.'|trans({'%stale%': staleDays}, 'pricewatch') }}</p>
+<p class="small text-muted mb-2">{{ 'Products to collect now: they sell, we were dearer last time, what a competitor showed is over %stale% days old, or they are on a deep promotion. The highest score first; hidden or out of stock products are left out.'|trans({'%stale%': staleDays}, 'pricewatch') }}</p>
+
+<p class="small text-muted mb-2">{{ 'Each family gets lines in proportion to its revenue, at least %min%: the best of every family shows.'|trans({'%min%': 3}, 'pricewatch') }}</p>
+
+{% if families|length > 1 %}
+    <form method="get" action="{{ path('pricewatch_comparator') }}" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-testid="pw-suggestions-family">
+        <input type="hidden" name="view" value="suggestions">
+        <label class="small fw-semibold" for="pw-suggest-family">{{ 'Family'|trans({}, 'pricewatch') }}</label>
+        <select class="form-select form-select-sm w-auto" id="pw-suggest-family" name="family">
+            <option value="">{{ 'All families'|trans({}, 'pricewatch') }}</option>
+            {% for option in families %}
+                <option value="{{ option.id }}" {% if option.id == family %}selected{% endif %}>{{ option.title }} ({{ option.lines }})</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-outline-secondary">{{ 'Filter'|trans({}, 'pricewatch') }}</button>
+    </form>
+{% endif %}
 
 {% if suggestions is empty %}
-    <div class="alert alert-light border" data-testid="pw-suggestions-empty">{{ 'No suggestion for now: no recent sale, no gap against us, nothing collected too long ago.'|trans({}, 'pricewatch') }}</div>
+    <div class="alert alert-light border" data-testid="pw-suggestions-empty">{{ 'No suggestion for now: no recent sale, no gap against us, no deep promotion, nothing collected too long ago.'|trans({}, 'pricewatch') }}</div>
 {% else %}
     {% set badges = {
         sales: 'bg-success-subtle text-success-emphasis border-success-subtle',
         dearer: 'bg-danger-subtle text-danger-emphasis border-danger-subtle',
+        promo: 'bg-warning-subtle text-warning-emphasis border-warning-subtle',
+        new: 'bg-info-subtle text-info-emphasis border-info-subtle',
         stale: 'bg-body-secondary text-body border'
     } %}
-    {% set icons = {sales: 'bi-graph-up-arrow', dearer: 'bi-arrow-down-right', stale: 'bi-clock-history'} %}
+    {% set icons = {sales: 'bi-graph-up-arrow', dearer: 'bi-arrow-down-right', promo: 'bi-tag', new: 'bi-stars', stale: 'bi-clock-history'} %}
+    {% set scoreLabels = {
+        sales: 'Sales'|trans({}, 'pricewatch'),
+        dearer: 'Dearer'|trans({}, 'pricewatch'),
+        promo: 'Promotion'|trans({}, 'pricewatch'),
+        stale: 'Old reading'|trans({}, 'pricewatch'),
+        new: 'New'|trans({}, 'pricewatch'),
+        stock: 'Stock'|trans({}, 'pricewatch')
+    } %}
     <form method="post" action="{{ path('pricewatch_suggestions_run') }}" data-testid="pw-suggestions"
           data-max="{{ max }}" data-cost-per-variant="{{ costPerVariant }}"
           data-summary="{{ '%products% product(s), %variants% variant(s), at most %cost%'|trans({}, 'pricewatch') }}"
@@ -22,6 +48,7 @@
                     <tr>
                         <th scope="col" style="width: 2.5rem"><span class="visually-hidden">{{ 'Select'|trans({}, 'pricewatch') }}</span></th>
                         <th scope="col">{{ 'Product'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Score'|trans({}, 'pricewatch') }}</th>
                         <th scope="col">{{ 'Why collect it now'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Variants'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'At most'|trans({}, 'pricewatch') }}</th>
@@ -43,12 +70,23 @@
                                 <span style="min-width: 0">
                                     <span class="fw-semibold d-block text-truncate" title="{{ row.title }}">{{ row.title }}</span>
                                     <span class="small text-muted d-block text-truncate">
+                                        {% if row.family %}<span class="badge rounded-pill bg-body-tertiary text-body border me-1" data-testid="pw-suggestion-family">{{ row.family }}</span>{% endif %}
                                         {{ row.ref }}
                                         {% if row.variants == 0 %} · <span class="text-warning-emphasis">{{ 'no variant with a valid EAN code of its own'|trans({}, 'pricewatch') }}</span>
                                         {% elseif not row.watched %} · <span class="text-primary-emphasis">{{ 'not watched yet, added when collected'|trans({}, 'pricewatch') }}</span>{% endif %}
+                                        {% if row.watched %} · <span class="{{ row.lastWatch and row.lastWatch.stale ? 'text-warning-emphasis' : '' }}" data-testid="pw-suggestion-last-watch">
+                                            {%- if row.lastWatch -%}{{ 'suggestion.last_watch'|trans({'%at%': row.lastWatch.at, '%ago%': 'watched.days_ago'|trans({'%count%': row.lastWatch.daysAgo}, 'pricewatch')}, 'pricewatch') }}
+                                            {%- else -%}{{ 'suggestion.never_watched'|trans({}, 'pricewatch') }}{%- endif -%}
+                                        </span>{% endif %}
                                     </span>
                                 </span>
                             </label>
+                        </td>
+                        {% set scoreDetail = [] %}
+                        {% for part, points in row.scoreParts %}{% set scoreDetail = scoreDetail|merge([scoreLabels[part] ~ ' ' ~ points]) %}{% endfor %}
+                        <td class="text-end">
+                            <span class="badge rounded-pill bg-body-tertiary text-body border" data-testid="pw-suggestion-score"
+                                  data-bs-toggle="tooltip" title="{{ scoreDetail|join(' · ') }}">{{ row.score }}<span class="visually-hidden"> / 100</span></span>
                         </td>
                         <td>
                             <div class="d-flex flex-wrap gap-1">
@@ -59,6 +97,8 @@
                                         <i class="bi {{ icons[reason.key] }} me-1" aria-hidden="true"></i>
                                         {%- if reason.key == 'sales' -%}{{ '%count% sold in %days% days'|trans({'%count%': reason.quantity, '%days%': salesDays}, 'pricewatch') }}
                                         {%- elseif reason.key == 'dearer' -%}{{ 'We are dearer by %gap%'|trans({'%gap%': reason.gap}, 'pricewatch') }}
+                                        {%- elseif reason.key == 'promo' -%}{{ 'On promotion, %discount% off'|trans({'%discount%': reason.discount}, 'pricewatch') }}
+                                        {%- elseif reason.key == 'new' -%}{{ 'New'|trans({}, 'pricewatch') }}
                                         {%- else -%}{{ 'Collected %days% days ago'|trans({'%days%': reason.days}, 'pricewatch') }}{%- endif -%}
                                     </span>
                                 {% endfor %}

@@ -36,6 +36,13 @@ final readonly class OfferJudge
     /** Upper estimate of one request, used to stop before overshooting the budget. */
     private const REQUEST_COST_ESTIMATE = 0.0001;
 
+    /**
+     * Verdicts about the article, whatever our size: given once for the sizes
+     * of a product read on the same listing at the same price. A verdict that
+     * involves the size (a match, another size) is never shared.
+     */
+    private const PRODUCT_VERDICTS = ['PRODUCT_MISMATCH', 'PRODUCT_UNLIKELY', 'PRODUCT_UNCLEAR'];
+
     public function __construct(
         private CachedJev $jev,
         private OfferQuestions $questions,
@@ -82,6 +89,8 @@ final readonly class OfferJudge
     {
         $pending = $this->pending($limit);
         PassStep::Judging->record($run, 0, \count($pending));
+        /** @var array<string, array{MatchVerdict, array<string, JevAnswer>}> $productVerdicts evidence => verdict and answers */
+        $productVerdicts = [];
 
         foreach ($pending as $offer) {
             if ($spent + self::REQUEST_COST_ESTIMATE > $budgetUsd) {
@@ -105,22 +114,38 @@ final readonly class OfferJudge
                     continue;
                 }
 
-                try {
-                    $asked = $this->jev->ask($this->state($offer, $quote), $this->questions->all());
-                } catch (JevException $error) {
-                    if (\count($errors) < 20) {
-                        $errors[] = 'offer '.$offer->getId().': '.$error->getMessage();
+                $evidence = $this->evidence($offer, $quote);
+
+                if (isset($productVerdicts[$evidence])) {
+                    // Seen 2026-10-12: six sizes, one listing naming none,
+                    // six requests for the same "product unclear".
+                    [$verdict, $answers] = $productVerdicts[$evidence];
+                    $counts['hits'] += \count($answers);
+                } else {
+                    try {
+                        $asked = $this->jev->ask($this->state($offer, $quote), $this->questions->all());
+                    } catch (JevException $error) {
+                        if (\count($errors) < 20) {
+                            $errors[] = 'offer '.$offer->getId().': '.$error->getMessage();
+                        }
+
+                        continue;
                     }
 
-                    continue;
+                    $spent += $asked['costUsd'];
+                    $counts['requests'] += $asked['requests'];
+                    $counts['hits'] += $asked['cacheHits'];
+                    $counts['tokens'] += $asked['inputTokens'];
+                    $answers = $asked['answers'];
+                    $verdict = $this->decision->decide($answers);
+
+                    if (\in_array($verdict->reason, self::PRODUCT_VERDICTS, true)) {
+                        $productVerdicts[$evidence] = [$verdict, $answers];
+                    }
                 }
 
-                $spent += $asked['costUsd'];
-                $counts['requests'] += $asked['requests'];
-                $counts['hits'] += $asked['cacheHits'];
-                $counts['tokens'] += $asked['inputTokens'];
-                $answers = $asked['answers'];
-                $verdict = $this->decision->decide($answers);
+                // A price far from ours makes Jev's word not enough.
+                $verdict = $this->decision->withGap($verdict, (string) $quote->getOurPrice(), $quote->getPrice());
             }
 
             if ($dryRun) {
@@ -186,6 +211,29 @@ final readonly class OfferJudge
             ->limit($limit)
             ->find()
             ->getData();
+    }
+
+    /**
+     * What Jev sees of an offer, but our size: same competitor, same product
+     * of ours, same listing, same prices.
+     */
+    private function evidence(PwCompetitorOffer $offer, PwPriceQuote $quote): string
+    {
+        $productId = PwProductIdentityQuery::create()->filterByProductSaleElementsId($offer->getProductSaleElementsId())->findOne()?->getProductId();
+
+        return sha1((string) json_encode([
+            $offer->getCompetitorId(),
+            $productId ?? 'pse:'.$offer->getProductSaleElementsId(),
+            $offer->getRemoteTitle(),
+            $offer->getRemoteVariantLabel(),
+            $quote->getPrice(),
+            $quote->getListPrice(),
+            $quote->getShippingPrice(),
+            $quote->getCurrencyCode(),
+            $quote->getAvailability(),
+            $quote->getConditionCode(),
+            $quote->getOurPrice(),
+        ]));
     }
 
     /**

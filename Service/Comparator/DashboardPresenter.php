@@ -7,6 +7,10 @@ namespace PriceWatch\Service\Comparator;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Usage\UsagePresenter;
+use PriceWatch\Service\Watched\LastWatch;
+use PriceWatch\Service\Watched\WatchedFilters;
+use PriceWatch\Service\Watched\WatchedRepository;
+use PriceWatch\Service\Watched\WatchedView;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
@@ -18,37 +22,54 @@ final readonly class DashboardPresenter
 {
     private const WORST_GAPS = 5;
 
+    /** The competitor price drops the home page tells about: read this recently. */
+    public const DROPPED_DAYS = 7;
+
     public function __construct(
         private ComparatorRepository $repository,
         private RunStatus $runStatus,
         private UsagePresenter $usage,
         private UrlGeneratorInterface $urlGenerator,
+        private WatchedRepository $watched,
     ) {
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function present(string $locale): array
+    public function present(string $locale, ?\DateTimeImmutable $now = null): array
     {
         $all = new ComparatorFilters();
         $counts = $this->repository->counts($all);
+        // Same counts as the watched products tabs the alert links to.
+        $watched = $this->watched->counts(new WatchedFilters(), $locale, $now ?? new \DateTimeImmutable());
         $percent = new \NumberFormatter($locale, \NumberFormatter::PERCENT);
         $percent->setAttribute(\NumberFormatter::FRACTION_DIGITS, 1);
 
         return [
             'hasCompetitors' => $this->repository->competitors() !== [],
-            'counts' => $counts,
+            // Products waiting, as the review tab it links to counts them.
+            'counts' => ['review' => $this->repository->productCounts($all)[ComparatorView::Review->value]],
+            'droppedDays' => self::DROPPED_DAYS,
+            'dropped' => $this->repository->droppedProductCount(($now ?? new \DateTimeImmutable())->modify('-'.self::DROPPED_DAYS.' days')),
             'split' => $this->split($counts[ComparatorView::Gaps->value], $this->repository->gapSummary($all), $percent),
             'worstGaps' => $this->worstGaps($locale, $percent),
             'competitors' => $this->byCompetitor($percent),
             'run' => $this->runStatus->present(),
             'spentThisMonth' => $this->usage->present($locale)['total']['month'],
+            'watch' => [
+                'stale' => $watched[WatchedView::Stale->value],
+                'never' => $watched[WatchedView::Never->value],
+                'staleDays' => LastWatch::STALE_DAYS,
+            ],
             'links' => [
                 'comparator' => $this->urlGenerator->generate('pricewatch_comparator'),
                 'dearer' => $this->urlGenerator->generate('pricewatch_comparator', ['cheaper' => 1]),
                 'review' => $this->urlGenerator->generate('pricewatch_comparator', ['view' => ComparatorView::Review->value]),
+                'dropped' => $this->urlGenerator->generate('pricewatch_comparator', ['dropped' => 1]),
                 'competitors' => $this->urlGenerator->generate('pricewatch_competitors'),
+                'stale' => $this->urlGenerator->generate('pricewatch_watched', ['view' => WatchedView::Stale->value, 'sort' => 'collected']),
+                'never' => $this->urlGenerator->generate('pricewatch_watched', ['view' => WatchedView::Never->value]),
             ],
         ];
     }

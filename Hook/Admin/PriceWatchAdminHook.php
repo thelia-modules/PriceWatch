@@ -12,6 +12,7 @@ use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\ReasoningEffort;
 use PriceWatch\Service\Settings\SecretName;
+use PriceWatch\Service\Suggestion\SuggestionRepository;
 use PriceWatch\Controller\Admin\RunController;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\RunStatus;
@@ -44,6 +45,7 @@ class PriceWatchAdminHook extends BaseHook
         private readonly RunStatus $runStatus,
         private readonly DashboardPresenter $dashboard,
         private readonly CatalogVariantRepository $catalog,
+        private readonly SuggestionRepository $suggestions,
         private readonly RequestStack $requestStack,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly Environment $twig,
@@ -209,6 +211,8 @@ class PriceWatchAdminHook extends BaseHook
             'shopDescription' => $this->settings->shopDescription(),
             'dataforseoLogin' => $this->settings->dataforseoLoginFromEnvironment() ? null : $this->settings->dataforseoLogin(),
             'dataforseoLoginFromEnvironment' => $this->settings->dataforseoLoginFromEnvironment(),
+            'families' => $this->suggestions->familyTitles($this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR'),
+            'excludedFamilies' => $this->settings->excludedFamilies(),
         ]));
     }
 }

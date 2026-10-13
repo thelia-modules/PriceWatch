@@ -44,6 +44,7 @@ final readonly class ReferenceExporter
                     array_map(static fn (string $column): string => $row[$column], ReferenceFileFormat::COLUMNS),
                     CatalogCsvReader::DELIMITER,
                     CatalogCsvReader::ENCLOSURE,
+                    CatalogCsvReader::ESCAPE,
                 );
                 ++$written;
             }

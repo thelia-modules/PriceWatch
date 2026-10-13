@@ -8,6 +8,7 @@ use PriceWatch\Controller\Admin\RunController;
 use PriceWatch\Service\Comparator\PricePosition;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\RunStatus;
+use PriceWatch\Service\Suggestion\SuggestionPresenter;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
@@ -15,6 +16,9 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
  */
 final readonly class WatchedPresenter
 {
+    /** One pass per click, as for the suggestions. */
+    public const BATCH = SuggestionPresenter::MAX_SELECTED;
+
     public function __construct(
         private WatchedRepository $repository,
         private RunStatus $runStatus,
@@ -25,9 +29,10 @@ final readonly class WatchedPresenter
     /**
      * @return array<string, mixed>
      */
-    public function present(WatchedFilters $filters, string $locale): array
+    public function present(WatchedFilters $filters, string $locale, ?\DateTimeImmutable $now = null): array
     {
-        $counts = $this->repository->counts($filters, $locale);
+        $now ??= new \DateTimeImmutable();
+        $counts = $this->repository->counts($filters, $locale, $now);
         $total = $counts[$filters->view->value];
         $percent = new \NumberFormatter($locale, \NumberFormatter::PERCENT);
         $percent->setAttribute(\NumberFormatter::FRACTION_DIGITS, 1);
@@ -35,7 +40,8 @@ final readonly class WatchedPresenter
         return [
             'filters' => $filters,
             'view' => $filters->view->value,
-            'rows' => array_map(fn (array $row): array => $this->row($row, $locale, $percent), $this->repository->page($filters, $locale)),
+            'rows' => array_map(fn (array $row): array => $this->row($row, $locale, $percent, $now), $this->repository->page($filters, $locale, $now)),
+            'staleDays' => LastWatch::STALE_DAYS,
             'counts' => $counts,
             'run' => $this->runStatus->present(),
             'tabs' => array_map(fn (WatchedView $view): array => [
@@ -56,7 +62,37 @@ final readonly class WatchedPresenter
                 'next' => $filters->offset() + WatchedFilters::PAGE_SIZE < $total ? $this->urlGenerator->generate('pricewatch_watched', $filters->withPage($filters->page + 1)->toQueryParams()) : null,
             ],
             'returnQuery' => http_build_query($filters->toQueryParams()),
+            'batches' => $this->batches($locale, $now),
         ];
+    }
+
+    /**
+     * What the action buttons above the list would do: collect the products
+     * never read, or read too long ago, at most a pass's worth at a time;
+     * pause the ones the shop no longer sells (asked 2026-10-13).
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function batches(string $locale, \DateTimeImmutable $now): array
+    {
+        $batches = [];
+
+        foreach ([WatchedView::Never, WatchedView::Stale] as $view) {
+            $batch = $this->repository->toCollect($view, self::BATCH, $now);
+            $batches[$view->value] = [
+                'total' => $batch['total'],
+                'products' => \count($batch['productIds']),
+                // Without a variant with a valid EAN, a product cannot be searched: not counted on the button.
+                'searchable' => $batch['searchable'],
+                'variants' => $batch['variants'],
+                'cost' => RunController::usd(ManualRun::worstCaseUsd($batch['variants']), $locale),
+            ];
+        }
+
+        $batches['offline'] = ['total' => \count($this->repository->offline())];
+        $batches['out_of_stock'] = ['total' => \count($this->repository->outOfStock())];
+
+        return $batches;
     }
 
     /**
@@ -64,13 +100,13 @@ final readonly class WatchedPresenter
      *
      * @return array<string, mixed>
      */
-    private function row(array $row, string $locale, \NumberFormatter $percent): array
+    private function row(array $row, string $locale, \NumberFormatter $percent, \DateTimeImmutable $now): array
     {
         $productId = (int) $row['product_id'];
         $monitored = (int) $row['monitored'];
         $collectable = (int) $row['collectable'];
         $bestGap = $row['best_gap'] === null ? null : (float) $row['best_gap'];
-        $lastCollected = $row['last_collected_at'] === null ? null : new \DateTimeImmutable((string) $row['last_collected_at']);
+        $lastWatched = $row['last_watched_at'] === null ? null : new \DateTimeImmutable((string) $row['last_watched_at']);
 
         return [
             'productId' => $productId,
@@ -82,10 +118,12 @@ final readonly class WatchedPresenter
             'status' => match (true) {
                 $monitored === 0 => 'paused',
                 $collectable === 0 => 'not_collectable',
-                $lastCollected === null => 'never',
+                $lastWatched === null => 'never',
+                LastWatch::isStale($lastWatched, $now) => 'stale',
                 default => 'collected',
             },
-            'lastCollected' => $lastCollected?->format('d/m/Y H:i'),
+            'lastCollected' => $lastWatched?->format('d/m/Y H:i'),
+            'daysAgo' => $lastWatched === null ? null : LastWatch::daysAgo($lastWatched, $now),
             'compared' => (int) $row['compared'],
             'review' => (int) $row['review'],
             'gap' => $bestGap === null ? null : ($bestGap > 0 ? '+' : '').$percent->format($bestGap / 100),

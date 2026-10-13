@@ -11,10 +11,12 @@ use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\BrandNormalizer;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
+use PriceWatch\Service\Normalizer\SizeNormalizer;
 use PriceWatch\Service\Normalizer\TextNormalizer;
 use PriceWatch\Service\Run\PassItems;
 use PriceWatch\Service\Run\PassStep;
@@ -25,7 +27,9 @@ use PriceWatch\Service\Source\CardRelevance;
 use PriceWatch\Service\Source\DataForSeoClient;
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\OurPrice;
+use PriceWatch\Service\Source\PageCoverage;
 use PriceWatch\Service\Source\ShoppingCollector;
+use PriceWatch\Service\Source\ShownSize;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use Propel\Runtime\ActiveQuery\Criteria;
@@ -158,8 +162,33 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertLessThanOrEqual(1_000_000 + 2 * 60, $clock, 'given up after the probe, not after the 600 s deadline');
         self::assertSame('partial', $result['run']->getStatus());
         self::assertStringContainsString('Internal SE Server Error', (string) $result['run']->getErrorsJson());
-        self::assertContains([PassStep::GtinSearch->value, 0, 1, PassItems::GTIN], $seen, 'the wait shows as the GTIN search, 0 of 1 answered, the product being searched by GTIN');
+        self::assertContains([PassStep::TitleSearch->value, 0, 1, PassItems::TITLE], $seen, 'the wait shows as the title search, 0 of 1 answered, the product being searched by title');
         self::assertSame([PassItems::ERROR, 0], $this->item($result['run'], (int) $identity->getProductId()), 'a failed search is no unknown product');
+    }
+
+    /**
+     * Observed live (2026-10-12): tasks_ready listed none of the title or
+     * sellers tasks, and each step ended at the first direct read, 30 s in.
+     */
+    public function testATaskTasksReadyNeverListsIsReadWithinSeconds(): void
+    {
+        $this->identity('3660600123454');
+        $clock = 1_000_000;
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['products/tasks_ready'] = ['status_code' => 20000, 'tasks' => [['status_code' => 20000, 'result' => []]]];
+        $answers['sellers/tasks_ready'] = $answers['products/tasks_ready'];
+
+        $this->collector(
+            $answers,
+            static function (int $seconds) use (&$clock): void {
+                $clock += $seconds;
+            },
+            static function () use (&$clock): int {
+                return $clock;
+            },
+        )->collect(1, 2, 600);
+
+        self::assertLessThanOrEqual(1_000_000 + 2 * 10, $clock, 'the search and the sellers lookup each read within 10 s');
     }
 
     public function testTheProductsAreListedBeforeTheFirstSearchLeaves(): void
@@ -174,7 +203,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
             }
         })->collect(10, 1, 60, [], true);
 
-        self::assertSame(PassItems::GTIN, $atPost, 'the list shows while Google is being asked, not after');
+        self::assertSame(PassItems::TITLE, $atPost, 'the list shows while Google is being asked, not after');
     }
 
     public function testASearchWithNoResultIsNoError(): void
@@ -230,6 +259,60 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertStringContainsString('Internal SE Server Error', (string) $result['run']->getErrorsJson());
     }
 
+    /**
+     * A failed search is no product Google does not know: an error, and a
+     * later pass searches the title again.
+     */
+    public function testAFailedTitleSearchIsAnError(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['products/task_get:title'] = $answers['products/task_get'];
+        $answers['products/task_get:title']['tasks'][0]['status_code'] = 40101;
+        $answers['products/task_get:title']['tasks'][0]['status_message'] = 'Internal SE Server Error.';
+        $answers['products/task_get:title']['tasks'][0]['result'] = null;
+
+        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getDataforseoTasks(), 'the title search only');
+        self::assertSame('partial', $result['run']->getStatus());
+        self::assertSame([PassItems::ERROR, 0], $this->item($result['run'], (int) $identity->getProductId()));
+    }
+
+    public function testAVariantReadOnTheCompetitorsOwnPageIsNotRecordedFromGoogle(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $competitor = \PriceWatch\Model\PwCompetitorQuery::create()->findOneByDomain($this->watched);
+        self::assertNotNull($competitor);
+        (new \PriceWatch\Model\PwCompetitorOffer())
+            ->setCompetitorId($competitor->getId())
+            ->setProductSaleElementsId($identity->getProductSaleElementsId())
+            ->setOfferKey(DirectCollector::OFFER_KEY_PREFIX.$identity->getProductSaleElementsId())
+            ->setMatchState('matched_exact')
+            ->setActive(1)
+            ->save();
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByOfferKey('shopping:'.$identity->getProductSaleElementsId())->count(), 'the proven reading is not doubled by Google\'s');
+        self::assertSame(0, $result['run']->getQuotesWritten());
+    }
+
+    /**
+     * Seen live (2026-10-12): a Stormer History led to a Stormer Ride Path
+     * card, which reached the review list at 21 %.
+     */
+    public function testACardSharingOnlyOurBrandIsNotWorthASellersLookup(): void
+    {
+        $identity = $this->identity('3660600123454', title: 'Casque Apple Vision');
+        $identity->setBrandLabel('Apple')->save();
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertArrayHasKey('Casque Apple Vision', $result['noPlausibleCard'], 'the card is "Apple iPhone 18 Pro": only the brand and a generic word are shared');
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
+    }
+
     public function testAnUnrelatedCardIsNotWorthASellersLookup(): void
     {
         $identity = $this->identity('3660600123454', title: 'Casque Bell Custom 500 Gloss Black');
@@ -237,9 +320,28 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
 
         self::assertSame(['Casque Bell Custom 500 Gloss Black'], array_keys($result['noPlausibleCard']));
-        self::assertContains('GTIN: Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], 'what Google returned is shown');
-        self::assertContains('title: Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black']);
-        self::assertSame(2, $result['run']->getDataforseoTasks(), 'both searches are paid, the sellers lookup is not');
+        self::assertContains('title: Apple iPhone 18 Pro', $result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], 'what Google returned is shown');
+        self::assertEmpty(array_filter($result['noPlausibleCard']['Casque Bell Custom 500 Gloss Black'], static fn (string $line): bool => !str_starts_with($line, 'title: ')), 'no GTIN search to report');
+        self::assertSame(1, $result['run']->getDataforseoTasks(), 'the search is paid, the sellers lookup is not');
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
+    }
+
+    /**
+     * Measured live (2026-10-09 to 12): 2 GTIN searches out of 91+ led to a
+     * card of ours, 18 ended in 40101 after about three minutes, billed all
+     * the same. Asked 2026-10-12: no GTIN search at all.
+     */
+    public function testATitleThatLeadsNowhereIsNeverFollowedByAGtinSearch(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $answers = $this->answers([$this->watched, null, null]);
+        // The GTIN would have found the card: it is not asked.
+        $answers['products/task_get:title'] = $this->unrelatedCards();
+
+        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getDataforseoTasks(), 'the title search only');
+        self::assertSame([PassItems::NO_CARD, 0], $this->item($result['run'], (int) $identity->getProductId()));
         self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
     }
 
@@ -250,12 +352,12 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
 
         $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
 
-        self::assertSame(3, $result['run']->getDataforseoTasks(), 'two searches, one sellers lookup');
+        self::assertSame(3, $result['run']->getDataforseoTasks(), 'two title searches, one sellers lookup');
         self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($small->getProductSaleElementsId())->count());
         self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($large->getProductSaleElementsId())->count(), 'the card\'s sellers reach every variant led to it');
     }
 
-    public function testAGtinGoogleDoesNotKnowFallsBackToOneTitleSearchPerProduct(): void
+    public function testAProductIsSearchedOnceByTitleForAllItsSizes(): void
     {
         $small = $this->identity('3660600123454');
         $this->addVariant($small, '3660600123461');
@@ -266,7 +368,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $result = $this->collector($answers)->collect(10, 1, 60, [], true);
 
         self::assertSame([], $result['noPlausibleCard']);
-        self::assertSame(4, $result['run']->getDataforseoTasks(), 'two GTIN searches, one title search for the product, one sellers lookup');
+        self::assertSame(2, $result['run']->getDataforseoTasks(), 'one title search for the product, one sellers lookup');
         self::assertSame(2, $result['run']->getQuotesWritten(), 'both variants reached through the title');
 
         $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($small->getProductSaleElementsId())->findOne();
@@ -274,18 +376,69 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame('title', json_decode((string) $quote?->getRawPayloadJson(), true)['searched_by'] ?? null, 'how the card was found stays on the reading');
     }
 
-    public function testAKnownGtinIsNotSearchedByTitle(): void
+    /**
+     * Observed live (2026-10-12): a card lists its sellers for one size, named
+     * in the offer's details, and recording it against every variant had Jev
+     * reject four sizes out of five.
+     */
+    public function testAnOfferOnlyReachesTheVariantsOfTheSizeItsCardShows(): void
     {
-        $identity = $this->identity('3660600123454');
+        $small = $this->identity('3660600123454');
+        $small->setSizeLabel('S')->save();
+        $medium = $this->addVariant($small, '3660600123461', 'M');
         $answers = $this->answers([$this->watched, null, null]);
-        $answers['products/task_get:title'] = $this->unrelatedCards();
+        $answers['sellers/task_get']['tasks'][0]['result'][0]['items'][0]['details'] = 'Casque SZ-R Vas Evo Arai Noir Mat M - casque jet moto Arai Homme ou Femme';
 
         $result = $this->collector($answers)->collect(10, 1, 60, [], true);
 
-        self::assertSame(2, $result['run']->getDataforseoTasks(), 'one GTIN search, one sellers lookup');
-        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
-        $quote = PwPriceQuoteQuery::create()->filterByOfferId($offer?->getId())->findOne();
-        self::assertSame('gtin', json_decode((string) $quote?->getRawPayloadJson(), true)['searched_by'] ?? null);
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($small->getProductSaleElementsId())->count(), 'the card shows M: nothing to judge for S');
+        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($medium->getProductSaleElementsId())->count());
+        self::assertSame(1, $result['run']->getQuotesWritten());
+    }
+
+    /**
+     * Asked 2026-10-12: every size of a helmet sold at the same price is one
+     * comparison, not five searches and five checks.
+     */
+    public function testOneSearchServesEverySizeWeSellAtTheSamePrice(): void
+    {
+        $small = $this->identity('3660600123454');
+        $small->setSizeLabel('S')->save();
+        $medium = $this->addVariant($small, '3660600123461', 'M', pricedLike: true);
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['sellers/task_get']['tasks'][0]['result'][0]['items'][0]['details'] = 'Casque SZ-R Vas Evo Arai Noir Mat M - casque jet moto';
+
+        $result = $this->collector($answers)->collect(10, 1, 60, [], true);
+
+        self::assertSame(2, $result['run']->getDataforseoTasks(), 'one title search for the product, one sellers lookup');
+        self::assertSame(1, $result['run']->getTargetsPlanned());
+        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($medium->getProductSaleElementsId())->count(), 'the size the card shows is recorded, though it was not searched');
+        self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($small->getProductSaleElementsId())->count());
+        $medium->reload();
+        self::assertNotNull($medium->getLastCollectedAt(), 'covered by the search: to the back of the queue too');
+    }
+
+    public function testTheLimitCountsSearchesSoSameMoneyReachesMoreProducts(): void
+    {
+        $small = $this->identity('3660600123454');
+        $this->addVariant($small, '3660600123461', 'M', pricedLike: true);
+        $other = $this->identity('3660600123478');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(2, 1, 60, [], true);
+
+        self::assertSame(2, $result['run']->getTargetsPlanned());
+        self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($other->getProductSaleElementsId())->count(), 'the second search goes to another product, not to a size the first one covers');
+    }
+
+    public function testSizesAtDifferentPricesAreEachATargetOfOneTitleSearch(): void
+    {
+        $small = $this->identity('3660600123454');
+        $this->addVariant($small, '3660600123461', 'M', pricedLike: true, price: 20.0);
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(2, $result['run']->getTargetsPlanned());
+        self::assertSame(2, $result['run']->getDataforseoTasks(), 'one title search for the product, one sellers lookup');
     }
 
     public function testAHumanMatchThatChangesGoesBackToAHumanNotToTheMachine(): void
@@ -320,6 +473,29 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame('matched_judged', $offer->getMatchState());
         $today = PwPriceQuoteQuery::create()->filterByOfferId($offer->getId())->filterByCollectedDay(new \DateTime('today'))->findOne();
         self::assertSame(1, $today?->getComparable(), 'today\'s reading counts as yesterday\'s did');
+    }
+
+    /**
+     * Asked 2026-10-13: how a competitor's price moved since the reading of
+     * an earlier day, kept on the offer.
+     */
+    public function testAReadingKeepsHowThePriceMovedSinceAnEarlierDay(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+        $offer = PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->findOne();
+        self::assertNotNull($offer);
+        self::assertNull($offer->getPreviousPrice(), 'first reading: nothing to compare with');
+        // Yesterday the seller asked 150.00.
+        PwPriceQuoteQuery::create()->filterByOfferId($offer->getId())->update(['CollectedDay' => new \DateTime('yesterday'), 'Price' => '150.000000']);
+
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+        $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        $offer->reload();
+        self::assertEqualsWithDelta(150.0, (float) $offer->getPreviousPrice(), 0.001, 'yesterday\'s, not this morning\'s: a second pass the same day compares with yesterday');
+        self::assertSame((new \DateTime('yesterday'))->format('Y-m-d'), $offer->getPreviousPriceDay()?->format('Y-m-d'));
+        self::assertEqualsWithDelta(-16.673, (float) $offer->getPriceChangePct(), 0.001, '124.99 against 150.00');
     }
 
     public function testTheProductPageIsKeptWhenItIsOnThisCompetitorsSite(): void
@@ -388,6 +564,58 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($other->getProductSaleElementsId())->count(), 'the second product is reached despite the limit');
     }
 
+    /**
+     * Asked 2026-10-13: DataForSEO only for a product no confirmed page
+     * covers, Google asked again every 90 days for new sellers.
+     */
+    public function testAProductWithAConfirmedPageIsLeftToTheDirectPass(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-80 days'))->save();
+        $this->confirmedPage($identity, $this->watched, '-80 days');
+        // Google showed another seller without a page: one page is enough.
+        $other = 'other-'.bin2hex(random_bytes(4)).'.example';
+        (new CompetitorRepository())->create($other, CompetitorStatus::Watched, 'manual');
+        $this->shoppingOffer($identity, $other, 'candidate');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, $result['run']->getDataforseoTasks(), 'nothing to ask Google');
+        self::assertSame(0, $result['run']->getTargetsPlanned());
+    }
+
+    public function testACoveredProductIsSearchedAgainAfterNinetyDays(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-91 days'))->save();
+        $this->confirmedPage($identity, $this->watched, '-120 days');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getTargetsPlanned(), 'for the sellers that appeared since');
+    }
+
+    public function testAProductFoundInASitemapIsNeverPutToGoogleBeforeNinetyDays(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $this->confirmedPage($identity, $this->watched, '-10 days');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, $result['run']->getTargetsPlanned(), 'never searched: the clock starts with the first page found');
+    }
+
+    public function testACandidatePageSparesNoSearch(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-3 days'))->save();
+        $this->confirmedPage($identity, $this->watched, status: \PriceWatch\Service\Direct\PageRepository::CANDIDATE);
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getTargetsPlanned(), 'not proven yet: it covers nothing');
+    }
+
     public function testWithoutWhitelistNothingIsPaidFor(): void
     {
         \PriceWatch\Model\PwCompetitorQuery::create()->filterByDomain($this->watched)->update(['Status' => CompetitorStatus::Proposed->value]);
@@ -442,7 +670,33 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         return $identity;
     }
 
-    private function addVariant(PwProductIdentity $of, string $gtin): void
+    private function confirmedPage(PwProductIdentity $identity, string $domain, string $createdAt = 'now', string $status = \PriceWatch\Service\Direct\PageRepository::CONFIRMED): void
+    {
+        $competitor = \PriceWatch\Model\PwCompetitorQuery::create()->findOneByDomain($domain);
+        self::assertNotNull($competitor);
+        $pages = new \PriceWatch\Service\Direct\PageRepository();
+        $page = $pages->add((int) $competitor->getId(), (int) $identity->getProductId(), 'https://www.'.$domain.'/casque-'.bin2hex(random_bytes(3)).'.html', 'manual');
+        $pages->setStatus($page, $status, 'manual');
+        \PriceWatch\Model\PwCompetitorPageQuery::create()->filterById($page->getId())->update(['CreatedAt' => new \DateTime($createdAt)]);
+    }
+
+    private function shoppingOffer(PwProductIdentity $identity, string $domain, string $state): void
+    {
+        $competitor = \PriceWatch\Model\PwCompetitorQuery::create()->findOneByDomain($domain);
+        self::assertNotNull($competitor);
+        (new \PriceWatch\Model\PwCompetitorOffer())
+            ->setCompetitorId($competitor->getId())
+            ->setProductSaleElementsId($identity->getProductSaleElementsId())
+            ->setOfferKey('shopping:'.$identity->getProductSaleElementsId())
+            ->setMatchState($state)
+            ->setActive(1)
+            ->save();
+    }
+
+    /**
+     * @param bool $pricedLike given the price row of $of (factory: 10.00 excluding tax), or $price when set
+     */
+    private function addVariant(PwProductIdentity $of, string $gtin, ?string $size = null, bool $pricedLike = false, ?float $price = null): PwProductIdentity
     {
         $saleElement = (new \Thelia\Model\ProductSaleElements())
             ->setProductId($of->getProductId())
@@ -451,14 +705,29 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
             ->setIsDefault(false);
         $saleElement->save();
 
-        (new PwProductIdentity())
+        if ($pricedLike) {
+            $model = \Thelia\Model\ProductPriceQuery::create()->filterByProductSaleElementsId($of->getProductSaleElementsId())->findOne();
+            self::assertNotNull($model);
+            $copy = $model->copy()->setProductSaleElementsId($saleElement->getId());
+
+            if ($price !== null) {
+                $copy->setPrice(number_format($price, 6, '.', ''))->setPromoPrice(number_format($price, 6, '.', ''));
+            }
+
+            $copy->save();
+        }
+
+        $identity = (new PwProductIdentity())
             ->setProductSaleElementsId($saleElement->getId())
             ->setProductId($of->getProductId())
             ->setGtin(str_pad($gtin, 14, '0', \STR_PAD_LEFT))
             ->setGtinValid(1)
             ->setGtinShared(0)
-            ->setMonitored(1)
-            ->save();
+            ->setSizeLabel($size)
+            ->setMonitored(1);
+        $identity->save();
+
+        return $identity;
     }
 
     /**
@@ -581,6 +850,8 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
             new IdentityFingerprint($text, new BrandNormalizer($text), new GtinNormalizer()),
             new OurPrice(new TaxCalculatorFactory()),
             new CardRelevance($text),
+            new ShownSize(new SizeNormalizer($text)),
+            new PageCoverage(),
             $sleep ?? static function (int $seconds): void {},
             null,
             $now,

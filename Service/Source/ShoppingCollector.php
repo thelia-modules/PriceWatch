@@ -12,7 +12,10 @@ use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
+use PriceWatch\Service\Comparator\ComparatorView;
+use PriceWatch\Service\Comparator\PriceChange;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
 use PriceWatch\Service\Normalizer\TextNormalizer;
@@ -29,8 +32,8 @@ use Thelia\Model\ProductI18nQuery;
  *
  * Google Shopping returns no GTIN anywhere (DataForSEO docs read 2026-10-09),
  * so strict GTIN equality is impossible on this source. Instead: search
- * Shopping with our GTIN, take the product card Google attaches to it, read
- * that card's sellers, keep the whitelisted ones. The offer is stored as a
+ * Shopping with our product title, take the product card Google attaches to
+ * it, read that card's sellers, keep the whitelisted ones. The offer is stored as a
  * candidate; pricewatch:judge decides whether it is really our variant.
  *
  * Merchants outside the whitelist are counted, never stored: the blacklist is
@@ -41,16 +44,22 @@ final readonly class ShoppingCollector
 {
     public const PASS = 'collect';
     public const SOURCE = 'dataforseo';
-    private const POLL_SECONDS = 10;
+    private const POLL_SECONDS = 5;
 
-    /** After this, late tasks are read directly instead of waited for. */
-    private const PROBE_AFTER_SECONDS = 30;
+    /**
+     * After this, late tasks are read directly instead of waited for. Reading
+     * is free, and tasks_ready listed none of the title or sellers tasks of
+     * 2026-10-12: at 30 s, every step lasted at least 30 s.
+     */
+    private const PROBE_AFTER_SECONDS = 5;
 
     /** How often the wait is reported in the log. */
     private const REPORT_EVERY_SECONDS = 60;
     private const LOCALE = 'fr_FR';
     private const HUMAN_MATCH = 'matched_manual';
-    private const MATCHED_STATES = ['matched_exact', 'matched_judged', 'matched_manual'];
+
+    /** Rows read per search allowed: sizes riding on another's search are skipped. */
+    private const SCAN_PER_SEARCH = 20;
 
     /** @var \Closure(int): void */
     private \Closure $sleep;
@@ -71,6 +80,8 @@ final readonly class ShoppingCollector
         private IdentityFingerprint $fingerprint,
         private OurPrice $ourPrice,
         private CardRelevance $relevance,
+        private ShownSize $shownSize,
+        private PageCoverage $coverage,
         ?\Closure $sleep = null,
         ?PriceWatchLog $log = null,
         ?\Closure $now = null,
@@ -134,7 +145,7 @@ final readonly class ShoppingCollector
             ->save();
 
         $seconds = $run->getFinishedAt() !== null && $run->getStartedAt() !== null ? $run->getFinishedAt()->getTimestamp() - $run->getStartedAt()->getTimestamp() : 0;
-        $this->log->log($status === 'success' ? 'info' : 'warning', 'Collect pass #{run} {status} in {seconds} s: {targets} variant(s), {tasks} task(s), {cost} USD, {seen} offer(s) seen, {written} recorded, {errors} error(s).', [
+        $this->log->log($status === 'success' ? 'info' : 'warning', 'Collect pass #{run} {status} in {seconds} s: {targets} variant(s), {tasks} task(s), {cost} USD, {seen} offer(s) seen, {written} recorded, {otherSize} left out as another size, {errors} error(s).', [
             'run' => $run->getId(),
             'status' => $status,
             'seconds' => $seconds,
@@ -143,6 +154,7 @@ final readonly class ShoppingCollector
             'cost' => number_format($tally->costUsd, 3, '.', ''),
             'seen' => $tally->seen,
             'written' => $tally->written,
+            'otherSize' => $tally->otherSize,
             'errors' => \count($tally->errors),
         ]);
     }
@@ -157,98 +169,91 @@ final readonly class ShoppingCollector
         $watched = $this->watchedCompetitors();
         $domainsById = array_flip($watched);
         $sellers = new SellerMatcher($watched, $this->domains, $this->text);
-        $identities = $this->identities($limit, $productRefs, $onePerProduct);
-        $tally->targets = \count($identities);
-        $this->log->info('Collect: {variants} variant(s) to search, {competitors} whitelisted competitor(s).', ['variants' => \count($identities), 'competitors' => \count($watched)]);
+        // A product whose sizes we all sell at one price is one comparison:
+        // one variant is searched, the others ride on the card it leads to.
+        [$identities, $ridesOn] = $this->identities($limit, $productRefs, $onePerProduct);
+        $searched = array_diff_key($identities, $ridesOn);
+        $tally->targets = \count($searched);
+        $this->log->info('Collect: {variants} variant(s) to search, {riders} more at the same price, {competitors} whitelisted competitor(s).', ['variants' => \count($searched), 'riders' => \count($ridesOn), 'competitors' => \count($watched)]);
 
         if ($watched === []) {
             $tally->errors[] = 'No whitelisted competitor: nothing would be compared. Add competitors to the whitelist first.';
         }
 
         if ($watched !== [] && $identities !== []) {
-            // 1. Find the product card Google attaches to each GTIN.
+            // 1. Search each product once by its title, never by GTIN.
+            // Measured live (2026-10-09 to 12): 2 GTIN searches out of 91+
+            // led to a card of ours, 18 ended in 40101 "Internal SE Server
+            // Error" after about three minutes, billed all the same; the
+            // title found every card recorded. Telling the variant apart is
+            // Jev's job.
             $titles = $this->productTitles($identities);
-            $gtins = [];
-            $ourTitles = [];
             $items = new PassItems();
+            $brands = [];
 
-            foreach ($identities as $id => $identity) {
-                $gtins[(string) $id] = self::searchableGtin((string) $identity->getGtin());
-                $ourTitles[(string) $id] = $titles[(int) $identity->getProductId()] ?? '';
+            foreach ($identities as $identity) {
                 $items->add((int) $identity->getProductId(), $titles[(int) $identity->getProductId()] ?? '', $identity->getSizeLabel());
+                $brands[(int) $identity->getProductId()] ??= $identity->getBrandLabel();
             }
 
-            $items->set(PassItems::GTIN);
+            $titleKeywords = [];
+            $titleBrands = [];
+
+            foreach ($searched as $identity) {
+                $productId = (int) $identity->getProductId();
+
+                if (($titles[$productId] ?? '') !== '') {
+                    $titleKeywords['p'.$productId] = $titles[$productId];
+                    $titleBrands['p'.$productId] = $brands[$productId] ?? null;
+                }
+            }
+
+            $items->set(PassItems::TITLE);
             $items->save($run);
 
-            $byGtin = $this->searchCards($run, PassStep::GtinSearch, $gtins, $ourTitles, 'identity', $priority, $maxWaitSeconds, $sandbox);
+            $byTitle = $this->searchCards($run, PassStep::TitleSearch, $titleKeywords, $titleKeywords, $titleBrands, 'product', $priority, $maxWaitSeconds, $sandbox);
 
             // Paid at the post, whatever comes back: these go to the back of
             // the queue for the next pass.
             PwProductIdentityQuery::create()
                 ->filterById(array_keys($identities), Criteria::IN)
                 ->update(['LastCollectedAt' => new \DateTime()]);
-            $cards = $byGtin['cards'];
-            $searchedBy = array_fill_keys(array_keys($cards), 'gtin');
-
-            // 1b. Observed live (2026-10-09): Google knew 2 GTINs out of 10,
-            // while a title search found the right card. A product whose GTIN
-            // led nowhere is searched once by title, for all its variants
-            // at once; telling the variant apart is Jev's job.
-            $missedByProduct = [];
+            // Keyed like the search tags, which the sellers step reads back.
+            /** @var array<array-key, ShoppingCard> $cards */
+            $cards = [];
 
             foreach ($identities as $id => $identity) {
-                if (!isset($cards[$id])) {
-                    $missedByProduct[(int) $identity->getProductId()][] = (string) $id;
+                $card = $byTitle['cards']['p'.$identity->getProductId()] ?? null;
+
+                if ($card !== null) {
+                    $cards[$id] = $card;
                 }
             }
 
-            $items->set(PassItems::SELLERS);
-            $items->set(PassItems::TITLE, array_keys($missedByProduct));
-            $items->save($run);
-            $titleKeywords = [];
+            $withCard = array_flip($this->productIdsOf($identities, array_keys($cards)));
+            $items->set(PassItems::SELLERS, array_keys($withCard));
+            $reported = [];
 
-            foreach (array_keys($missedByProduct) as $productId) {
-                if (($titles[$productId] ?? '') !== '') {
-                    $titleKeywords['p'.$productId] = $titles[$productId];
-                }
-            }
+            foreach ($searched as $identity) {
+                $productId = (int) $identity->getProductId();
 
-            $byTitle = $this->searchCards($run, PassStep::TitleSearch, $titleKeywords, $titleKeywords, 'product', $priority, $maxWaitSeconds, $sandbox);
-
-            foreach ($missedByProduct as $productId => $tags) {
-                $card = $byTitle['cards']['p'.$productId] ?? null;
-
-                if ($card === null) {
-                    // A search that failed is not a product Google does not know.
-                    $failed = \in_array('p'.$productId, $byTitle['failed'], true)
-                        || (!isset($titleKeywords['p'.$productId]) && array_intersect($tags, $byGtin['failed']) !== []);
-                    $items->set($failed ? PassItems::ERROR : PassItems::NO_CARD, [$productId]);
-
-                    // Kept for the report: a human tells a strict gate from
-                    // a product Google does not know at a glance.
-                    $tally->noCard[$titles[$productId] ?? '#'.$productId] = array_merge(
-                        array_map(static fn (string $title): string => 'GTIN: '.$title, \array_slice($byGtin['missed'][$tags[0]] ?? [], 0, 2)),
-                        array_map(static fn (string $title): string => 'title: '.$title, \array_slice($byTitle['missed']['p'.$productId] ?? [], 0, 2)),
-                    );
+                if (isset($withCard[$productId]) || isset($reported[$productId])) {
                     continue;
                 }
 
-                $items->set(PassItems::SELLERS, [$productId]);
+                $reported[$productId] = true;
+                // A search that failed is not a product Google does not know.
+                $items->set(\in_array('p'.$productId, $byTitle['failed'], true) ? PassItems::ERROR : PassItems::NO_CARD, [$productId]);
 
-                foreach ($tags as $tag) {
-                    $cards[$tag] = $card;
-                    $searchedBy[$tag] = 'title';
-                }
+                // Kept for the report: a human tells a strict gate from a
+                // product Google does not know at a glance.
+                $tally->noCard[$titles[$productId] ?? '#'.$productId] = array_map(static fn (string $title): string => 'title: '.$title, \array_slice($byTitle['missed']['p'.$productId] ?? [], 0, 2));
             }
 
             $items->save($run);
-
-            foreach ([$byGtin, $byTitle] as $search) {
-                $tally->costUsd += $search['costUsd'];
-                $tally->tasks += $search['tasks'];
-                array_push($tally->errors, ...$search['errors']);
-            }
+            $tally->costUsd += $byTitle['costUsd'];
+            $tally->tasks += $byTitle['tasks'];
+            array_push($tally->errors, ...array_values($byTitle['errors']));
 
             // 2. Read the sellers of each card, once per card: the variants
             // of one product often lead Google to the same card.
@@ -289,11 +294,21 @@ final readonly class ShoppingCollector
                     // error stays visible.
                     $items->set(PassItems::DONE, array_values(array_filter($ours, static fn (int $ourId): bool => $items->status($ourId) !== PassItems::ERROR)));
 
+                    // The card shows one size: each offer only reaches our
+                    // variants of the size its details name.
+                    $sizeByTag = [];
+
+                    foreach ($tagsByProductId[$productId] ?? [] as $tag) {
+                        $sizeByTag[$tag] = $identities[(int) $tag]->getSizeLabel();
+                    }
+
+                    $shown = array_map(fn (SellerOffer $offer): array => array_flip($this->shownSize->variantsShown($offer->details, $sizeByTag)), $offers);
+
                     foreach ($tagsByProductId[$productId] ?? [] as $tag) {
                         $identity = $identities[(int) $tag];
                         $ourPrice = $this->ourPrice->inclTax((int) $identity->getProductSaleElementsId());
 
-                        foreach ($offers as $offer) {
+                        foreach ($offers as $index => $offer) {
                             ++$tally->seen;
                             $competitorId = $sellers->competitorOf($offer);
 
@@ -303,13 +318,18 @@ final readonly class ShoppingCollector
                                 continue;
                             }
 
+                            if (!isset($shown[$index][(string) $tag])) {
+                                ++$tally->otherSize;
+                                continue;
+                            }
+
                             $items->offerRecorded((int) $identity->getProductId());
                             $links = [
                                 'merchant' => $this->merchantUrl($listing['pageUrl'], $domainsById[$competitorId] ?? null),
                                 'google' => $listing['googleUrl'] ?? $cards[$tag]->googleUrl,
                             ];
 
-                            if ($this->record($identity, $competitorId, $cards[$tag], $searchedBy[$tag], $offer, $links, $ourPrice, (int) $run->getId())) {
+                            if ($this->record($identity, $competitorId, $cards[$tag], 'title', $offer, $links, $ourPrice, (int) $run->getId())) {
                                 ++$tally->written;
                             }
                         }
@@ -336,14 +356,15 @@ final readonly class ShoppingCollector
      * Posts the searches, waits, and keeps for each the first card whose
      * title is plausible against ours.
      *
-     * @param array<string, string> $keywordsByTag
-     * @param array<string, string> $ourTitleByTag
+     * @param array<array-key, string> $keywordsByTag PHP turns numeric tags into int keys
+     * @param array<array-key, string> $ourTitleByTag
+     * @param array<array-key, ?string> $brandByTag    our brand: alone, it makes no card ours
      *
-     * @return array{cards: array<string, ShoppingCard>, missed: array<string, list<string>>, costUsd: float, tasks: int, errors: list<string>, failed: list<string>} failed: tags whose search ended in error
+     * @return array{cards: array<array-key, ShoppingCard>, missed: array<array-key, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>} errors keyed by tag; failed: tags whose search ended in error
      *
      * @throws DataForSeoException
      */
-    private function searchCards(PwCollectRun $run, PassStep $step, array $keywordsByTag, array $ourTitleByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
+    private function searchCards(PwCollectRun $run, PassStep $step, array $keywordsByTag, array $ourTitleByTag, array $brandByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
     {
         $found = ['cards' => [], 'missed' => [], 'costUsd' => 0.0, 'tasks' => 0, 'errors' => [], 'failed' => []];
 
@@ -366,14 +387,14 @@ final readonly class ShoppingCollector
             } catch (DataForSeoException $error) {
                 // Observed live: a task can end in 40101 "Internal SE Server
                 // Error". One failed search must not sink the pass.
-                $found['errors'][] = \sprintf('search for %s %s: %s', $subject, $tag, $error->getMessage());
+                $found['errors'][(string) $tag] = \sprintf('search for %s %s: %s', $subject, $tag, $error->getMessage());
                 $found['failed'][] = (string) $tag;
                 $this->log->warning('Collect: search for {subject} {tag} failed: {error}', ['subject' => $subject, 'tag' => $tag, 'error' => $error->getMessage(), 'task' => $taskId]);
                 continue;
             }
 
             foreach ($result['cards'] as $card) {
-                if ($this->relevance->isPlausible($ourTitleByTag[$tag] ?? '', $card->title)) {
+                if ($this->relevance->isPlausible($ourTitleByTag[$tag] ?? '', $card->title, $brandByTag[$tag] ?? null)) {
                     $found['cards'][$tag] = $card;
                     continue 2;
                 }
@@ -408,12 +429,14 @@ final readonly class ShoppingCollector
     }
 
     /**
-     * An EAN-13 travels as 13 digits: the 14-digit padded form is our storage
-     * format, not what merchants publish.
+     * @param array<int, PwProductIdentity> $identities
+     * @param list<int|string>              $ids
+     *
+     * @return list<int> the products behind these identities, once each
      */
-    public static function searchableGtin(string $gtin14): string
+    private function productIdsOf(array $identities, array $ids): array
     {
-        return str_starts_with($gtin14, '0') && \strlen($gtin14) === 14 ? substr($gtin14, 1) : $gtin14;
+        return array_values(array_unique(array_map(static fn (int|string $id): int => (int) $identities[(int) $id]->getProductId(), $ids)));
     }
 
     /**
@@ -502,12 +525,19 @@ final readonly class ShoppingCollector
     }
 
     /**
-     * Only variants whose GTIN can be searched: valid and not shared, since a
-     * shared GTIN points Google at a card for several variants.
+     * Only variants with a valid GTIN of their own, as when Google was
+     * searched by GTIN: the back office calls the others "not collectable".
+     *
+     * A product with a confirmed competitor page is left to the direct pass
+     * (PageCoverage).
+     *
+     * A product whose sizes we all sell at one price costs one search: its
+     * other sizes ride on the card the searched one leads to, and the limit,
+     * which counts searches, moves on to other products.
      *
      * @param list<string> $productRefs
      *
-     * @return array<int, PwProductIdentity> keyed by identity id
+     * @return array{0: array<int, PwProductIdentity>, 1: array<int, int>} every identity keyed by id, rider id => id of the one searched
      */
     private function identities(int $limit, array $productRefs, bool $onePerProduct): array
     {
@@ -522,7 +552,8 @@ final readonly class ShoppingCollector
             ->orderById();
 
         if (!$onePerProduct) {
-            $query->limit($limit);
+            // Sizes skipped as riders must not starve the limit.
+            $query->limit(max($limit * self::SCAN_PER_SEARCH, $limit));
         }
 
         if ($productRefs !== []) {
@@ -530,14 +561,36 @@ final readonly class ShoppingCollector
         }
 
         $identities = [];
-        $products = [];
+        $searchedByProduct = [];
+        $onePrice = [];
+        $rows = $query->find()->getData();
+        // A confirmed competitor page covers them: no search needed.
+        $covered = $this->coverage->covered(array_values(array_unique(array_map(static fn (PwProductIdentity $identity): int => (int) $identity->getProductId(), $rows))), new \DateTimeImmutable());
 
-        foreach ($query->find() as $identity) {
-            if ($onePerProduct && isset($products[(int) $identity->getProductId()])) {
+        if ($covered !== []) {
+            $this->log->info('Collect: {count} product(s) left to the direct pass: a confirmed competitor page covers them, Google asked again after {days} days.', ['count' => \count($covered), 'days' => PageCoverage::REDISCOVER_DAYS]);
+        }
+
+        foreach ($rows as $identity) {
+            $productId = (int) $identity->getProductId();
+
+            if (isset($covered[$productId])) {
                 continue;
             }
 
-            $products[(int) $identity->getProductId()] = true;
+            if (isset($searchedByProduct[$productId])) {
+                if ($onePerProduct) {
+                    continue;
+                }
+
+                $onePrice[$productId] ??= $this->onePriceSizes($productId);
+
+                if ($onePrice[$productId] !== false) {
+                    continue;
+                }
+            }
+
+            $searchedByProduct[$productId] ??= (int) $identity->getId();
             $identities[(int) $identity->getId()] = $identity;
 
             if (\count($identities) >= $limit) {
@@ -545,7 +598,43 @@ final readonly class ShoppingCollector
             }
         }
 
-        return $identities;
+        $ridesOn = [];
+
+        if ($onePerProduct) {
+            return [$identities, $ridesOn];
+        }
+
+        foreach ($searchedByProduct as $productId => $searchedId) {
+            $sizes = $onePrice[$productId] ??= $this->onePriceSizes($productId);
+
+            foreach ($sizes === false ? [] : $sizes as $id => $identity) {
+                if ($id !== $searchedId) {
+                    $identities[$id] = $identity;
+                    $ridesOn[$id] = $searchedId;
+                }
+            }
+        }
+
+        return [$identities, $ridesOn];
+    }
+
+    /**
+     * The monitored sizes of a product we sell at one price, or false when
+     * there is a single size, a size without price, or two prices.
+     *
+     * @return array<int, PwProductIdentity>|false keyed by identity id
+     */
+    private function onePriceSizes(int $productId): array|false
+    {
+        $sizes = [];
+
+        foreach (PwProductIdentityQuery::create()->filterByProductId($productId)->filterByMonitored(1)->find() as $identity) {
+            $sizes[(int) $identity->getId()] = $identity;
+        }
+
+        $prices = array_map(fn (PwProductIdentity $identity): ?string => $this->ourPrice->inclTax((int) $identity->getProductSaleElementsId()), $sizes);
+
+        return \count($sizes) < 2 || \in_array(null, $prices, true) || \count(array_unique($prices)) !== 1 ? false : $sizes;
     }
 
     /**
@@ -575,6 +664,12 @@ final readonly class ShoppingCollector
         $offerKey = 'shopping:'.$saleElementId;
         $now = new \DateTime();
 
+        // Read straight from this competitor's page: Google's reading of the
+        // same variant would only compete with the proven one.
+        if (PwCompetitorOfferQuery::create()->filterByCompetitorId($competitorId)->filterByOfferKey(DirectCollector::OFFER_KEY_PREFIX.$saleElementId)->filterByActive(1)->count() > 0) {
+            return false;
+        }
+
         $model = PwCompetitorOfferQuery::create()->filterByCompetitorId($competitorId)->filterByOfferKey($offerKey)->findOne()
             ?? (new PwCompetitorOffer())
                 ->setCompetitorId($competitorId)
@@ -600,7 +695,7 @@ final readonly class ShoppingCollector
 
         // An unchanged matched offer keeps its verdict: today's reading counts
         // in the gap as yesterday's did.
-        $comparable = !$drifted && \in_array($model->getMatchState(), self::MATCHED_STATES, true) && (int) $model->getLastComparable() === 1;
+        $comparable = !$drifted && ComparatorView::inGap($model->getMatchState(), $model->getLastComparable());
 
         $price = $offer->priceExcludingShipping();
         $delta = $price !== null && $ourPrice !== null ? (float) $price - (float) $ourPrice : null;
@@ -621,8 +716,9 @@ final readonly class ShoppingCollector
             ->setLastDelta($delta === null ? null : number_format($delta, 6, '.', ''))
             ->setLastDeltaPct($delta === null || (float) $ourPrice === 0.0 ? null : number_format($delta / (float) $ourPrice * 100, 3, '.', ''))
             ->setLastSeenAt($now)
-            ->setActive(1)
-            ->save();
+            ->setActive(1);
+        PriceChange::apply($model);
+        $model->save();
 
         // One reading per offer, per day, per source: a rerun the same day
         // refreshes nothing and duplicates nothing.

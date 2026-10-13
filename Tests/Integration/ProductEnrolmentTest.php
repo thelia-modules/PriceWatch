@@ -51,7 +51,9 @@ final class ProductEnrolmentTest extends PriceWatchIntegrationTestCase
     public function testAWrongEanInTheCatalogueIsKeptToBeFixed(): void
     {
         [$product, $medium] = $this->productWithSizes();
-        $medium->setEanCode('3660600123455')->save();
+        // The core now refuses a wrong check digit when a variant is saved;
+        // catalogues filled before it still hold some. Written as such a row.
+        ProductSaleElementsQuery::create()->filterById($medium->getId())->update(['EanCode' => '3660600123455']);
 
         $this->enrolment()->enrol((int) $product->getId());
 

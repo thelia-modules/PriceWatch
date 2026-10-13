@@ -15,6 +15,11 @@ use PriceWatch\Service\Normalizer\TextNormalizer;
  * least one distinctive word with ours: a brand or a model name, not
  * "casque", "cuir" or "noir", which every card in the trade carries.
  *
+ * The brand alone is not enough (seen live 2026-10-12): Stormer History
+ * led to a Stormer Ride Path card, Nox N243 to a Nox Spinner, Bell Custom 500
+ * to a Bell TX-501; one of them reached the review list. When our brand is
+ * known, the shared word must be another one: a model name.
+ *
  * This only spares money on the absurd. Deciding that the card is our
  * product remains Jev's job, in pricewatch:judge.
  */
@@ -35,9 +40,11 @@ final readonly class CardRelevance
     ) {
     }
 
-    public function isPlausible(string $ourTitle, string $cardTitle): bool
+    public function isPlausible(string $ourTitle, string $cardTitle, ?string $brand = null): bool
     {
-        return array_intersect($this->distinctiveWords($ourTitle), $this->distinctiveWords($cardTitle)) !== [];
+        $brandWords = $brand === null ? [] : explode(' ', $this->text->normalize($brand));
+
+        return array_diff(array_intersect($this->distinctiveWords($ourTitle), $this->distinctiveWords($cardTitle)), $brandWords) !== [];
     }
 
     /**

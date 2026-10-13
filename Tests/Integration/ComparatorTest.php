@@ -35,6 +35,9 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     private PwCompetitor $watched;
     private string $tag;
 
+    /** @var list<string> pictures written for the test, removed after it */
+    private array $pictures = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -48,6 +51,15 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $this->tag = bin2hex(random_bytes(4));
         $this->repository = new ComparatorRepository();
         $this->watched = (new CompetitorRepository())->create('cmp-'.$this->tag.'.example', CompetitorStatus::Watched, 'manual');
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->pictures as $path) {
+            @unlink($path);
+        }
+
+        parent::tearDown();
     }
 
     public function testEveryOfferIsInExactlyOneTab(): void
@@ -68,6 +80,56 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $gaps = $this->repository->page($filters);
         self::assertSame($cheapest->getId(), $gaps[0]->getId(), 'the most worrying gap first: competitor cheapest');
         self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2));
+    }
+
+    /**
+     * Asked 2026-10-13: a doubt on the price or the size is shown and counted
+     * in the gaps, tagged to check; only a doubt on the article stays in the
+     * review tab.
+     */
+    public function testDoubtsOnPriceOrSizeCountInTheGapsTaggedToCheck(): void
+    {
+        $product = $this->product('Blouson Segura Lady Funky '.$this->tag);
+        // As the judge leaves them: a doubt on the price or the size keeps
+        // the offer comparable, a doubt on the article does not.
+        $this->offer($product, 'needs_review', comparable: true, deltaPct: '49.500', size: 'T2')->setMatchReason('PRICE_GAP_SUSPECT')->save();
+        $this->offer($product, 'needs_review', comparable: true, deltaPct: '-3.000', size: 'T4')->setMatchReason('VARIANT_UNCLEAR')->save();
+        $article = $this->offer($product, 'needs_review', comparable: false, deltaPct: '-30.000', size: 'T5');
+        $article->setMatchReason('PRODUCT_UNCLEAR')->save();
+
+        $filters = new ComparatorFilters(search: $this->tag);
+
+        self::assertSame(['gaps' => 2, 'review' => 1, 'pending' => 0, 'excluded' => 0], $this->repository->counts($filters));
+        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2), 'counted like any other offer');
+        $lines = $this->presenter()->present($filters, 'fr_FR')['products'][0]['lines'];
+        self::assertSame([true, true], array_column($lines, 'toCheck'), 'tagged: no human decided');
+        self::assertSame([(int) $article->getId()], $this->ids(new ComparatorFilters(view: ComparatorView::Review, search: $this->tag)), 'another article maybe: still a human\'s call');
+    }
+
+    /**
+     * Asked 2026-10-13: see where a competitor lowered its price since the
+     * reading before.
+     */
+    public function testAPriceDropShowsAndCanBeFilteredOn(): void
+    {
+        $dropped = $this->product('Baisse '.$this->tag);
+        $this->offer($dropped, 'matched_judged', comparable: true, deltaPct: '-10.000')
+            ->setPreviousPrice('112.500000')->setPreviousPriceDay(new \DateTime('2026-10-12'))->setPriceChangePct('-20.000')->save();
+        $risen = $this->product('Hausse '.$this->tag);
+        $this->offer($risen, 'matched_judged', comparable: true, deltaPct: '5.000')->setPreviousPrice('85.000000')->setPriceChangePct('5.882')->save();
+        $noise = $this->product('Centimes '.$this->tag);
+        $this->offer($noise, 'matched_judged', comparable: true, deltaPct: '1.000')->setPreviousPrice('90.40')->setPriceChangePct('-0.442')->save();
+
+        $filtered = $this->presenter()->present(new ComparatorFilters(search: $this->tag, droppedOnly: true), 'fr_FR');
+        $all = array_column($this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['products'], null, 'id');
+
+        self::assertSame([(int) $dropped->getId()], array_column($filtered['products'], 'id'), 'only where the price fell, from 1 %');
+        self::assertSame('down', $all[(int) $dropped->getId()]['lines'][0]['change']['direction']);
+        self::assertSame('12/10', $all[(int) $dropped->getId()]['lines'][0]['change']['since']);
+        self::assertSame('20,0 %', str_replace("\u{a0}", ' ', $all[(int) $dropped->getId()]['lines'][0]['change']['pct']), 'unsigned: "down" already says which way');
+        self::assertSame('up', $all[(int) $risen->getId()]['lines'][0]['change']['direction']);
+        self::assertNull($all[(int) $noise->getId()]['lines'][0]['change'], 'under 1 %: noise, not shown');
+        self::assertArrayHasKey('dropped', (new ComparatorFilters(droppedOnly: true))->withPage(2)->toQueryParams(), 'the filter survives paging');
     }
 
     public function testOffersOfCompetitorsOffTheWhitelistAreNeverShown(): void
@@ -137,11 +199,19 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $offer->reload();
         self::assertSame('needs_review', $offer->getMatchState());
         self::assertSame('REOPENED', $offer->getMatchReason());
+        self::assertSame(1, $offer->getLastComparable(), 'counted again meanwhile, tagged to check (2026-10-13)');
+
+        $promotion = $this->offer($this->product('Premier Trophy'), 'matched_judged', comparable: false, deltaPct: '-40.000', exclusion: 'promotional');
+        $review->reopen($promotion, 'emmanuel');
+        $promotion->reload();
+        self::assertSame([0, 'promotional'], [$promotion->getLastComparable(), $promotion->getExclusionReason()], 'a price that never compares stays out');
     }
 
     /**
-     * Plan stage E8: the gaps tab must be read through idx_pw_offer_screen,
-     * filter and order alike, without a sort pass, at a realistic volume.
+     * Plan stage E8: the offer list sorted by gap must be read through
+     * idx_pw_offer_screen, filter and order alike, without a sort pass, at a
+     * realistic volume. Since 2026-10-12 the gaps tab pages by product
+     * (productPage): its filter still reads this index, its groups are sorted.
      */
     public function testTheGapsTabIsServedByTheScreenIndexWithoutSorting(): void
     {
@@ -225,6 +295,97 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertArrayHasKey((int) $product->getId(), $images, 'any offer of the product lends its card picture');
     }
 
+    /**
+     * Asked 2026-10-12: the sizes of one product read at one price at one
+     * competitor are one line, not five.
+     */
+    public function testTheSizesOfAProductAtOnePriceAreOneLine(): void
+    {
+        $product = $this->product('Casque Arai '.$this->tag);
+        $medium = $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-10.000');
+        $small = $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-10.000', size: 'S');
+        $large = $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-10.000', size: 'L');
+        $dearer = $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-5.000', size: 'XL', price: '95.00');
+
+        $rows = $this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['rows'];
+
+        self::assertCount(2, $rows, 'one line for M, S and L; XL is sold at another price');
+        $grouped = array_values(array_filter($rows, static fn (array $row): bool => \count($row['groupIds']) > 1))[0] ?? null;
+        self::assertNotNull($grouped);
+        self::assertEqualsCanonicalizing(['M', 'S', 'L'], $grouped['sizes']);
+        self::assertEqualsCanonicalizing([(int) $medium->getId(), (int) $small->getId(), (int) $large->getId()], $grouped['groupIds']);
+        self::assertContains([(int) $dearer->getId()], array_column($rows, 'groupIds'));
+    }
+
+    /**
+     * Asked 2026-10-12: on the gaps tab, a product is one line carrying every
+     * competitor, paged and sorted by product.
+     */
+    public function testTheGapsTabHasOneLinePerProductWithEveryCompetitor(): void
+    {
+        $other = (new CompetitorRepository())->create('other-'.$this->tag.'.example', CompetitorStatus::Watched, 'manual');
+        $helmet = $this->product('Casque Arai SZ-R '.$this->tag);
+        $small = $this->offer($helmet, 'matched_exact', comparable: true, deltaPct: '10.900', size: 'S', price: '110.90');
+        $atOther = $this->offer($helmet, 'matched_exact', comparable: true, deltaPct: '-4.000', competitor: $other, price: '96.00');
+        $otherSize = $this->offer($helmet, 'matched_exact', comparable: true, deltaPct: '-4.000', competitor: $other, size: 'L', price: '96.00');
+        $jacket = $this->product('Blouson Segura '.$this->tag);
+        $jacketOffer = $this->offer($jacket, 'matched_judged', comparable: true, deltaPct: '-20.000');
+
+        $filters = new ComparatorFilters(search: $this->tag);
+        $screen = $this->presenter()->present($filters, 'fr_FR');
+        $products = $screen['products'];
+
+        self::assertSame([(int) $jacket->getId(), (int) $helmet->getId()], array_column($products, 'id'), 'competitor cheapest first, by product');
+        self::assertSame(2, $this->repository->productCount($filters));
+        self::assertSame(1, $screen['pagination']['pages']);
+        $line = $products[1];
+        self::assertSame(['other-'.$this->tag.'.example', 'cmp-'.$this->tag.'.example'], array_column($line['competitors'], 'name'), 'every competitor on the line, the cheapest first');
+        self::assertSame((int) $atOther->getId(), $line['headline']['id'], 'the line shows its most telling gap');
+        self::assertEqualsCanonicalizing([(int) $atOther->getId(), (int) $otherSize->getId()], $line['competitors'][0]['headline']['groupIds'], 'sizes at one price stay one line in the detail');
+        self::assertSame([(int) $small->getId()], $line['competitors'][1]['headline']['groupIds']);
+        self::assertCount(2, $line['lines']);
+        self::assertSame([(int) $jacketOffer->getId()], $products[0]['lines'][0]['groupIds']);
+
+        $reversed = $this->repository->productPage(new ComparatorFilters(search: $this->tag, sort: ComparatorFilters::SORT_GAP_DESC));
+        self::assertSame([(int) $helmet->getId(), (int) $jacket->getId()], $reversed, 'we are cheapest first: ranked by the dearest competitor');
+    }
+
+    /**
+     * Asked 2026-10-13: the gaps tab's layout on every tab, one line per
+     * product with its competitors, the offers in the detail.
+     */
+    public function testEveryTabListsProductsWithTheirCompetitors(): void
+    {
+        $other = (new CompetitorRepository())->create('other-'.$this->tag.'.example', CompetitorStatus::Watched, 'manual');
+        $helmet = $this->product('Casque à revoir '.$this->tag);
+        $this->offer($helmet, 'needs_review', comparable: false, deltaPct: '-30.000', size: 'S');
+        $this->offer($helmet, 'needs_review', comparable: false, deltaPct: '-10.000', competitor: $other, size: 'M');
+        $jacket = $this->product('Blouson écarté '.$this->tag);
+        $this->offer($jacket, 'rejected', comparable: false, deltaPct: '-5.000');
+
+        $review = $this->presenter()->present(new ComparatorFilters(view: ComparatorView::Review, search: $this->tag), 'fr_FR');
+        $excluded = $this->presenter()->present(new ComparatorFilters(view: ComparatorView::Excluded, search: $this->tag), 'fr_FR');
+
+        self::assertSame([(int) $helmet->getId()], array_column($review['products'], 'id'), 'one line for the product');
+        self::assertCount(2, $review['products'][0]['competitors'], 'both competitors on it');
+        self::assertCount(2, $review['products'][0]['lines'], 'each offer in the detail, decided on its own');
+        self::assertSame([(int) $jacket->getId()], array_column($excluded['products'], 'id'));        self::assertSame(1, $review['counts']['review'], 'the tabs count products, not offers: two offers, one product');
+        self::assertSame(1, array_column($review['tabs'], 'count', 'view')['review']);
+        self::assertSame(2, $this->repository->counts(new ComparatorFilters(search: $this->tag))['review'], 'offers are still counted where figures need them');
+    }
+
+    public function testADecisionOnALineReachesEveryOfferOfThatLineOnly(): void
+    {
+        $product = $this->product('Casque Arai '.$this->tag);
+        $medium = $this->offer($product, 'needs_review', comparable: false, deltaPct: '-10.000');
+        $small = $this->offer($product, 'needs_review', comparable: false, deltaPct: '-10.000', size: 'S');
+        $elsewhere = $this->offer($this->product('Autre '.$this->tag), 'needs_review', comparable: false, deltaPct: '-10.000');
+
+        $siblings = $this->repository->sameLine($medium, [(int) $small->getId(), (int) $elsewhere->getId(), 999999999]);
+
+        self::assertSame([(int) $small->getId()], array_map(static fn (PwCompetitorOffer $offer): int => (int) $offer->getId(), $siblings), 'another product\'s offer never rides on this line\'s decision');
+    }
+
     public function testEveryLineGetsAPictureAndAnUnsignedEqualGap(): void
     {
         $product = $this->product('Blouson Furygan '.$this->tag);
@@ -232,7 +393,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $this->latestQuote($withPicture)->setRawPayloadJson((string) json_encode(['card' => ['image' => 'https://img.example/'.$this->tag.'.jpg']], \JSON_UNESCAPED_SLASHES))->save();
         $without = $this->offer($product, 'matched_judged', comparable: true, deltaPct: '-0.040');
         $ours = $this->product('Casque catalogue '.$this->tag);
-        (new ProductImage())->setProductId($ours->getId())->setFile('PROD001-1.jpg')->setVisible(1)->setPosition(1)->save();
+        (new ProductImage())->setProductId($ours->getId())->setFile($this->pictureOnDisk())->setVisible(1)->setPosition(1)->save();
         $catalogue = $this->offer($ours, 'matched_judged', comparable: true, deltaPct: '2.000');
 
         $rows = array_column($this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['rows'], null, 'id');
@@ -247,8 +408,8 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     {
         $product = $this->product('Casque catalogue '.$this->tag);
         $missing = $this->product('Casque sans fichier '.$this->tag);
-        // A picture of the demo catalogue, present on disk in this install.
-        (new ProductImage())->setProductId($product->getId())->setFile('PROD001-1.jpg')->setVisible(1)->setPosition(1)->save();
+        $file = $this->pictureOnDisk();
+        (new ProductImage())->setProductId($product->getId())->setFile($file)->setVisible(1)->setPosition(1)->save();
         (new ProductImage())->setProductId($missing->getId())->setFile('missing-'.$this->tag.'.jpg')->setVisible(1)->setPosition(1)->save();
 
         $dispatcher = self::coreService('event_dispatcher');
@@ -258,7 +419,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertArrayHasKey((int) $product->getId(), $urls);
         // The image cache lowercases the file name.
         self::assertStringContainsString('/cache/images/product/', $urls[(int) $product->getId()]);
-        self::assertStringContainsStringIgnoringCase('prod001-1', $urls[(int) $product->getId()]);
+        self::assertStringContainsStringIgnoringCase(pathinfo($file, \PATHINFO_FILENAME), $urls[(int) $product->getId()]);
         self::assertArrayNotHasKey((int) $missing->getId(), $urls, 'a missing file: no picture, no error');
     }
 
@@ -295,16 +456,28 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         return $product;
     }
 
-    private function offer(Product $product, string $state, bool $comparable, string $deltaPct, ?string $exclusion = null, ?PwCompetitor $competitor = null): PwCompetitorOffer
+    /**
+     * @param string|null $size another size of the product: a variant of its own
+     */
+    private function offer(Product $product, string $state, bool $comparable, string $deltaPct, ?string $exclusion = null, ?PwCompetitor $competitor = null, ?string $size = null, string $price = '90.00'): PwCompetitorOffer
     {
         $saleElement = ProductSaleElementsQuery::create()->filterByProductId($product->getId())->findOne();
         self::assertNotNull($saleElement);
+
+        if ($size !== null) {
+            $saleElement = (new \Thelia\Model\ProductSaleElements())
+                ->setProductId($product->getId())
+                ->setRef('PW-SIZE-'.bin2hex(random_bytes(4)))
+                ->setQuantity(1)
+                ->setIsDefault(false);
+            $saleElement->save();
+        }
 
         if (PwProductIdentityQuery::create()->filterByProductSaleElementsId($saleElement->getId())->count() === 0) {
             (new PwProductIdentity())
                 ->setProductSaleElementsId($saleElement->getId())
                 ->setProductId($product->getId())
-                ->setSizeLabel('M')
+                ->setSizeLabel($size ?? 'M')
                 ->save();
         }
 
@@ -317,7 +490,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
             ->setMatchState($state)
             ->setLastComparable($comparable ? 1 : 0)
             ->setExclusionReason($exclusion)
-            ->setLastPrice('90.00')
+            ->setLastPrice($price)
             ->setLastOurPrice('100.00')
             ->setLastDeltaPct($deltaPct)
             ->setLastSeenAt(new \DateTime())
@@ -343,5 +516,21 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertNotNull($quote);
 
         return $quote;
+    }
+
+    /**
+     * A real picture in the catalogue's upload folder: the demo catalogue's
+     * are not there on every install.
+     */
+    private function pictureOnDisk(): string
+    {
+        $file = 'pw-test-'.$this->tag.'.jpg';
+        $path = (new ProductImage())->getUploadDir().\DIRECTORY_SEPARATOR.$file;
+        $image = imagecreatetruecolor(4, 4);
+        self::assertNotFalse($image);
+        self::assertTrue(imagejpeg($image, $path));
+        $this->pictures[] = $path;
+
+        return $file;
     }
 }

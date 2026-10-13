@@ -7,6 +7,8 @@ namespace PriceWatch\Service\Comparator;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
+use PriceWatch\Service\Watched\LastWatch;
+use PriceWatch\Service\Watched\WatchedRepository;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
@@ -19,14 +21,16 @@ final readonly class ProductCardPresenter
         private ComparatorRepository $repository,
         private CatalogVariantRepository $catalog,
         private UrlGeneratorInterface $urlGenerator,
+        private WatchedRepository $watched,
     ) {
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function present(int $productId, string $locale): array
+    public function present(int $productId, string $locale, ?\DateTimeImmutable $now = null): array
     {
+        $now ??= new \DateTimeImmutable();
         $identities = $this->repository->identitiesOfProduct($productId);
         $offers = $this->repository->offersOfVariants(array_map(static fn (PwProductIdentity $identity): int => (int) $identity->getProductSaleElementsId(), $identities));
         $competitors = $this->repository->competitors();
@@ -44,9 +48,8 @@ final readonly class ProductCardPresenter
 
         foreach ($identities as $identity) {
             $variantOffers = $byVariant[(int) $identity->getProductSaleElementsId()] ?? [];
-            $compared = array_values(array_filter($variantOffers, static fn (PwCompetitorOffer $offer): bool => (int) $offer->getLastComparable() === 1
-                && \in_array($offer->getMatchState(), ComparatorView::MATCHED_STATES, true)));
-            $review = \count(array_filter($variantOffers, static fn (PwCompetitorOffer $offer): bool => $offer->getMatchState() === 'needs_review'));
+            $compared = array_values(array_filter($variantOffers, static fn (PwCompetitorOffer $offer): bool => ComparatorView::inGap($offer->getMatchState(), $offer->getLastComparable())));
+            $review = \count(array_filter($variantOffers, static fn (PwCompetitorOffer $offer): bool => ComparatorView::inReview($offer->getMatchState(), $offer->getLastComparable())));
             // Offers come sorted by gap: the first comparable one is where
             // the competition is cheapest.
             $best = $compared[0] ?? null;
@@ -80,6 +83,7 @@ final readonly class ProductCardPresenter
         $ref = $this->repository->productRef($productId) ?? '';
 
         $monitored = \count(array_filter($variants, static fn (array $variant): bool => $variant['monitored']));
+        $lastWatched = $identities === [] ? null : $this->watched->lastWatched($productId);
 
         return [
             'productId' => $productId,
@@ -90,6 +94,11 @@ final readonly class ProductCardPresenter
                 'missing' => max(0, $this->catalog->variantCount($productId) - \count($variants)),
                 'notCollectable' => \count(array_filter($variants, static fn (array $variant): bool => $variant['monitored'] && !$variant['collectable'])),
                 'collectable' => \count(array_filter($variants, static fn (array $variant): bool => $variant['monitored'] && $variant['collectable'])),
+            ],
+            'lastWatch' => $lastWatched === null ? null : [
+                'at' => $lastWatched->format('d/m/Y H:i'),
+                'daysAgo' => LastWatch::daysAgo($lastWatched, $now),
+                'stale' => LastWatch::isStale($lastWatched, $now),
             ],
             'variants' => $variants,
             'totals' => $totals,

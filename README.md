@@ -7,6 +7,28 @@ Matching is deterministic wherever the code can see the answer — GTIN equality
 price gap, currency — and only the narrow semantic questions go to typed Jev
 judgments: is it the same article, the same variant, is this price comparable.
 
+A price far from ours is a doubt, never a verdict: from a 25 % gap a match
+Jev alone made waits for a human, and beyond 70 % the offer is still checked
+(another article is rejected on Jev's word, the same article goes to a human).
+A match proven by a GTIN only goes to a human beyond 70 %.
+
+A product whose sizes we all sell at one price is one comparison: the collect
+pass searches one of its variants (the limit counts searches), the other sizes
+ride on the card it leads to, a "same article?" verdict is asked once for sizes
+read on the same listing at the same price, and the comparator shows them on
+one line. A size is never given a price it was not read at.
+
+Google Shopping is searched by product title only, never by GTIN. Measured
+from 2026-10-09 to 12: 2 GTIN searches out of 91+ led to a card of ours, 18
+ended in 40101 "Internal SE Server Error" after about three minutes, and
+DataForSEO bills those all the same. A pass costs at most two tasks per
+variant: a title search, a sellers lookup.
+
+A product's last watch is the latest of its last Google Shopping search and
+its last competitor page read with a price. Beyond 14 days (`LastWatch`, the
+same rule as the suggestions) the product card, the watched products list
+("Stale reading" tab) and the admin home say so.
+
 Requires Thelia 3.0.0 and PHP 8.3.
 
 ## Install
@@ -94,6 +116,69 @@ need a container.
   the same kind closes such rows as failed ("Interrupted"), once it holds the
   lock.
 - PHPUnit's `TestCase::run()` is final: never name a test helper `run()`.
+
+## Suggestions by family
+
+The suggestions tab lists 50 products, family by family: a family is the
+visible top-level category of a product's default category. Each family gets
+lines in proportion to its revenue over 90 days, and at least 3; best sellers
+and promotions are read per family, or the dearest family fills the list
+(helmets took 47 lines out of 50 before). Hidden top-level categories are
+never suggested, and the settings page lists the families to leave out (what
+competitors do not sell as such). The tab can be filtered on one family.
+
+## Direct reading of competitor pages
+
+`pricewatch:direct` reads prices straight from the competitor product pages
+tied to our products (`pw_competitor_page`): free, a few seconds a page, every
+size at once. It records exact matches only:
+
+- one of our GTINs on the page (JSON-LD `gtin*` or a GTIN-shaped `sku`): that
+  variant, and the page is confirmed;
+- otherwise, on a page confirmed by hand, a size stated once, in a single
+  colour, on a page that lists no GTIN at all.
+
+A candidate page that lists no GTIN is put to Jev: same article, same
+colourway. Two decisive "yes" confirm it (`confirmed_by = jev`), a "no" to
+either, or an article below 0.35, rejects it, anything else waits for a human.
+Sizes read on such a page are Jev matches (`match_method = jev_page`), never
+proofs: from a 25 % gap they go to a human like any Jev match. Jev's answers
+stay on the page (`judgment_json`) and show on its offers.
+
+Pages are found free first. `pricewatch:direct --discover` reads the
+sitemaps each watched competitor announces in its robots.txt (French and
+product files only when the names say so, kept a week in
+`var/pricewatch/sitemaps/`), and keeps as candidates at most three addresses
+per product and competitor that name our brand, our model and our product
+family, never a spare part (`SitemapMatcher`). A product with a page there
+already is not looked up.
+
+A back-office pass runs `pricewatch:direct --discover`, `pricewatch:collect`,
+`pricewatch:direct --candidates` (the pages Google led to, which each collect
+pass turns into candidates), then `pricewatch:judge`.
+
+Google Shopping (DataForSEO) is the last resort: a product with a confirmed
+page at a watched competitor is not searched there, except every 90 days,
+counted from its last search or from its first page found, for the sellers
+outside our list (`PageCoverage`).
+
+A page listing GTINs that are not ours is rejected. Anything uncertain (no
+price in euros, structured data that disagree, data naming another page after
+a redirect) records nothing. Extractors: JSON-LD, and the `__NUXT_DATA__`
+state, restricted to the object whose `url` is the page (the state also holds
+the recommended products). The fetcher announces itself as `PriceWatch`,
+honours robots.txt and leaves each site 2 s between two pages.
+
+```bash
+ddev exec php Thelia pricewatch:page seed        # candidates from the merchant pages Google led to
+ddev exec php Thelia pricewatch:page add --competitor=motoblouz.com --product=REF --url=https://... [--confirm]
+ddev exec php Thelia pricewatch:page list
+ddev exec php Thelia pricewatch:page confirm --id=71
+ddev exec php Thelia pricewatch:direct [--discover] [--candidates] [--product=REF] [--competitor=domain]
+```
+
+A variant read directly steps the Google Shopping offer of the same pair aside,
+and the collect pass no longer records that pair from Google.
 
 ## Logs
 
