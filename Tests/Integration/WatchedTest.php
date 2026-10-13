@@ -91,6 +91,57 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
         self::assertEqualsWithDelta(-30.0, (float) $row['best_gap'], 1e-9, 'a doubt on the article never makes the best gap');
     }
 
+    /**
+     * Asked 2026-10-13: one click collects the products never read, another
+     * the ones read too long ago, a pass's worth at a time.
+     */
+    public function testTheBatchesToCollectTakeTheSearchableFirstThenTheOldest(): void
+    {
+        $this->isolate();
+        $noEan = $this->product('Jamais sans EAN');
+        $this->variant($noEan, monitored: true, collectable: false);
+        $never = $this->product('Jamais');
+        $this->variant($never, monitored: true, collectable: true);
+        $this->variant($never, monitored: true, collectable: true);
+        $older = $this->product('Ancien');
+        $this->variant($older, monitored: true, collectable: true, collectedAt: '-40 days');
+        $old = $this->product('Vieux');
+        $this->variant($old, monitored: true, collectable: true, collectedAt: '-20 days');
+        $fresh = $this->product('Récent');
+        $this->variant($fresh, monitored: true, collectable: true, collectedAt: '-2 days');
+        $paused = $this->product('En pause');
+        $this->variant($paused, monitored: false, collectable: true);
+
+        $repository = $this->repository();
+
+        self::assertSame(['productIds' => [(int) $never->getId(), (int) $noEan->getId()], 'searchable' => 1, 'variants' => 2, 'total' => 2], $repository->toCollect(WatchedView::Never, 20), 'what can be searched first; a paused product is no part of it');
+        self::assertSame(['productIds' => [(int) $never->getId()], 'searchable' => 1, 'variants' => 2, 'total' => 2], $repository->toCollect(WatchedView::Never, 1), 'a pass\'s worth, and how many are left');
+        self::assertSame([(int) $older->getId(), (int) $old->getId()], $repository->toCollect(WatchedView::Stale, 20)['productIds'], 'the oldest reading first, the fresh one left alone');
+    }
+
+    public function testOfflineAndOutOfStockProductsAreFoundToBePaused(): void
+    {
+        $this->isolate();
+        $offline = $this->product('Hors ligne');
+        $this->variant($offline, monitored: true, collectable: true);
+        $offline->setVisible(0)->save();
+        ProductSaleElementsQuery::create()->filterByProductId($offline->getId())->update(['Quantity' => 5]);
+        $sold = $this->product('Épuisé');
+        $soldVariant = $this->variant($sold, monitored: true, collectable: true);
+        ProductSaleElementsQuery::create()->filterByProductId($sold->getId())->update(['Quantity' => 0]);
+        $inStock = $this->product('En stock');
+        $this->variant($inStock, monitored: true, collectable: true);
+        ProductSaleElementsQuery::create()->filterByProductId($inStock->getId())->update(['Quantity' => 3]);
+        // One size sold out is no product out of stock.
+        $this->variant($inStock, monitored: true, collectable: true)->setQuantity(0)->save();
+        $alreadyPaused = $this->product('Hors ligne en pause');
+        $this->variant($alreadyPaused, monitored: false, collectable: true);
+        $alreadyPaused->setVisible(0)->save();
+
+        self::assertSame([(int) $offline->getId()], $this->repository()->offline());
+        self::assertSame([(int) $sold->getId()], $this->repository()->outOfStock(), 'no stock in any size; '.$soldVariant->getRef());
+    }
+
     public function testOffersOfCompetitorsOffTheWhitelistDoNotCount(): void
     {
         $product = $this->product('Casque');
@@ -151,6 +202,14 @@ final class WatchedTest extends PriceWatchIntegrationTestCase
 
         self::assertEqualsWithDelta((new \DateTimeImmutable('-20 days'))->getTimestamp(), $this->repository()->lastWatched((int) $old->getId())?->getTimestamp(), 5);
         self::assertNull($this->repository()->lastWatched((int) $failedPage->getId()));
+    }
+
+    /**
+     * Only this test's products are watched while it runs (rolled back after).
+     */
+    private function isolate(): void
+    {
+        \PriceWatch\Model\PwProductIdentityQuery::create()->update(['Monitored' => 0]);
     }
 
     /**

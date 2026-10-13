@@ -8,6 +8,7 @@ use PriceWatch\Controller\Admin\RunController;
 use PriceWatch\Service\Comparator\PricePosition;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\RunStatus;
+use PriceWatch\Service\Suggestion\SuggestionPresenter;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
@@ -15,6 +16,9 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
  */
 final readonly class WatchedPresenter
 {
+    /** One pass per click, as for the suggestions. */
+    public const BATCH = SuggestionPresenter::MAX_SELECTED;
+
     public function __construct(
         private WatchedRepository $repository,
         private RunStatus $runStatus,
@@ -58,7 +62,37 @@ final readonly class WatchedPresenter
                 'next' => $filters->offset() + WatchedFilters::PAGE_SIZE < $total ? $this->urlGenerator->generate('pricewatch_watched', $filters->withPage($filters->page + 1)->toQueryParams()) : null,
             ],
             'returnQuery' => http_build_query($filters->toQueryParams()),
+            'batches' => $this->batches($locale, $now),
         ];
+    }
+
+    /**
+     * What the action buttons above the list would do: collect the products
+     * never read, or read too long ago, at most a pass's worth at a time;
+     * pause the ones the shop no longer sells (asked 2026-10-13).
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function batches(string $locale, \DateTimeImmutable $now): array
+    {
+        $batches = [];
+
+        foreach ([WatchedView::Never, WatchedView::Stale] as $view) {
+            $batch = $this->repository->toCollect($view, self::BATCH, $now);
+            $batches[$view->value] = [
+                'total' => $batch['total'],
+                'products' => \count($batch['productIds']),
+                // Without a variant with a valid EAN, a product cannot be searched: not counted on the button.
+                'searchable' => $batch['searchable'],
+                'variants' => $batch['variants'],
+                'cost' => RunController::usd(ManualRun::worstCaseUsd($batch['variants']), $locale),
+            ];
+        }
+
+        $batches['offline'] = ['total' => \count($this->repository->offline())];
+        $batches['out_of_stock'] = ['total' => \count($this->repository->outOfStock())];
+
+        return $batches;
     }
 
     /**

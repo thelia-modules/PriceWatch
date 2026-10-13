@@ -35,6 +35,32 @@
         </div>
     </div>
 
+    {# Batch actions: a pass on the products never read or read too long ago
+       (one pass's worth per click), a pause for those the shop no longer sells. #}
+    <div class="card mb-3" data-testid="pw-watched-actions"><div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+        {% for view, batch in {never: batches.never, stale: batches.stale} %}
+            <form method="post" action="{{ path('pricewatch_watched_collect', {view: view}) }}" class="d-inline">
+                <input type="hidden" name="_token" value="{{ csrfToken }}">
+                <button type="submit" class="btn btn-sm btn-primary" data-testid="pw-watched-collect-{{ view }}" {% if batch.searchable == 0 or run.running %}disabled{% endif %}>
+                    <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>
+                    {{- ('watched.batch.' ~ view)|trans({'%count%': batch.searchable, '%days%': staleDays, '%cost%': batch.cost}, 'pricewatch') -}}
+                    {%- if batch.total > batch.products %} {{ 'watched.batch.of_total'|trans({'%total%': batch.total}, 'pricewatch') }}{% endif %}
+                </button>
+            </form>
+        {% endfor %}
+        <span class="vr mx-1"></span>
+        {% for which in ['offline', 'out_of_stock'] %}
+            {% set count = batches[which].total %}
+            <form method="post" action="{{ path('pricewatch_watched_pause', {which: which}) }}" class="d-inline" onsubmit="return confirm({{ ('watched.batch.confirm.' ~ which)|trans({'%count%': count}, 'pricewatch')|json_encode }})">
+                <input type="hidden" name="_token" value="{{ csrfToken }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary" data-testid="pw-watched-pause-{{ which }}" {% if count == 0 %}disabled{% endif %}>
+                    <i class="bi bi-pause-circle me-1" aria-hidden="true"></i>{{ ('watched.batch.' ~ which)|trans({'%count%': count}, 'pricewatch') }}
+                </button>
+            </form>
+        {% endfor %}
+        {% if run.running %}<span class="small text-warning-emphasis">{{ 'A pass is running: wait until it ends.'|trans({}, 'pricewatch') }}</span>{% endif %}
+    </div></div>
+
     <form method="get" action="{{ path('pricewatch_watched') }}" class="row g-2 align-items-end mb-3" data-testid="pw-watched-search">
         {% if view != 'all' %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
         <div class="col-12 col-md-5">

@@ -51,6 +51,63 @@ final readonly class WatchedRepository
     }
 
     /**
+     * The products a "collect them" button of the watched list starts on
+     * (asked 2026-10-13): watched, never read or read too long ago; those
+     * that can be searched first, then the oldest reading. Same rules as the
+     * tabs of the same names.
+     *
+     * @return array{productIds: list<int>, searchable: int, variants: int, total: int} the first $limit products, how many of them can be searched and with how many variants, how many qualify
+     */
+    public function toCollect(WatchedView $view, int $limit, ?\DateTimeInterface $now = null): array
+    {
+        if ($view !== WatchedView::Never && $view !== WatchedView::Stale) {
+            throw new \InvalidArgumentException('Only the never read and the stale products are collected in a batch.');
+        }
+
+        [$sql, $params] = $this->aggregate(new WatchedFilters($view), $view, self::FALLBACK_LOCALE, $now ?? new \DateTimeImmutable());
+        $rows = $this->fetch('SELECT product_id, collectable FROM ('.$sql.') AS products ORDER BY collectable > 0 DESC, last_watched_at IS NULL DESC, last_watched_at ASC, product_id ASC', $params);
+        $batch = \array_slice($rows, 0, max(0, $limit));
+
+        return [
+            'productIds' => array_map(static fn (array $row): int => (int) $row['product_id'], $batch),
+            'searchable' => \count(array_filter($batch, static fn (array $row): bool => (int) $row['collectable'] > 0)),
+            'variants' => (int) array_sum(array_column($batch, 'collectable')),
+            'total' => \count($rows),
+        ];
+    }
+
+    /**
+     * Watched products the shop no longer shows: nothing a customer can buy,
+     * nothing worth paying to compare.
+     *
+     * @return list<int>
+     */
+    public function offline(): array
+    {
+        return array_map('intval', array_column($this->fetch(
+            'SELECT DISTINCT i.product_id FROM pw_product_identity i JOIN product p ON p.id = i.product_id WHERE i.monitored = 1 AND p.visible = 0 ORDER BY i.product_id',
+            [],
+        ), 'product_id'));
+    }
+
+    /**
+     * Watched products without stock in any size.
+     *
+     * @return list<int>
+     */
+    public function outOfStock(): array
+    {
+        return array_map('intval', array_column($this->fetch(
+            'SELECT DISTINCT i.product_id FROM pw_product_identity i
+            WHERE i.monitored = 1 AND i.product_id IN (
+                SELECT product_id FROM product_sale_elements GROUP BY product_id HAVING SUM(GREATEST(quantity, 0)) = 0
+            )
+            ORDER BY i.product_id',
+            [],
+        ), 'product_id'));
+    }
+
+    /**
      * When this product was last watched, null if never.
      */
     public function lastWatched(int $productId): ?\DateTimeImmutable
