@@ -320,14 +320,10 @@
         {% if view == 'gaps' %}
         {# One line per product, every competitor on it; the competitors'
            lines and their proof in the detail. #}
-        {# The competitor chips take the colours of _gap.html.twig: our
-           position at a glance, red where we are dearer, green where we are
-           cheaper, grey at the same price (asked 2026-10-13). #}
-        {% set chips = {
-            cheaper: 'bg-success-subtle text-success-emphasis border-success-subtle',
-            dearer: 'bg-danger-subtle text-danger-emphasis border-danger-subtle',
-            equal: 'bg-body-secondary text-body'
-        } %}
+        {# A dot in each competitor chip tells our position at a glance: red
+           where we are dearer, green where we are cheaper, grey at the same
+           price, as in _gap.html.twig (asked 2026-10-13). #}
+        {% set dots = {cheaper: 'bg-success', dearer: 'bg-danger', equal: 'bg-secondary opacity-50'} %}
         <div class="table-responsive">
             <table class="table align-middle mb-2 pw-offers" data-testid="pw-offers">
                 <thead>
@@ -363,11 +359,12 @@
                                 {% set first = competitor.headline %}
                                 {# Every price read at this competitor, size by size, in the tooltip. #}
                                 {% set readings = competitor.lines|map(line => (line.sizes|length > 1 ? line.sizes|join(', ') : (line.product.size ?: '–')) ~ ' : ' ~ (line.theirs ?? '–') ~ ' (' ~ (line.deltaPct ?? '–') ~ ')')|join(' · ') %}
-                                <span class="badge rounded-pill border fw-normal {{ chips[first.position] ?? chips.equal }}" data-bs-toggle="tooltip" title="{{ ('position.' ~ (first.position ?? 'equal'))|trans({}, 'pricewatch') }} · {{ 'Sizes'|trans({}, 'pricewatch') }} {{ readings }}" data-testid="pw-chip-{{ first.id }}" data-position="{{ first.position }}">
+                                <span class="badge rounded-pill border bg-body text-body fw-normal d-inline-flex align-items-center" data-bs-toggle="tooltip" title="{{ ('position.' ~ (first.position ?? 'equal'))|trans({}, 'pricewatch') }} · {{ 'Sizes'|trans({}, 'pricewatch') }} {{ readings }}" data-testid="pw-chip-{{ first.id }}" data-position="{{ first.position }}">
+                                    <span class="rounded-circle flex-shrink-0 me-2 {{ dots[first.position] ?? dots.equal }}" style="width: .55rem; height: .55rem" aria-hidden="true" data-testid="pw-chip-dot-{{ first.id }}"></span>
                                     <span class="fw-semibold">{{ competitor.name }}</span>
                                     <span class="ms-1">{{ first.theirs ?? '–' }}</span>
                                     <span class="ms-1 fw-semibold">{{ first.deltaPct ?? '–' }}</span>
-                                    {% if competitor.lines|length > 1 %}<span class="ms-1 opacity-75">+{{ competitor.lines|length - 1 }}</span>{% endif %}
+                                    {% if competitor.lines|length > 1 %}<span class="ms-1 text-muted">+{{ competitor.lines|length - 1 }}</span>{% endif %}
                                     {% if competitor.lines|filter(line => line.toCheck)|length > 0 %}<i class="bi bi-exclamation-circle-fill text-warning ms-1" aria-label="{{ 'to_check'|trans({}, 'pricewatch') }}" data-testid="pw-chip-to-check-{{ first.id }}"></i>{% endif %}
                                 </span>
                             {% endfor %}
