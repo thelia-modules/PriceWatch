@@ -138,6 +138,17 @@ size at once. It records exact matches only:
 - otherwise, on a page confirmed by hand, a size stated once, in a single
   colour, on a page that lists no GTIN at all.
 
+A candidate page that lists no GTIN is put to Jev: same article, same
+colourway. Two decisive "yes" confirm it (`confirmed_by = jev`), a "no" to
+either, or an article below 0.35, rejects it, anything else waits for a human.
+Sizes read on such a page are Jev matches (`match_method = jev_page`), never
+proofs: from a 25 % gap they go to a human like any Jev match. Jev's answers
+stay on the page (`judgment_json`) and show on its offers.
+
+A back-office pass runs `pricewatch:collect`, then `pricewatch:direct`, then
+`pricewatch:judge`; each collect pass first turns the merchant pages Google
+led to into candidate pages.
+
 A page listing GTINs that are not ours is rejected. Anything uncertain (no
 price in euros, structured data that disagree, data naming another page after
 a redirect) records nothing. Extractors: JSON-LD, and the `__NUXT_DATA__`

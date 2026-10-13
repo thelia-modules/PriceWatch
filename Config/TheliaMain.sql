@@ -366,6 +366,7 @@ CREATE TABLE `pw_competitor_page`
     `last_fetched_at` TIMESTAMP NULL,
     `last_outcome` VARCHAR(30),
     `last_error` VARCHAR(255),
+    `judgment_json` TEXT,
     `created_at` TIMESTAMP NULL,
     `updated_at` TIMESTAMP NULL,
     PRIMARY KEY (`id`),

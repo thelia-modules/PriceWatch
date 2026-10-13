@@ -18,13 +18,24 @@ use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Direct\DirectMatcher;
 use PriceWatch\Service\Direct\JsonLdExtractor;
 use PriceWatch\Service\Direct\NuxtStateExtractor;
+use PriceWatch\Service\Direct\PageConfirmation;
 use PriceWatch\Service\Direct\PageReader;
 use PriceWatch\Service\Direct\PageRepository;
+use PriceWatch\Service\Jev\CachedJev;
+use PriceWatch\Service\Jev\JevClient;
+use PriceWatch\Service\Jev\OfferQuestions;
+use PriceWatch\Service\Jev\OfferState;
 use PriceWatch\Service\Matching\MatchDecision;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Normalizer\SizeNormalizer;
 use PriceWatch\Service\Normalizer\TextNormalizer;
+use PriceWatch\Service\Settings\JevProvider;
+use PriceWatch\Service\Settings\PriceWatchSettings;
+use PriceWatch\Service\Settings\SecretBox;
+use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Source\OurPrice;
+use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
+use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Thelia\Domain\Taxation\TaxEngine\TaxCalculatorFactory;
@@ -52,6 +63,10 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
 
     /** @var list<string> */
     private array $requested = [];
+
+    /** @var list<MockResponse> what Jev answers, in order; nothing left is a failure */
+    private array $jevAnswers = [];
+    private int $jevCalls = 0;
 
     protected function setUp(): void
     {
@@ -91,17 +106,20 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(5, $result['run']->getQuotesWritten());
         self::assertSame(1, $result['run']->getPagesFetched());
         self::assertSame(['direct_pages', 1, 1], [$result['run']->getProgressStep(), $result['run']->getProgressDone(), $result['run']->getProgressTotal()], 'the progress bar sees the pages read');
+        self::assertSame(0, $this->jevCalls, 'proven by a GTIN: Jev is not asked');
     }
 
-    public function testAPageWithoutGtinIsOnlyReadOnceAHumanConfirmedIt(): void
+    public function testAPageWithoutGtinJevIsUnsureOfWaitsForAHuman(): void
     {
         $identities = $this->helmet(['XS' => null, 'S' => null, 'M' => null, 'L' => null, 'XL' => null]);
         $page = $this->pages->add((int) $this->competitor->getId(), $this->productId($identities), self::MOTOBLOUZ_URL, 'manual');
+        $this->jevAnswers = [$this->jev(0.6, 0.9)];
 
         $first = $this->collector()->collect();
 
         $page->reload();
-        self::assertSame(PageRepository::CANDIDATE, $page->getStatus(), 'nothing on the page proves it is our article');
+        self::assertSame(PageRepository::CANDIDATE, $page->getStatus(), 'nothing on the page proves it is our article, and Jev is not sure');
+        self::assertSame(1, $this->jevCalls);
         self::assertSame('read_no_match', $first['pages'][0]['outcome']);
         self::assertSame(0, $first['run']->getQuotesWritten());
 
@@ -115,6 +133,71 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         $quote = PwPriceQuoteQuery::create()->filterByOfferId($offer->getId())->findOne();
         self::assertEqualsWithDelta(799.95, (float) $quote?->getListPrice(), 0.001, 'kept as the struck-through price');
         self::assertSame('nuxt', $quote->getExtractionMethod());
+    }
+
+    /**
+     * Asked 2026-10-13: Jev confirms the pages a human used to, where Jev is
+     * sure; their sizes are Jev matches, not proven ones.
+     */
+    public function testAPageWithoutGtinJevVouchesForIsReadAsJevMatches(): void
+    {
+        $identities = $this->helmet(['XS' => null, 'S' => null, 'M' => null, 'L' => null, 'XL' => null]);
+        $page = $this->pages->add((int) $this->competitor->getId(), $this->productId($identities), self::MOTOBLOUZ_URL, 'shopping');
+        $this->jevAnswers = [$this->jev(0.95, 0.92)];
+
+        $result = $this->collector()->collect();
+
+        $page->reload();
+        self::assertSame([PageRepository::CONFIRMED, PageConfirmation::BY], [$page->getStatus(), $page->getConfirmedBy()]);
+        self::assertSame(5, $result['run']->getQuotesWritten(), 'read in the same pass');
+        $offer = $this->offer($identities['L']);
+        self::assertSame(['matched_judged', PageConfirmation::METHOD, 'SIZE_ON_JEV_CONFIRMED_PAGE', 1], [$offer?->getMatchState(), $offer?->getMatchMethod(), $offer?->getMatchReason(), $offer?->getLastComparable()]);
+        $confidence = \PriceWatch\Service\Comparator\MatchConfidence::of($offer->getMatchMethod(), (array) json_decode((string) $offer->getJudgmentJson(), true), $offer->getMatchState());
+        self::assertSame([\PriceWatch\Service\Comparator\MatchConfidence::HIGH, 95], [$confidence['level'], $confidence['score']], 'shown as Jev\'s word on the article, never as a proof');
+        self::assertSame(1, $result['run']->getJevRequests());
+
+        $this->collector()->collect();
+        self::assertSame(1, $this->jevCalls, 'a confirmed page is not put to Jev again');
+    }
+
+    public function testAPageOfAnotherColourwayIsRejectedByJev(): void
+    {
+        $identities = $this->helmet(['M' => null]);
+        $page = $this->pages->add((int) $this->competitor->getId(), $this->productId($identities), self::MOTOBLOUZ_URL, 'shopping');
+        $this->jevAnswers = [$this->jev(0.95, 0.05)];
+
+        $result = $this->collector()->collect();
+
+        $page->reload();
+        self::assertSame(PageRepository::REJECTED, $page->getStatus());
+        self::assertSame(['jev_rejected', 'COLOURWAY_MISMATCH'], [$result['pages'][0]['outcome'], $result['pages'][0]['detail']]);
+        self::assertNull($this->offer($identities['M']));
+    }
+
+    public function testJevFailingLeavesThePageACandidate(): void
+    {
+        $identities = $this->helmet(['M' => null]);
+        $page = $this->pages->add((int) $this->competitor->getId(), $this->productId($identities), self::MOTOBLOUZ_URL, 'shopping');
+
+        $result = $this->collector()->collect();
+
+        $page->reload();
+        self::assertSame(PageRepository::CANDIDATE, $page->getStatus(), 'for the next pass or a human');
+        self::assertSame(1, $result['run']->getJevFailed());
+        self::assertSame('success', $result['run']->getStatus(), 'one page Jev could not judge does not sink the pass');
+    }
+
+    public function testAJevPageAtASuspectGapGoesToAHuman(): void
+    {
+        // 480.00 to a French shopper against 638.70 on the page: 33 % apart.
+        $identities = $this->helmet(['L' => null], basePrice: 400.0);
+        $this->pages->add((int) $this->competitor->getId(), $this->productId($identities), self::MOTOBLOUZ_URL, 'shopping');
+        $this->jevAnswers = [$this->jev(0.95, 0.92)];
+
+        $this->collector()->collect();
+
+        $offer = $this->offer($identities['L']);
+        self::assertSame(['needs_review', 'PRICE_GAP_SUSPECT', 0], [$offer?->getMatchState(), $offer?->getMatchReason(), $offer?->getLastComparable()]);
     }
 
     public function testAPageListingOtherGtinsIsRejected(): void
@@ -305,6 +388,15 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
                 : new MockResponse('', ['http_code' => 404]);
         });
         $gtin = new GtinNormalizer();
+        $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
+        $settings->setJevProvider(JevProvider::Openrouter);
+        $settings->storeSecret(SecretName::OpenrouterApiKey, 'sk-or-test');
+        $jevHttp = new MockHttpClient(function (): MockResponse {
+            ++$this->jevCalls;
+
+            return array_shift($this->jevAnswers) ?? new MockResponse('{"error": "boom"}', ['http_code' => 500]);
+        });
+        $offerState = new OfferState();
 
         return new DirectCollector(
             $http,
@@ -313,8 +405,21 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
             $this->pages,
             new OurPrice(new TaxCalculatorFactory()),
             new MatchDecision(),
+            new PageConfirmation(new CachedJev(new JevClient($jevHttp, $settings, static function (int $seconds): void {}), $offerState), $offerState, new OfferQuestions()),
             null,
             static function (int $seconds): void {},
         );
+    }
+
+    private function jev(float $sameProduct, float $sameColourway): MockResponse
+    {
+        return new MockResponse((string) json_encode([
+            'answers' => [
+                OfferQuestions::SAME_PRODUCT => ['noul' => $sameProduct],
+                PageConfirmation::SAME_COLOURWAY => ['noul' => $sameColourway],
+            ],
+            'usage' => ['input_tokens' => 512],
+            'model' => 'typesafe/jev-test',
+        ]));
     }
 }

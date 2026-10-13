@@ -482,6 +482,8 @@
         <column name="last_fetched_at" type="TIMESTAMP"/>
         <column name="last_outcome" size="30" type="VARCHAR"/>
         <column name="last_error" size="255" type="VARCHAR"/>
+        <!-- Jev's answers when Jev confirmed the page: shown on the offers read on it. -->
+        <column name="judgment_json" type="LONGVARCHAR"/>
 
         <foreign-key foreignTable="pw_competitor" name="fk_pw_page_competitor" onDelete="CASCADE" onUpdate="RESTRICT">
             <reference foreign="id" local="competitor_id"/>

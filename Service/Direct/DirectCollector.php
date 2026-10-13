@@ -8,10 +8,12 @@ use PriceWatch\Model\PwCollectRun;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Model\PwCompetitorPage;
+use PriceWatch\Model\PwCompetitorQuery;
 use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
+use PriceWatch\Service\Jev\JevException;
 use PriceWatch\Service\Matching\MatchDecision;
 use PriceWatch\Service\Matching\MatchVerdict;
 use PriceWatch\Service\Run\PassStep;
@@ -20,6 +22,7 @@ use PriceWatch\Service\Source\OurPrice;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Thelia\Model\ProductI18nQuery;
 
 /**
  * Reads competitor prices straight from their product pages, free and in a
@@ -27,6 +30,10 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * per card. Only pages tied to one of our products are read, and a price is
  * recorded only for a variant matched by proof (DirectMatcher): the offers it
  * writes are exact matches, in the gap at once, with no Jev call.
+ *
+ * A candidate page that shows no GTIN is put to Jev (PageConfirmation): same
+ * article, same colourway. Its sizes then count as Jev matches, checked like
+ * any other against a suspect price gap.
  */
 final readonly class DirectCollector
 {
@@ -34,6 +41,7 @@ final readonly class DirectCollector
     public const SOURCE = 'direct';
     public const OFFER_KEY_PREFIX = 'page:';
     private const SHOPPING_OFFER_KEY_PREFIX = 'shopping:';
+    private const LOCALE = 'fr_FR';
 
     /** @var \Closure(int): void|null */
     private ?\Closure $sleep;
@@ -54,6 +62,7 @@ final readonly class DirectCollector
         private PageRepository $pages,
         private OurPrice $ourPrice,
         private MatchDecision $decision,
+        private PageConfirmation $confirmation,
         ?PriceWatchLog $log = null,
         ?\Closure $sleep = null,
         ?\Closure $now = null,
@@ -74,7 +83,7 @@ final readonly class DirectCollector
         $run->save();
         $fetcher = new PageFetcher($this->http, $this->sleep, $this->now);
         $report = [];
-        $counts = ['fetched' => 0, 'httpErrors' => 0, 'seen' => 0, 'matched' => 0, 'written' => 0];
+        $counts = ['fetched' => 0, 'httpErrors' => 0, 'seen' => 0, 'matched' => 0, 'written' => 0, 'jevRequests' => 0, 'jevCacheHits' => 0, 'jevFailed' => 0, 'jevInputTokens' => 0, 'jevCostUsd' => 0.0];
         $pages = $this->pages->toRead($productRefs, $competitorDomain);
         $this->log->info('Direct pass #{run} started: {pages} page(s) to read.', ['run' => $run->getId(), 'pages' => \count($pages)]);
 
@@ -104,7 +113,7 @@ final readonly class DirectCollector
     }
 
     /**
-     * @param array<string, int> $counts
+     * @param array<string, int|float> $counts
      *
      * @return array{id: int, url: string, status: string, outcome: string, detail: ?string, recorded: int}
      */
@@ -152,6 +161,21 @@ final readonly class DirectCollector
             return $this->outcome($page, 'foreign_gtin', implode(', ', \array_slice($onPage, 0, 3)), 0);
         }
 
+        if (!$proven && $onPage === [] && $page->getStatus() === PageRepository::CANDIDATE) {
+            $judged = $this->confirm($page, $reading->page, $identities, $counts);
+
+            if ($judged !== null && $judged['verdict'] === PageConfirmation::REJECTED) {
+                $this->pages->setStatus($page, PageRepository::REJECTED, null);
+
+                return $this->outcome($page, 'jev_rejected', $judged['reason'], 0);
+            }
+
+            if ($judged !== null && $judged['verdict'] === PageConfirmation::CONFIRMED) {
+                $page->setJudgmentJson((string) json_encode($judged['judgment'], \JSON_UNESCAPED_UNICODE));
+                $this->pages->setStatus($page, PageRepository::CONFIRMED, PageConfirmation::BY);
+            }
+        }
+
         $matches = $this->matcher->match($reading->page, $page->getStatus() === PageRepository::CONFIRMED, $ours);
         $counts['matched'] += \count($matches);
         $written = 0;
@@ -165,6 +189,42 @@ final readonly class DirectCollector
         $counts['written'] += $written;
 
         return $this->outcome($page, $matches === [] ? 'read_no_match' : PageOutcome::Read->value, $matches === [] && $page->getStatus() === PageRepository::CANDIDATE ? 'awaiting confirmation' : null, $written);
+    }
+
+    /**
+     * A Jev failure leaves the page a candidate, for the next pass or a human.
+     *
+     * @param array<int, PwProductIdentity> $identities
+     * @param array<string, int|float>      $counts
+     *
+     * @return array{verdict: string, reason: string, judgment: array<string, array<string, mixed>>}|null null when Jev could not answer
+     */
+    private function confirm(PwCompetitorPage $page, ProductPage $product, array $identities, array &$counts): ?array
+    {
+        $first = array_values($identities)[0] ?? null;
+        $colours = array_values(array_filter(array_map(static fn (PwProductIdentity $identity): ?string => $identity->getColorLabel(), $identities)));
+        $ours = [
+            'title' => (string) ProductI18nQuery::create()->filterById($page->getProductId())->filterByLocale(self::LOCALE)->findOne()?->getTitle(),
+            'brand' => $first?->getBrandLabel(),
+            'colour' => $colours[0] ?? null,
+        ];
+
+        try {
+            $judged = $this->confirmation->judge($ours, $product, PwCompetitorQuery::create()->findPk($page->getCompetitorId())?->getDomain());
+        } catch (JevException $error) {
+            ++$counts['jevFailed'];
+            $this->log->warning('Direct: page {id} not put to Jev: {error}', ['id' => $page->getId(), 'error' => $error->getMessage()]);
+
+            return null;
+        }
+
+        $counts['jevRequests'] += $judged['requests'];
+        $counts['jevCacheHits'] += $judged['cacheHits'];
+        $counts['jevInputTokens'] += $judged['inputTokens'];
+        $counts['jevCostUsd'] += $judged['costUsd'];
+        $this->log->info('Direct: page {id} put to Jev: {verdict} ({reason}).', ['id' => $page->getId(), 'verdict' => $judged['verdict'], 'reason' => $judged['reason']]);
+
+        return $judged;
     }
 
     /**
@@ -200,14 +260,27 @@ final readonly class DirectCollector
         $verdict = $ourPrice === null ? null : (MatchDecision::implausibleGap($ourPrice, $variant->price)
             ? new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_IMPLAUSIBLE', false, 'PRICE_GAP_IMPLAUSIBLE', false)
             : $this->decision->prefilter($ourPrice, $variant->price, $product->currency, null));
+        // A size read on a page only Jev vouches for is a Jev match: from a
+        // suspect gap on, a human looks, as for any other Jev match.
+        $byJev = $method === DirectMatcher::BY_SIZE && $page->getConfirmedBy() === PageConfirmation::BY;
+
+        if ($byJev && $verdict === null) {
+            $gapped = $this->decision->withGap(new MatchVerdict(MatchVerdict::MATCHED, 'SIZE_ON_JEV_CONFIRMED_PAGE', true, null, true), $ourPrice, $variant->price);
+            $verdict = $gapped->state === MatchVerdict::MATCHED ? null : $gapped;
+        }
         $rejectedByHuman = $offer->getMatchState() === 'rejected' && $offer->getReviewedBy() !== null;
         $comparable = !$rejectedByHuman && $verdict === null;
 
         if (!$rejectedByHuman) {
             $offer
-                ->setMatchState($verdict === null ? 'matched_exact' : MatchVerdict::NEEDS_REVIEW)
-                ->setMatchMethod($method)
-                ->setMatchReason($verdict !== null ? $verdict->reason : ($method === DirectMatcher::BY_GTIN ? 'GTIN_EQUAL' : 'SIZE_ON_CONFIRMED_PAGE'))
+                ->setMatchState($verdict !== null ? MatchVerdict::NEEDS_REVIEW : ($byJev ? MatchVerdict::MATCHED : 'matched_exact'))
+                ->setMatchMethod($byJev ? PageConfirmation::METHOD : $method)
+                ->setJudgmentJson($byJev ? $page->getJudgmentJson() : $offer->getJudgmentJson())
+                ->setMatchReason($verdict !== null ? $verdict->reason : match (true) {
+                    $method === DirectMatcher::BY_GTIN => 'GTIN_EQUAL',
+                    $byJev => 'SIZE_ON_JEV_CONFIRMED_PAGE',
+                    default => 'SIZE_ON_CONFIRMED_PAGE',
+                })
                 ->setExclusionReason($verdict?->exclusionReason);
         }
 
@@ -284,8 +357,8 @@ final readonly class DirectCollector
     }
 
     /**
-     * @param array<string, int> $counts
-     * @param list<string>       $errors
+     * @param array<string, int|float> $counts
+     * @param list<string>             $errors
      */
     private function close(PwCollectRun $run, string $status, array $counts, array $errors): void
     {
@@ -296,6 +369,11 @@ final readonly class DirectCollector
             ->setOffersSeen($counts['seen'])
             ->setOffersMatched($counts['matched'])
             ->setQuotesWritten($counts['written'])
+            ->setJevRequests((int) $counts['jevRequests'])
+            ->setJevCacheHits((int) $counts['jevCacheHits'])
+            ->setJevFailed((int) $counts['jevFailed'])
+            ->setJevInputTokens((int) $counts['jevInputTokens'])
+            ->setJevCostUsd(number_format((float) $counts['jevCostUsd'], 8, '.', ''))
             ->setErrorsJson($errors === [] ? null : json_encode($errors, \JSON_UNESCAPED_UNICODE))
             ->save();
     }
