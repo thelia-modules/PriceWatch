@@ -222,8 +222,9 @@ final readonly class ComparatorPresenter
             'productId' => $identity['productId'],
             'groupIds' => [(int) $offer->getId()],
             'sizes' => $identity['size'] === null || $identity['size'] === '' ? [] : [$identity['size']],
+            // A size whose price moved keeps its line: merged, its move vanished.
             'lineKey' => $identity['productId'] > 0 && $theirs !== null && $ours !== null
-                ? implode('|', [$offer->getCompetitorId(), $identity['productId'], $theirs, $ours, $deltaPct, $state, $offer->getLastComparable(), $offer->getExclusionReason(), $offer->getMatchMethod()])
+                ? implode('|', [$offer->getCompetitorId(), $identity['productId'], $theirs, $ours, $deltaPct, $state, $offer->getLastComparable(), $offer->getExclusionReason(), $offer->getMatchMethod(), PriceChange::shown($offer->getPriceChangePct()) ? $offer->getPreviousPrice() : ''])
                 : null,
             'state' => $state,
             'reason' => $offer->getMatchReason(),
@@ -343,8 +344,10 @@ final readonly class ComparatorPresenter
             $competitors = [];
 
             foreach ($productLines as $line) {
-                $competitors[$line['competitor']] ??= ['name' => $line['competitor'], 'headline' => $line, 'lines' => []];
+                $competitors[$line['competitor']] ??= ['name' => $line['competitor'], 'headline' => $line, 'lines' => [], 'change' => null];
                 $competitors[$line['competitor']]['lines'][] = $line;
+                // The chip shows a move of any of its sizes, not only the headline's.
+                $competitors[$line['competitor']]['change'] ??= $line['change'] ?? null;
             }
 
             $priced = array_values(array_filter($productLines, static fn (array $line): bool => $line['oursValue'] !== null));

@@ -132,6 +132,25 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertArrayHasKey('dropped', (new ComparatorFilters(droppedOnly: true))->withPage(2)->toQueryParams(), 'the filter survives paging');
     }
 
+    /**
+     * Seen 2026-10-15 on Dafy: two sizes at the same price, only one of them
+     * dearer the day before. Merged into one line, the move vanished.
+     */
+    public function testASizeWhosePriceMovedKeepsItsLineAndMarksTheChip(): void
+    {
+        $product = $this->product('Casque Dafy Moto 3 '.$this->tag);
+        $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-4.000', size: 'S', price: '239.99')
+            ->setPreviousPrice('239.990000')->setPriceChangePct('0.000')->save();
+        $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-4.000', size: 'M', price: '239.99')
+            ->setPreviousPrice('299.990000')->setPreviousPriceDay(new \DateTime('2026-10-12'))->setPriceChangePct('-20.001')->save();
+
+        $shown = $this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['products'][0];
+
+        self::assertCount(2, $shown['lines'], 'the size that moved is not merged with the one that did not');
+        self::assertSame(['down'], array_values(array_filter(array_map(static fn (array $line): ?string => $line['change']['direction'] ?? null, $shown['lines']))));
+        self::assertSame('down', $shown['competitors'][0]['change']['direction'] ?? null, 'the chip shows a move of any of its sizes');
+    }
+
     public function testOffersOfCompetitorsOffTheWhitelistAreNeverShown(): void
     {
         $product = $this->product('Casque Nexx X.WED3 Keyo');
