@@ -96,6 +96,33 @@ final readonly class CatalogVariantRepository
         };
     }
 
+    /**
+     * watchState() for several products in one query.
+     *
+     * @param list<int> $productIds
+     *
+     * @return array<int, string> product id => none, watched or paused, for every id given
+     */
+    public function watchStates(array $productIds): array
+    {
+        $states = array_fill_keys($productIds, 'none');
+
+        if ($productIds === []) {
+            return $states;
+        }
+
+        foreach (PwProductIdentityQuery::create()
+            ->filterByProductId($productIds, Criteria::IN)
+            ->groupByProductId()
+            ->withColumn('COALESCE(SUM(monitored = 1), 0)', 'watched')
+            ->select(['ProductId', 'watched'])
+            ->find() as $row) {
+            $states[(int) $row['ProductId']] = (int) $row['watched'] > 0 ? 'watched' : 'paused';
+        }
+
+        return $states;
+    }
+
     public function productRef(int $productId): ?string
     {
         return ProductQuery::create()->findPk($productId)?->getRef();

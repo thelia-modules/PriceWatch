@@ -1,0 +1,5 @@
+{# Price watch cell of the best sales table (Statistic module). The Statistic search reads this markup as text, tags
+   included: plain text only here, the badge and the button are added by watch-cell-js. #}
+<span data-pw-watch="{{ productId }}" data-state="{{ state }}">
+    {{- state == 'watched' ? 'Watched'|trans({}, 'pricewatch') : (state == 'paused' ? 'Paused'|trans({}, 'pricewatch') : '–') -}}
+</span>

@@ -488,4 +488,7 @@ return [
     'Each family gets lines in proportion to its revenue, at least %min%: the best of every family shows.' => 'Chaque famille a des lignes en proportion de son chiffre d\'affaires, au moins %min% : le meilleur de chaque famille apparaît.',
     'Each family gets lines in proportion to its revenue. Tick the families that have no equivalent at competitors: they are never suggested.' => 'Chaque famille a des lignes en proportion de son chiffre d\'affaires. Cochez les familles sans équivalent chez les concurrents : elles ne sont jamais suggérées.',
     'Families left out of the suggestions' => 'Familles exclues des suggestions',
+    // Best sales table of the statistics
+    'The change could not be saved. Reload the page and try again.' => 'La modification n\'a pas été enregistrée. Rechargez la page et réessayez.',
+    'Close' => 'Fermer',
 ];

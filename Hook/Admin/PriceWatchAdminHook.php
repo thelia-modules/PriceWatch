@@ -65,6 +65,8 @@ class PriceWatchAdminHook extends BaseHook
             // The catalogue's product table: one extra column, header and rows.
             'products.header' => [['type' => 'back', 'method' => 'onProductsHeader']],
             'products.row' => [['type' => 'back', 'method' => 'onProductsRow']],
+            // After the statistics tabs (home and tool page): the watch actions of the best sales table.
+            'statistic.footer.js' => [['type' => 'back', 'method' => 'onStatisticFooterJs']],
         ];
     }
 
@@ -126,6 +128,21 @@ class PriceWatchAdminHook extends BaseHook
             'csrfToken' => $this->guard->token(),
             // Raw here, validated by ReturnTo on the way back.
             'returnQuery' => http_build_query(array_intersect_key($query, ['category_id' => true, 'page' => true])),
+        ]));
+    }
+
+    /**
+     * The column itself comes with the table's JSON (BestSalesWatchColumn);
+     * without the right to change, its cells hold no button and need no script.
+     */
+    public function onStatisticFooterJs(HookRenderEvent $event): void
+    {
+        if (!$this->securityContext->isGranted(['ADMIN'], [], [AdminRequestGuard::MODULE_CODE], [AccessManager::UPDATE])) {
+            return;
+        }
+
+        $event->add($this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/watch-cell-js.html.twig', [
+            'csrfToken' => $this->guard->token(),
         ]));
     }
 
