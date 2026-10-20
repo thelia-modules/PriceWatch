@@ -96,6 +96,13 @@ class PriceWatchAdminHook extends BaseHook
             'url' => $this->urlGenerator->generate('pricewatch_competitors'),
             'title' => $this->trans('Price watch: competitors', [], AdminRequestGuard::MODULE_CODE),
         ]);
+
+        $event->add([
+            'id' => 'pricewatch-proposals',
+            'class' => '',
+            'url' => $this->urlGenerator->generate('pricewatch_proposals'),
+            'title' => $this->trans('Price watch: price proposals', [], AdminRequestGuard::MODULE_CODE),
+        ]);
     }
 
     public function onProductsHeader(HookRenderEvent $event): void
@@ -230,6 +237,7 @@ class PriceWatchAdminHook extends BaseHook
             'dataforseoLoginFromEnvironment' => $this->settings->dataforseoLoginFromEnvironment(),
             'families' => $this->suggestions->familyTitles($this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR'),
             'excludedFamilies' => $this->settings->excludedFamilies(),
+            'minimumMarginPct' => rtrim(rtrim(number_format($this->settings->minimumMarginPct(), 1, ',', ''), '0'), ','),
         ]));
     }
 }

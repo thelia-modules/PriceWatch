@@ -87,6 +87,7 @@ final readonly class SettingsController
 
         $this->settings->setWebSearchEnabled($request->request->get('llm_web_search') === '1');
         $this->settings->setExcludedFamilies(array_map('intval', array_filter((array) $request->request->all('excluded_families'), 'is_numeric')));
+        $attempt(fn () => $this->settings->setMinimumMarginPct((string) $request->request->get('minimum_margin_pct', '')));
 
         foreach ($errors as $error) {
             $this->flash($request, 'danger', $error);

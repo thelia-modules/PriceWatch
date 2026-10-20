@@ -212,6 +212,36 @@ final class PriceWatchSettingsTest extends TestCase
         $this->settings()->setDataforseoLogin('admin @example.com');
     }
 
+    public function testTheMinimumMarginDefaultsTo20AndReadsADecimalComma(): void
+    {
+        $settings = $this->settings();
+        self::assertSame(20.0, $settings->minimumMarginPct());
+
+        $settings->setMinimumMarginPct('17,5');
+        self::assertSame(17.5, $settings->minimumMarginPct());
+
+        $settings->setMinimumMarginPct('');
+        self::assertSame(20.0, $settings->minimumMarginPct(), 'emptied: back to the default');
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function refusedMargins(): iterable
+    {
+        yield 'negative' => ['-5'];
+        yield 'the whole price' => ['90'];
+        yield 'not a number' => ['vingt'];
+    }
+
+    #[DataProvider('refusedMargins')]
+    public function testAMarginOutsideZeroTo90IsRefused(string $value): void
+    {
+        $this->expectException(InvalidSettingException::class);
+
+        $this->settings()->setMinimumMarginPct($value);
+    }
+
     /**
      * @param array<string, string>|string $environmentOrSecret
      */

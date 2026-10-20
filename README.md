@@ -127,6 +127,35 @@ and promotions are read per family, or the dearest family fills the list
 never suggested, and the settings page lists the families to leave out (what
 competitors do not sell as such). The tab can be filtered on one family.
 
+## Price proposals
+
+`/admin/module/pricewatch/proposals` (Catalogue menu) puts forward a price for
+the watched variants, read only: nothing is written to `product_price`, the
+change is made on the product page. Four tabs, most urgent first:
+
+- **to lower, sales down**: a matched competitor (`matched_*`, comparable,
+  whitelisted) sells cheaper and the product sells less;
+- **to lower**: the same, sales steady, rising or too thin to tell;
+- **cannot align**: the competitor sells below the margin floor, the proposal
+  stops at the floor;
+- **margin below the floor**: our price today is already below it, the
+  proposal is the floor.
+
+The proposed price is the cheapest matched competitor rounded down to the
+euro. The floor is the purchase price (first `product_sale_elements_purchase`
+row of the variant, the ClassicRide purchase tab, excluding tax, decimal comma
+or dot) divided by `1 - minimum margin`, with our tax ratio, rounded up to the
+cent. The minimum margin is set on the settings page, 20 % of the selling
+price excluding tax by default. Without that table or a purchase price, no
+floor applies and no margin shows. An offer still to check never sets a price.
+
+Sales are the units sold (paid, processing, sent) of the product over the last
+90 days, against the same 90 days a year earlier and the 90 days before. The
+year before decides when it sold at least 2 units, otherwise the 90 days
+before; a fall of 20 % or more is a decline. Sizes read at the same price
+against the same competitor share one line; a size not read is not proposed
+for. The CSV export has the same lines.
+
 ## Direct reading of competitor pages
 
 `pricewatch:direct` reads prices straight from the competitor product pages

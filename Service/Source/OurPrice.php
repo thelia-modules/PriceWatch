@@ -33,6 +33,19 @@ final class OurPrice
 
     public function inclTax(int $saleElementId): ?string
     {
+        $prices = $this->prices($saleElementId);
+
+        return $prices === null ? null : number_format($prices['inclTax'], 2, '.', '');
+    }
+
+    /**
+     * The same price, with what it is excluding tax and whether it is a
+     * promotion: the price proposals reckon the margin excluding tax.
+     *
+     * @return array{inclTax: float, exclTax: float, promo: bool}|null
+     */
+    public function prices(int $saleElementId): ?array
+    {
         $saleElement = ProductSaleElementsQuery::create()->findPk($saleElementId);
         $country = $this->france ??= CountryQuery::create()->filterByIsoalpha2('FR')->findOne();
         $currency = $this->euro ??= CurrencyQuery::create()->filterByCode('EUR')->findOne();
@@ -47,11 +60,12 @@ final class OurPrice
             return null;
         }
 
-        $untaxed = (int) $saleElement->getPromo() === 1 ? $prices->getPromoPrice() : $prices->getPrice();
+        $promo = (int) $saleElement->getPromo() === 1;
+        $untaxed = $promo ? $prices->getPromoPrice() : $prices->getPrice();
         $taxed = $this->taxCalculatorFactory->createTaxCalculator()
             ->load($saleElement->getProduct(), $country)
             ->getTaxedPrice($untaxed);
 
-        return $taxed > 0 ? number_format((float) $taxed, 2, '.', '') : null;
+        return $taxed > 0 ? ['inclTax' => (float) $taxed, 'exclTax' => (float) $untaxed, 'promo' => $promo] : null;
     }
 }
