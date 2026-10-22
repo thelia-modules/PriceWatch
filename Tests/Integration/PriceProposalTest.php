@@ -7,6 +7,7 @@ namespace PriceWatch\Tests\Integration;
 use PriceWatch\Model\PwCompetitor;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwProductIdentity;
+use PriceWatch\Service\Comparator\CatalogThumbnails;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
@@ -23,6 +24,7 @@ use Symfony\Component\Routing\Generator\UrlGenerator;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Route;
 use Symfony\Component\Routing\RouteCollection;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 use Thelia\Domain\Taxation\TaxEngine\TaxCalculatorFactory;
 use Thelia\Model\OrderProduct;
 use Thelia\Model\Product;
@@ -213,7 +215,7 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         $this->sale($product, 7, daysAgo: 720);
         $this->sale($product, 5, daysAgo: 5, status: 'canceled');
 
-        $chart = $this->withSalesHistory($this->lines([$product]))[0]['salesHistory'];
+        $chart = $this->forScreen($this->lines([$product]))[0]['salesHistory'];
 
         self::assertInstanceOf(SalesHistogram::class, $chart);
         self::assertSame('11/2024', $chart->bars[0]['month'], 'the sale of 10/2024 is out of the window');
@@ -229,7 +231,7 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '95.00');
         $this->sale($product, 2, daysAgo: 3);
 
-        $lines = $this->withSalesHistory($this->lines([$product]));
+        $lines = $this->forScreen($this->lines([$product]));
 
         self::assertCount(2, $lines, 'precondition: two competitor prices, two lines');
         self::assertSame([2, 2], [$lines[0]['salesHistory']->lastTwelveUnits, $lines[1]['salesHistory']->lastTwelveUnits]);
@@ -240,7 +242,7 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         $product = $this->product('Sans vente');
         $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '80.00');
 
-        self::assertNull($this->withSalesHistory($this->lines([$product]))[0]['salesHistory']);
+        self::assertNull($this->forScreen($this->lines([$product]))[0]['salesHistory']);
     }
 
     /**
@@ -248,9 +250,9 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
      *
      * @return list<array<string, mixed>>
      */
-    private function withSalesHistory(array $lines): array
+    private function forScreen(array $lines): array
     {
-        return $this->presenter()->withSalesHistory($lines, new \DateTimeImmutable(self::NOW));
+        return $this->presenter()->forScreen($lines, new \DateTimeImmutable(self::NOW));
     }
 
     /**
@@ -271,6 +273,8 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         $routes->add('pricewatch_proposals_csv', new Route('/proposals.csv'));
         $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
         $settings->setMinimumMarginPct($minimumMargin);
+        $dispatcher = self::coreService('event_dispatcher');
+        self::assertInstanceOf(EventDispatcherInterface::class, $dispatcher);
 
         return new PriceProposalPresenter(
             new PriceProposalRepository(),
@@ -278,6 +282,7 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
             new OurPrice(new TaxCalculatorFactory()),
             $settings,
             new UrlGenerator($routes, new RequestContext()),
+            new CatalogThumbnails($dispatcher),
         );
     }
 

@@ -3,6 +3,15 @@
 {% block title %}{{ 'Price proposals'|trans({}, 'pricewatch') }}{% endblock %}
 {% block body_testid %}pricewatch-proposals{% endblock %}
 
+{% block head_extra %}
+    <style>
+        /* Amounts line up from one row to the next. */
+        .pw-proposals td { font-variant-numeric: tabular-nums; }
+        .pw-proposals thead th { vertical-align: bottom; }
+        .pw-proposals .pw-rules summary { cursor: pointer; width: fit-content; }
+    </style>
+{% endblock %}
+
 {% block breadcrumb %}
     <nav aria-label="breadcrumb" class="mb-3">
         <ol class="breadcrumb">
@@ -17,22 +26,28 @@
 {% macro pct(value, signed) %}{% if value is not null %}{{ signed and value > 0 ? '+' : '' }}{{ value|number_format(1, ',', ' ') }} %{% endif %}{% endmacro %}
 
 {% block content %}
-<div class="container-fluid" data-testid="pricewatch-proposals-page">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-        <div>
+{% set histogram = 'PriceWatch\\Service\\Proposal\\SalesHistogram' %}
+<div class="container-fluid pw-proposals" data-testid="pricewatch-proposals-page">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-2">
+        <div style="flex: 1 1 30rem">
             <h1 class="h3 mb-1">{{ 'Price proposals'|trans({}, 'pricewatch') }}</h1>
-            <p class="text-muted mb-0">{{ 'proposals.intro'|trans({'%margin%': minimumMarginPct|number_format(1, ',', '')|replace({',0': ''}), '%days%': salesDays, '%decline%': declineFromPct|number_format(0)}, 'pricewatch') }}</p>
+            <p class="text-muted mb-0">{{ 'proposals.lead'|trans({}, 'pricewatch') }}</p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-shrink-0">
             <a class="btn btn-outline-secondary" href="{{ csvUrl }}" data-testid="pw-proposals-csv"><i class="bi bi-download me-1" aria-hidden="true"></i>{{ 'Export CSV'|trans({}, 'pricewatch') }}</a>
             <a class="btn btn-outline-secondary" href="{{ path('pricewatch_comparator') }}">{{ 'Price comparator'|trans({}, 'pricewatch') }}</a>
         </div>
     </div>
 
-    <ul class="nav nav-tabs mb-3" data-testid="pw-proposals-tabs">
+    <details class="pw-rules small text-muted mb-3" data-testid="pw-proposals-rules">
+        <summary>{{ 'proposals.rules'|trans({}, 'pricewatch') }}</summary>
+        <p class="mt-1 mb-0">{{ 'proposals.intro'|trans({'%margin%': minimumMarginPct|number_format(1, ',', '')|replace({',0': ''}), '%days%': salesDays, '%decline%': declineFromPct|number_format(0)}, 'pricewatch') }}</p>
+    </details>
+
+    <ul class="nav nav-tabs mb-2" data-testid="pw-proposals-tabs">
         {% for tab in tabs %}
             <li class="nav-item">
-                <a class="nav-link {{ tab.active ? 'active' : '' }}" {% if tab.active %}aria-current="page"{% endif %} href="{{ tab.url }}" data-testid="pw-proposals-tab-{{ tab.view }}">
+                <a class="nav-link {{ tab.active ? 'active' : (tab.count == 0 ? 'text-body-tertiary') }}" {% if tab.active %}aria-current="page"{% endif %} href="{{ tab.url }}" data-testid="pw-proposals-tab-{{ tab.view }}">
                     {{ ('proposals.kind.' ~ tab.view)|trans({}, 'pricewatch') }}
                     <span class="badge text-bg-light border ms-1">{{ tab.count }}</span>
                 </a>
@@ -40,41 +55,51 @@
         {% endfor %}
     </ul>
 
-    <p class="small text-muted">{{ ('proposals.kind.' ~ view ~ '.help')|trans({'%margin%': minimumMarginPct|number_format(1, ',', '')|replace({',0': ''})}, 'pricewatch') }}</p>
+    <p class="small text-muted mb-3">{{ ('proposals.kind.' ~ view ~ '.help')|trans({'%margin%': minimumMarginPct|number_format(1, ',', '')|replace({',0': ''})}, 'pricewatch') }}</p>
 
     {% if lines is empty %}
         <div class="alert alert-light border" data-testid="pw-proposals-empty">{{ 'No proposal here.'|trans({}, 'pricewatch') }}</div>
     {% else %}
         <div class="table-responsive">
-            <table class="table table-sm align-middle" data-testid="pw-proposals-table">
+            {# Fixed widths: the product takes what the figures leave, its title wraps and its reference line is cut. #}
+            <table class="table align-middle" style="table-layout: fixed; min-width: 64rem" data-testid="pw-proposals-table">
+                <colgroup>
+                    <col>
+                    <col style="width: 8rem">
+                    <col style="width: 7.5rem">
+                    <col style="width: 10rem">
+                    <col style="width: 15rem">
+                    <col style="width: 12rem">
+                </colgroup>
                 <thead>
                     <tr>
                         <th scope="col">{{ 'Product'|trans({}, 'pricewatch') }}</th>
-                        <th scope="col" class="text-end">{{ 'Our price'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Purchase price'|trans({}, 'pricewatch') }}</th>
-                        <th scope="col">{{ 'Cheapest competitor'|trans({}, 'pricewatch') }}</th>
-                        <th scope="col">
-                            {{ 'proposals.sales_history'|trans({'%months%': salesHistoryMonths}, 'pricewatch') }}
-                            <div class="small fw-normal text-muted text-nowrap">
-                                <svg width="8" height="8" aria-hidden="true"><rect width="8" height="8" fill="var(--bs-blue)"/></svg> {{ 'proposals.sales_history.last_twelve'|trans({}, 'pricewatch') }}
-                                <svg width="8" height="8" class="ms-1" aria-hidden="true"><rect width="8" height="8" fill="var(--bs-gray-400)"/></svg> {{ 'proposals.sales_history.twelve_before'|trans({}, 'pricewatch') }}
-                            </div>
-                        </th>
-                        <th scope="col">{{ 'proposals.sales'|trans({'%days%': salesDays}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-end">{{ 'Our price'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Proposal'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col" class="text-wrap">{{ 'Cheapest competitor'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'proposals.sales_column'|trans({}, 'pricewatch') }}</th>
                     </tr>
                 </thead>
                 <tbody>
                 {% for line in lines %}
                     <tr data-testid="pw-proposal-{{ line.productId }}">
-                        <td class="text-break" style="white-space: normal; min-width: 14rem">
-                            <a href="{{ line.productUrl }}" class="fw-semibold">{{ line.title }}</a>
-                            <div class="small text-muted">{{ line.ref }} · {{ line.sizes|join(', ') }}</div>
-                            {% if line.promo %}<span class="badge border bg-warning-subtle text-warning-emphasis border-warning-subtle">{{ 'Promotion'|trans({}, 'pricewatch') }}</span>{% endif %}
-                        </td>
-                        <td class="text-end text-nowrap">
-                            {{ _self.euros(line.ourPrice) }}
-                            <div class="small text-muted">{{ 'proposals.excl_tax'|trans({'%price%': line.ourPriceExclTax|number_format(2, ',', ' ')}, 'pricewatch') }}</div>
+                        <td class="text-wrap">
+                            <div class="d-flex align-items-center gap-2">
+                                {% if line.image %}
+                                    <img src="{{ line.image }}" alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" class="rounded border flex-shrink-0 bg-white" style="object-fit: contain">
+                                {% else %}
+                                    <span class="d-inline-flex align-items-center justify-content-center rounded border flex-shrink-0 bg-body-tertiary text-secondary" style="width: 40px; height: 40px" aria-hidden="true"><i class="bi bi-image"></i></span>
+                                {% endif %}
+                                <div style="min-width: 0">
+                                    <a href="{{ line.productUrl }}" class="fw-semibold d-block lh-sm mb-1">{{ line.title }}</a>
+                                    {% set sizes = line.sizes|join(', ') %}
+                                    <div class="small text-muted d-flex align-items-center gap-1">
+                                        <span class="text-truncate" title="{{ line.ref }} · {{ sizes }}">{{ line.ref }} · {{ sizes }}</span>
+                                        {% if line.promo %}<span class="badge border bg-warning-subtle text-warning-emphasis border-warning-subtle flex-shrink-0">{{ 'Promotion'|trans({}, 'pricewatch') }}</span>{% endif %}
+                                    </div>
+                                </div>
+                            </div>
                         </td>
                         <td class="text-end text-nowrap">
                             {% if line.purchase is not null %}
@@ -84,57 +109,64 @@
                                 <span class="small text-warning-emphasis" data-testid="pw-proposal-no-purchase">{{ 'No purchase price'|trans({}, 'pricewatch') }}</span>
                             {% endif %}
                         </td>
-                        <td style="white-space: normal">
-                            {% if line.competitor %}
-                                {% if line.competitorUrl %}<a href="{{ line.competitorUrl }}" target="_blank" rel="noopener noreferrer">{{ line.competitor }}</a>{% else %}{{ line.competitor }}{% endif %}
-                                <span class="text-nowrap">{{ _self.euros(line.competitorPrice) }}</span>
-                                <span class="small text-nowrap {{ line.gapPct < 0 ? 'text-danger' : 'text-success' }}">{{ _self.pct(line.gapPct, true) }}</span>
+                        <td class="text-end text-nowrap">
+                            {{ _self.euros(line.ourPrice) }}
+                            <div class="small text-muted">{{ 'proposals.excl_tax'|trans({'%price%': line.ourPriceExclTax|number_format(2, ',', ' ')}, 'pricewatch') }}</div>
+                        </td>
+                        <td class="text-end text-nowrap" data-testid="pw-proposal-price-{{ line.productId }}">
+                            {% if line.proposedPrice is not null %}
+                                <div class="fs-5 fw-bold lh-sm">{{ _self.euros(line.proposedPrice) }}</div>
                                 <div class="small text-muted">
-                                    {% if line.seenAt %}{{ 'proposals.read_on'|trans({'%date%': line.seenAt}, 'pricewatch') }}{% endif %}
-                                    {% if line.competitors > 1 %} · {{ 'proposals.competitors'|trans({'%count%': line.competitors}, 'pricewatch') }}{% endif %}
+                                    <span class="badge border {{ line.changePct < 0 ? 'bg-danger-subtle text-danger-emphasis border-danger-subtle' : 'bg-success-subtle text-success-emphasis border-success-subtle' }}">{{ _self.pct(line.changePct, true) }}</span>
+                                    {{ 'proposals.excl_tax'|trans({'%price%': line.proposedExclTax|number_format(2, ',', ' ')}, 'pricewatch') }}
+                                </div>
+                                {% if line.marginProposedPct is not null %}<div class="small text-muted">{{ 'proposals.margin'|trans({'%margin%': _self.pct(line.marginProposedPct, false)}, 'pricewatch') }}</div>{% endif %}
+                                {% if line.kind == 'floor_blocked' %}<div class="small text-warning-emphasis">{{ 'proposals.floor_reached'|trans({}, 'pricewatch') }}</div>{% endif %}
+                            {% else %}
+                                <span class="small text-muted">{{ 'proposals.at_floor'|trans({'%price%': line.floorPrice|number_format(2, ',', ' ')}, 'pricewatch') }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-wrap">
+                            {% if line.competitor %}
+                                <div>
+                                    {% if line.competitorUrl %}<a href="{{ line.competitorUrl }}" target="_blank" rel="noopener noreferrer">{{ line.competitor }}</a>{% else %}{{ line.competitor }}{% endif %}
+                                    <span class="text-nowrap">{{ _self.euros(line.competitorPrice) }} <span class="small {{ line.gapPct < 0 ? 'text-danger' : 'text-success' }}">{{ _self.pct(line.gapPct, true) }}</span></span>
+                                </div>
+                                <div class="small text-muted">
+                                    {% if line.seenAt %}<span class="text-nowrap">{{ 'proposals.read_on'|trans({'%date%': line.seenAt}, 'pricewatch') }}</span>{% endif %}{% if line.competitors > 1 %} · <span class="text-nowrap">{{ 'proposals.competitors'|trans({'%count%': line.competitors}, 'pricewatch') }}</span>{% endif %}
                                 </div>
                             {% else %}
                                 <span class="text-muted">-</span>
                             {% endif %}
                         </td>
                         <td data-testid="pw-proposal-sales-history-{{ line.productId }}">
-                            {% set chart = line.salesHistory %}
-                            {% if chart %}
-                                {% set summary = 'proposals.sales_history.summary'|trans({'%last%': chart.lastTwelveUnits, '%before%': chart.twelveBeforeUnits}, 'pricewatch') %}
-                                <svg width="{{ constant('PriceWatch\\Service\\Proposal\\SalesHistogram::WIDTH') }}" height="{{ constant('PriceWatch\\Service\\Proposal\\SalesHistogram::HEIGHT') }}" class="d-block" role="img" aria-label="{{ summary }}">
-                                    {% for bar in chart.bars %}
-                                        <g>
-                                            <title>{{ 'proposals.sales_history.month'|trans({'%month%': bar.month, '%count%': bar.units}, 'pricewatch') }}</title>
-                                            <rect x="{{ bar.x }}" y="0" width="{{ constant('PriceWatch\\Service\\Proposal\\SalesHistogram::SLOT') }}" height="{{ constant('PriceWatch\\Service\\Proposal\\SalesHistogram::HEIGHT') }}" fill="transparent"/>
-                                            {% if bar.units > 0 %}<rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ constant('PriceWatch\\Service\\Proposal\\SalesHistogram::BAR') }}" height="{{ bar.height }}" fill="{{ bar.lastTwelve ? 'var(--bs-blue)' : 'var(--bs-gray-400)' }}"/>{% endif %}
-                                        </g>
-                                    {% endfor %}
-                                    <line x1="0" y1="{{ constant('PriceWatch\\Service\\Proposal\\SalesHistogram::HEIGHT') - 0.5 }}" x2="{{ constant('PriceWatch\\Service\\Proposal\\SalesHistogram::WIDTH') }}" y2="{{ constant('PriceWatch\\Service\\Proposal\\SalesHistogram::HEIGHT') - 0.5 }}" stroke="var(--bs-border-color)"/>
-                                </svg>
-                                <div class="small text-muted text-nowrap">{{ summary }}</div>
-                            {% else %}
-                                <span class="small text-muted">{{ 'proposals.sales_history.none'|trans({'%months%': salesHistoryMonths}, 'pricewatch') }}</span>
-                            {% endif %}
-                        </td>
-                        <td class="small" style="white-space: normal; min-width: 11rem">
-                            <div class="fw-semibold">{{ 'proposals.units'|trans({'%count%': line.units}, 'pricewatch') }}</div>
-                            <div class="{{ line.yearOnYearPct is not null and line.yearOnYearPct <= -declineFromPct ? 'text-danger' : 'text-muted' }}">
-                                {{ 'proposals.year_before'|trans({'%count%': line.unitsYearBefore}, 'pricewatch') }}{% if line.yearOnYearPct is not null %} ({{ _self.pct(line.yearOnYearPct, true) }}){% endif %}
+                            <div class="d-flex flex-column gap-1">
+                                {% set chart = line.salesHistory %}
+                                {% if chart %}
+                                    {% set summary = 'proposals.sales_history.summary'|trans({'%last%': chart.lastTwelveUnits, '%before%': chart.twelveBeforeUnits}, 'pricewatch') %}
+                                    <svg width="{{ constant(histogram ~ '::WIDTH') }}" height="{{ constant(histogram ~ '::HEIGHT') }}" class="flex-shrink-0" role="img" aria-label="{{ summary }}">
+                                        {% for bar in chart.bars %}
+                                            <g>
+                                                <title>{{ 'proposals.sales_history.month'|trans({'%month%': bar.month, '%count%': bar.units}, 'pricewatch') }} · {{ summary }}</title>
+                                                <rect x="{{ bar.x }}" y="0" width="{{ constant(histogram ~ '::SLOT') }}" height="{{ constant(histogram ~ '::HEIGHT') }}" fill="transparent"/>
+                                                {% if bar.units > 0 %}<rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ constant(histogram ~ '::BAR') }}" height="{{ bar.height }}" fill="{{ bar.lastTwelve ? 'var(--bs-blue)' : 'var(--bs-gray-400)' }}"/>{% endif %}
+                                            </g>
+                                        {% endfor %}
+                                        <line x1="0" y1="{{ constant(histogram ~ '::HEIGHT') - 0.5 }}" x2="{{ constant(histogram ~ '::WIDTH') }}" y2="{{ constant(histogram ~ '::HEIGHT') - 0.5 }}" stroke="var(--bs-border-color)"/>
+                                    </svg>
+                                {% else %}
+                                    <span class="small text-muted">{{ 'proposals.sales_history.none'|trans({'%months%': salesHistoryMonths}, 'pricewatch') }}</span>
+                                {% endif %}
+                                <div class="small text-nowrap">
+                                    <div class="fw-semibold">{{ 'proposals.units_over'|trans({'%count%': line.units, '%days%': salesDays}, 'pricewatch') }}</div>
+                                    <div class="{{ line.yearOnYearPct is not null and line.yearOnYearPct <= -declineFromPct ? 'text-danger' : 'text-muted' }}">
+                                        {{ 'proposals.year_before'|trans({'%count%': line.unitsYearBefore}, 'pricewatch') }}{% if line.yearOnYearPct is not null %} ({{ _self.pct(line.yearOnYearPct, true) }}){% endif %}
+                                    </div>
+                                    <div class="{{ line.periodOnPeriodPct is not null and line.periodOnPeriodPct <= -declineFromPct ? 'text-danger' : 'text-muted' }}">
+                                        {{ 'proposals.period_before'|trans({'%count%': line.unitsPeriodBefore, '%days%': salesDays}, 'pricewatch') }}{% if line.periodOnPeriodPct is not null %} ({{ _self.pct(line.periodOnPeriodPct, true) }}){% endif %}
+                                    </div>
+                                </div>
                             </div>
-                            <div class="{{ line.periodOnPeriodPct is not null and line.periodOnPeriodPct <= -declineFromPct ? 'text-danger' : 'text-muted' }}">
-                                {{ 'proposals.period_before'|trans({'%count%': line.unitsPeriodBefore}, 'pricewatch') }}{% if line.periodOnPeriodPct is not null %} ({{ _self.pct(line.periodOnPeriodPct, true) }}){% endif %}
-                            </div>
-                        </td>
-                        <td class="text-end text-nowrap" data-testid="pw-proposal-price-{{ line.productId }}">
-                            {% if line.proposedPrice is not null %}
-                                <span class="fw-semibold">{{ _self.euros(line.proposedPrice) }}</span>
-                                <span class="small {{ line.changePct < 0 ? 'text-danger' : 'text-success' }}">{{ _self.pct(line.changePct, true) }}</span>
-                                <div class="small text-muted">{{ 'proposals.excl_tax'|trans({'%price%': line.proposedExclTax|number_format(2, ',', ' ')}, 'pricewatch') }}</div>
-                                {% if line.marginProposedPct is not null %}<div class="small text-muted">{{ 'proposals.margin'|trans({'%margin%': _self.pct(line.marginProposedPct, false)}, 'pricewatch') }}</div>{% endif %}
-                                {% if line.kind == 'floor_blocked' %}<div class="small text-warning-emphasis">{{ 'proposals.floor_reached'|trans({}, 'pricewatch') }}</div>{% endif %}
-                            {% else %}
-                                <span class="small text-muted">{{ 'proposals.at_floor'|trans({'%price%': line.floorPrice|number_format(2, ',', ' ')}, 'pricewatch') }}</span>
-                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}

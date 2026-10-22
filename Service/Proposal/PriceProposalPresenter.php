@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Proposal;
 
+use PriceWatch\Service\Comparator\CatalogThumbnails;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Source\OurPrice;
@@ -22,6 +23,7 @@ final readonly class PriceProposalPresenter
         private OurPrice $ourPrice,
         private PriceWatchSettings $settings,
         private UrlGeneratorInterface $urlGenerator,
+        private CatalogThumbnails $thumbnails,
     ) {
     }
 
@@ -45,7 +47,7 @@ final readonly class PriceProposalPresenter
         return [
             'view' => $view->value,
             'tabs' => $tabs,
-            'lines' => $this->withSalesHistory(array_values(array_filter($lines, static fn (array $line): bool => $line['kind'] === $view->value)), $now),
+            'lines' => $this->forScreen(array_values(array_filter($lines, static fn (array $line): bool => $line['kind'] === $view->value)), $now),
             'minimumMarginPct' => $this->settings->minimumMarginPct(),
             'salesDays' => SalesTrend::DAYS,
             'salesHistoryMonths' => SalesHistogram::MONTHS,
@@ -155,24 +157,26 @@ final readonly class PriceProposalPresenter
     }
 
     /**
-     * Adds to each line the units its product sold per month over the last
-     * SalesHistogram::MONTHS months. Sales are counted per product, so the
-     * lines of one product share the same chart.
+     * What only the screen shows, for the lines of the tab on screen: the
+     * units the product sold per month over the last SalesHistogram::MONTHS
+     * months, and its picture, the comparator's (Google Shopping card first,
+     * our catalogue next). Both belong to the product: the lines of one
+     * product share them.
      *
      * @param list<array<string, mixed>> $lines lines()
      *
-     * @return list<array<string, mixed>> the same lines, each with its 'salesHistory' (null without any sale)
+     * @return list<array<string, mixed>> the same lines, each with its 'salesHistory' (null without any sale) and 'image' (null without any picture)
      */
-    public function withSalesHistory(array $lines, \DateTimeImmutable $now): array
+    public function forScreen(array $lines, \DateTimeImmutable $now): array
     {
-        $sales = $this->repository->monthlySales(
-            array_values(array_unique(array_map('intval', array_column($lines, 'productId')))),
-            SalesHistogram::since($now),
-            $now,
-        );
+        $productIds = array_values(array_unique(array_map('intval', array_column($lines, 'productId'))));
+        $sales = $this->repository->monthlySales($productIds, SalesHistogram::since($now), $now);
+        $pictures = $this->comparator->cardImages($productIds);
+        $pictures += $this->thumbnails->urls(array_values(array_diff($productIds, array_keys($pictures))));
 
         foreach ($lines as $index => $line) {
             $lines[$index]['salesHistory'] = SalesHistogram::of($sales[$line['productId']] ?? [], $now);
+            $lines[$index]['image'] = $pictures[$line['productId']] ?? null;
         }
 
         return $lines;
