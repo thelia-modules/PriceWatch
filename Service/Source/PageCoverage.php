@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Service\Source;
 
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Direct\PageOutcome;
 use PriceWatch\Service\Direct\PageRepository;
 use Propel\Runtime\Propel;
 
@@ -23,6 +24,11 @@ use Propel\Runtime\Propel;
  * sitemap), martimotos.com and motocard.com (sitemaps answered 403) were
  * watched, and Google, their only source, was never asked about the 13
  * products a page covered.
+ *
+ * A page covers only while it reads: its last reading gave a price, or it
+ * was not read yet. One that read nothing of ours, no price or an error
+ * covers nothing (seen 2026-10-16 and 22: Segura Mojo gloves, Bell Race
+ * Star, confirmed pages ending in read_no_match, left unread by both).
  */
 final readonly class PageCoverage
 {
@@ -44,6 +50,7 @@ final readonly class PageCoverage
         $params = [
             'watched' => CompetitorStatus::Watched->value,
             'confirmed' => PageRepository::CONFIRMED,
+            'read' => PageOutcome::Read->value,
             'since' => \DateTimeImmutable::createFromInterface($now)->modify('-'.self::REDISCOVER_DAYS.' days')->format('Y-m-d H:i:s'),
             'newlyWatched' => CompetitorStatus::Watched->value,
             'newlyConfirmed' => PageRepository::CONFIRMED,
@@ -60,6 +67,7 @@ final readonly class PageCoverage
                     GROUP BY product_id
                 ) s
                 JOIN pw_competitor_page pg ON pg.product_id = s.product_id AND pg.status = :confirmed
+                    AND (pg.last_fetched_at IS NULL OR pg.last_outcome = :read)
                 JOIN pw_competitor c ON c.id = pg.competitor_id AND c.status = :watched
                 GROUP BY s.product_id, s.searched_at
             ) k

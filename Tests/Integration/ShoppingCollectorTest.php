@@ -667,6 +667,35 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, $result['run']->getTargetsPlanned(), 'not proven yet: it covers nothing');
     }
 
+    /**
+     * Seen 2026-10-16 and 22 (Segura Mojo gloves, Bell Race Star): a
+     * confirmed page that reads nothing of ours left the product unread by
+     * both the direct pass and Google.
+     */
+    public function testAConfirmedPageThatReadsNothingSendsTheProductToGoogle(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-10 days'))->save();
+        $this->confirmedPage($identity, $this->watched, '-10 days');
+        \PriceWatch\Model\PwCompetitorPageQuery::create()->filterByProductId($identity->getProductId())->update(['LastFetchedAt' => new \DateTime('-1 hour'), 'LastOutcome' => 'read_no_match']);
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getTargetsPlanned(), 'a page that reads nothing covers nothing');
+    }
+
+    public function testAConfirmedPageThatReadAPriceStillCovers(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-10 days'))->save();
+        $this->confirmedPage($identity, $this->watched, '-10 days');
+        \PriceWatch\Model\PwCompetitorPageQuery::create()->filterByProductId($identity->getProductId())->update(['LastFetchedAt' => new \DateTime('-1 hour'), 'LastOutcome' => \PriceWatch\Service\Direct\PageOutcome::Read->value]);
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, $result['run']->getTargetsPlanned());
+    }
+
     public function testWithoutWhitelistNothingIsPaidFor(): void
     {
         \PriceWatch\Model\PwCompetitorQuery::create()->filterByDomain($this->watched)->update(['Status' => CompetitorStatus::Proposed->value]);
