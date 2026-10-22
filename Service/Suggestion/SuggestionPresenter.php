@@ -23,6 +23,9 @@ final readonly class SuggestionPresenter
     public const VIEW = 'suggestions';
 
     public const SALES_DAYS = 90;
+    /** The best sellers of the month and of the year, rolling: asked 2026-10-20. */
+    public const MONTH_DAYS = 30;
+    public const YEAR_DAYS = 365;
     /** One rule for "old reading" across the back office. */
     public const STALE_DAYS = \PriceWatch\Service\Watched\LastWatch::STALE_DAYS;
     public const SHOWN = 50;
@@ -60,9 +63,9 @@ final readonly class SuggestionPresenter
     public function screen(string $locale, ?\DateTimeImmutable $now = null, ?int $family = null): array
     {
         $now ??= new \DateTimeImmutable();
-        ['sales' => $sales, 'signals' => $signals, 'families' => $familyOf] = $this->candidates($now);
+        ['sales' => $sales, 'month' => $month, 'year' => $year, 'signals' => $signals, 'families' => $familyOf] = $this->candidates($now);
 
-        $scores = self::score($sales, $signals);
+        $scores = self::score($sales, $signals, $month, $year);
         $products = $this->repository->products(array_keys($scores), $locale);
         $ranked = array_values(array_filter(self::rank($scores, $sales), static fn (int $productId): bool => isset($products[$productId])));
         $quota = self::quota($ranked, $familyOf, $this->repository->familyRevenue($now->modify('-'.self::SALES_DAYS.' days'), $this->settings->excludedFamilies()));
@@ -92,6 +95,12 @@ final readonly class SuggestionPresenter
 
             if (isset($sales[$productId])) {
                 $reasons[] = ['key' => 'sales', 'quantity' => $sales[$productId]['quantity'], 'revenue' => $money->formatCurrency($sales[$productId]['revenue'], 'EUR')];
+            }
+
+            foreach (['month' => $month, 'year' => $year] as $key => $sellers) {
+                if (isset($sellers[$productId])) {
+                    $reasons[] = ['key' => $key, 'rank' => $sellers[$productId]['rank'], 'quantity' => $sellers[$productId]['quantity'], 'revenue' => $money->formatCurrency($sellers[$productId]['revenue'], 'EUR')];
+                }
             }
 
             $discount = $signals[$productId]['discountPct'];
@@ -210,11 +219,13 @@ final readonly class SuggestionPresenter
      * Every product not watched yet one reason puts forward, kept only if we
      * can sell it (collecting the price of a hidden or out of stock product
      * is money lost) and if its family is one to suggest from. Best sellers
-     * and promotions are read family by family, so every family has
-     * candidates.
+     * (over 90 days, the month and the year) and promotions are read family
+     * by family, so every family has candidates.
      *
      * @return array{
-     *     sales: array<int, array{quantity: int, revenue: float}>,
+     *     sales: array<int, array{quantity: int, revenue: float, rank: int}>,
+     *     month: array<int, array{quantity: int, revenue: float, rank: int}>,
+     *     year: array<int, array{quantity: int, revenue: float, rank: int}>,
      *     signals: array<int, array{discountPct: float|null, isNew: bool, stockValue: float}>,
      *     families: array<int, int>,
      * }
@@ -223,12 +234,16 @@ final readonly class SuggestionPresenter
     {
         $excluded = $this->settings->excludedFamilies();
         $sales = $this->repository->bestSellersByFamily($now->modify('-'.self::SALES_DAYS.' days'), self::SHOWN, $excluded);
+        $month = $this->repository->bestSellersByFamily($now->modify('-'.self::MONTH_DAYS.' days'), self::SHOWN, $excluded);
+        $year = $this->repository->bestSellersByFamily($now->modify('-'.self::YEAR_DAYS.' days'), self::SHOWN, $excluded);
         $promoted = $this->repository->onPromotionByFamily(SuggestionScore::PROMO_FROM_PCT, self::SHOWN, $excluded);
-        $signals = $this->repository->catalogSignals(array_values(array_unique([...array_keys($sales), ...$promoted])));
+        $signals = $this->repository->catalogSignals(array_values(array_unique([...array_keys($sales), ...array_keys($month), ...array_keys($year), ...$promoted])));
         $families = $this->repository->families(array_keys($signals), $excluded);
 
         return [
             'sales' => $sales,
+            'month' => $month,
+            'year' => $year,
             'signals' => array_intersect_key($signals, $families),
             'families' => $families,
         ];
@@ -236,22 +251,35 @@ final readonly class SuggestionPresenter
 
     /**
      * Revenue and stock are measured against the largest among the products
-     * we can sell, so the score tells apart what the list shows.
+     * we can sell, so the score tells apart what the list shows. Revenue is
+     * measured period by period, the best share counts: the best seller of
+     * the year that did not sell this season still takes the full weight.
      *
-     * @param array<int, array{quantity: int, revenue: float}>                              $sales
+     * @param array<int, array{quantity: int, revenue: float}>                              $sales over 90 days
      * @param array<int, array{discountPct: float|null, isNew: bool, stockValue: float}> $signals
+     * @param array<int, array{quantity: int, revenue: float}>                              $month
+     * @param array<int, array{quantity: int, revenue: float}>                              $year
      *
      * @return array<int, SuggestionScore> product id => score, for the products in $signals only
      */
-    public static function score(array $sales, array $signals): array
+    public static function score(array $sales, array $signals, array $month = [], array $year = []): array
     {
-        $bestRevenue = max([0.0, ...array_map(static fn (int $productId): float => $sales[$productId]['revenue'] ?? 0.0, array_keys($signals))]);
+        $periods = [$sales, $month, $year];
+        $bestRevenues = array_map(static fn (array $sellers): float => max([0.0, ...array_map(static fn (int $productId): float => $sellers[$productId]['revenue'] ?? 0.0, array_keys($signals))]), $periods);
         $largestStock = max([0.0, ...array_column($signals, 'stockValue')]);
         $scores = [];
 
         foreach ($signals as $productId => $signal) {
+            $revenueShare = 0.0;
+
+            foreach ($periods as $index => $sellers) {
+                if ($bestRevenues[$index] > 0) {
+                    $revenueShare = max($revenueShare, ($sellers[$productId]['revenue'] ?? 0.0) / $bestRevenues[$index]);
+                }
+            }
+
             $scores[$productId] = SuggestionScore::of(
-                $bestRevenue > 0 ? ($sales[$productId]['revenue'] ?? 0.0) / $bestRevenue : 0.0,
+                $revenueShare,
                 $signal['discountPct'],
                 $signal['isNew'],
                 $largestStock > 0 ? $signal['stockValue'] / $largestStock : 0.0,

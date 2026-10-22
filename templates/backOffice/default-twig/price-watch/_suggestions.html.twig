@@ -1,7 +1,8 @@
 {# Products not watched yet worth adding now, each with why. Ticking them
    and clicking adds them and starts one pass on them; the cost shown is the
    worst case, enforced. #}
-<p class="small text-muted mb-2">{{ 'Products not watched yet to add now: they sell or they are on a deep promotion. The highest score first; watched, hidden or out of stock products are left out.'|trans({}, 'pricewatch') }}</p>
+<p class="small text-muted mb-2">{{ 'Products not watched yet to add now: they sell or they are on a deep promotion. The highest score first; watched, hidden or out of stock products are left out.'|trans({}, 'pricewatch') }}
+    {{ 'Best sellers are read over %days% days, the last %month% days and the last %year% days, each ranked in its family.'|trans({'%days%': salesDays, '%month%': monthDays, '%year%': yearDays}, 'pricewatch') }}</p>
 
 <p class="small text-muted mb-2">{{ 'Each family gets lines in proportion to its revenue, at least %min%: the best of every family shows.'|trans({'%min%': 3}, 'pricewatch') }}</p>
 
@@ -24,10 +25,12 @@
 {% else %}
     {% set badges = {
         sales: 'bg-success-subtle text-success-emphasis border-success-subtle',
+        month: 'bg-success-subtle text-success-emphasis border-success-subtle',
+        year: 'bg-success-subtle text-success-emphasis border-success-subtle',
         promo: 'bg-warning-subtle text-warning-emphasis border-warning-subtle',
         new: 'bg-info-subtle text-info-emphasis border-info-subtle'
     } %}
-    {% set icons = {sales: 'bi-graph-up-arrow', promo: 'bi-tag', new: 'bi-stars'} %}
+    {% set icons = {sales: 'bi-graph-up-arrow', month: 'bi-trophy', year: 'bi-trophy', promo: 'bi-tag', new: 'bi-stars'} %}
     {% set scoreLabels = {
         sales: 'Sales'|trans({}, 'pricewatch'),
         promo: 'Promotion'|trans({}, 'pricewatch'),
@@ -84,9 +87,12 @@
                             <div class="d-flex flex-wrap gap-1">
                                 {% for reason in row.reasons %}
                                     <span class="badge rounded-pill border {{ badges[reason.key] }}" data-reason="{{ reason.key }}"
-                                        {% if reason.key == 'sales' %}data-bs-toggle="tooltip" title="{{ 'Revenue excluding tax: %revenue%'|trans({'%revenue%': reason.revenue}, 'pricewatch') }}"{% endif %}>
+                                        {% if reason.key == 'sales' %}data-bs-toggle="tooltip" title="{{ 'Revenue excluding tax: %revenue%'|trans({'%revenue%': reason.revenue}, 'pricewatch') }}"{% endif %}
+                                        {% if reason.key in ['month', 'year'] %}data-bs-toggle="tooltip" title="{{ '%count% sold in %days% days, revenue excluding tax %revenue%, among every product of its family'|trans({'%count%': reason.quantity, '%days%': reason.key == 'month' ? monthDays : yearDays, '%revenue%': reason.revenue}, 'pricewatch') }}"{% endif %}>
                                         <i class="bi {{ icons[reason.key] }} me-1" aria-hidden="true"></i>
                                         {%- if reason.key == 'sales' -%}{{ '%count% sold in %days% days'|trans({'%count%': reason.quantity, '%days%': salesDays}, 'pricewatch') }}
+                                        {%- elseif reason.key == 'month' -%}{{ 'suggestion.month_rank'|trans({'%rank%': reason.rank}, 'pricewatch') }}
+                                        {%- elseif reason.key == 'year' -%}{{ 'suggestion.year_rank'|trans({'%rank%': reason.rank}, 'pricewatch') }}
                                         {%- elseif reason.key == 'promo' -%}{{ 'On promotion, %discount% off'|trans({'%discount%': reason.discount}, 'pricewatch') }}
                                         {%- else -%}{{ 'New'|trans({}, 'pricewatch') }}{%- endif -%}
                                     </span>

@@ -120,7 +120,11 @@ need a container.
 ## Suggestions by family
 
 The suggestions tab lists 50 products not watched yet, best sellers and deep
-promotions, to add to the watch. A watched product is never suggested (paused
+promotions, to add to the watch. Best sellers are read over 90 days, the last
+30 days (the month) and the last 365 days (the year); a best seller of the
+month or of the year shows its rank among every product its family sold,
+watched ones included, and the sales part of the score takes the best share
+of the three periods. A watched product is never suggested (paused
 ones are, collecting resumes them): it is collected by the rotation and, when
 stale, from the watched products list. Products come family by family: a
 family is the visible top-level category of a product's default category.

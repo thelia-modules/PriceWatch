@@ -7,10 +7,11 @@ namespace PriceWatch\Service\Suggestion;
 use Propel\Runtime\Propel;
 
 /**
- * The reasons to add a product to the watch now: it sells, or it is on a
- * deep promotion. One grouped query each, product ids out; then what the
- * catalogue says of them. A product already watched is never suggested: the
- * rotation and the watched tab collect it (asked 2026-10-20).
+ * The reasons to add a product to the watch now: it sells (over the month,
+ * 90 days or the year), or it is on a deep promotion. One grouped query
+ * each, product ids out; then what the catalogue says of them. A product
+ * already watched is never suggested: the rotation and the watched tab
+ * collect it (asked 2026-10-20).
  */
 final readonly class SuggestionRepository
 {
@@ -121,10 +122,12 @@ final readonly class SuggestionRepository
     /**
      * Best sellers family by family: ranked across the shop, dear helmets
      * took 47 lines out of 50 (measured 2026-10-12) and no glove ever got in.
+     * The rank is the product's among every product its family sold, watched
+     * ones included; only the lines are left to the products not watched.
      *
      * @param list<int> $excludedFamilies
      *
-     * @return array<int, array{quantity: int, revenue: float}> product id => units and revenue excluding tax
+     * @return array<int, array{quantity: int, revenue: float, rank: int}> product id => units, revenue excluding tax, rank in its family
      */
     public function bestSellersByFamily(\DateTimeInterface $since, int $perFamily, array $excludedFamilies): array
     {
@@ -137,21 +140,22 @@ final readonly class SuggestionRepository
             .' JOIN order_status os ON os.id = o.status_id'
             .' JOIN product p ON p.ref = op.product_ref'
             .' WHERE o.created_at >= :since AND os.code IN ('.self::quoted(self::SOLD_STATUSES).')'
-            .' AND '.self::notWatched('p.id')
             .' GROUP BY p.id),'
-            .' ranked AS (SELECT sold.*, ROW_NUMBER() OVER (PARTITION BY tree.root ORDER BY sold.revenue DESC, sold.product_id) AS position'
+            .' ranked AS (SELECT sold.*, tree.root, ROW_NUMBER() OVER (PARTITION BY tree.root ORDER BY sold.revenue DESC, sold.product_id) AS family_rank'
             .' FROM sold'
             .' JOIN product_category pc ON pc.product_id = sold.product_id AND pc.default_category = 1'
             .' JOIN tree ON tree.id = pc.category_id'
-            .self::excluding($excludedFamilies).')'
-            .' SELECT product_id, quantity, revenue FROM ranked WHERE position <= '.max(1, $perFamily),
+            .self::excluding($excludedFamilies).'),'
+            .' unwatched AS (SELECT ranked.*, ROW_NUMBER() OVER (PARTITION BY ranked.root ORDER BY ranked.family_rank) AS position'
+            .' FROM ranked WHERE '.self::notWatched('ranked.product_id').')'
+            .' SELECT product_id, quantity, revenue, family_rank FROM unwatched WHERE position <= '.max(1, $perFamily),
             ['since' => $since->format('Y-m-d H:i:s')],
         );
 
         $sellers = [];
 
         foreach ($rows as $row) {
-            $sellers[(int) $row['product_id']] = ['quantity' => (int) $row['quantity'], 'revenue' => (float) $row['revenue']];
+            $sellers[(int) $row['product_id']] = ['quantity' => (int) $row['quantity'], 'revenue' => (float) $row['revenue'], 'rank' => (int) $row['family_rank']];
         }
 
         return $sellers;

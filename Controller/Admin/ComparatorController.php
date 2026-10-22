@@ -74,7 +74,7 @@ final readonly class ComparatorController
             'suggestionFamilies' => $suggestionScreen['families'] ?? [],
             'suggestionFamily' => $suggestionScreen['family'] ?? null,
             'suggestionMax' => SuggestionPresenter::MAX_SELECTED,
-            'suggestionDays' => ['sales' => SuggestionPresenter::SALES_DAYS, 'stale' => SuggestionPresenter::STALE_DAYS],
+            'suggestionDays' => ['sales' => SuggestionPresenter::SALES_DAYS, 'month' => SuggestionPresenter::MONTH_DAYS, 'year' => SuggestionPresenter::YEAR_DAYS, 'stale' => SuggestionPresenter::STALE_DAYS],
             'costPerVariant' => ManualRun::worstCaseUsd(1),
             'usage' => $this->usage->present($request->getLocale()),
             'run' => $this->runStatus->present(),

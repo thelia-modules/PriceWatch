@@ -110,9 +110,9 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         $order = array_keys($rows);
 
         self::assertLessThan(array_search((int) $soldOnly->getId(), $order, true), array_search((int) $several->getId(), $order, true), '40 % off outweighs a far larger revenue');
-        self::assertSame(['sales'], array_column($rows[(int) $soldOnly->getId()]['reasons'], 'key'), '5 % off is no reason');
+        self::assertSame(['sales', 'month', 'year'], array_column($rows[(int) $soldOnly->getId()]['reasons'], 'key'), '5 % off is no reason');
         self::assertGreaterThan($rows[(int) $soldOnly->getId()]['score'], $rows[(int) $several->getId()]['score']);
-        self::assertSame(['sales', 'promo'], array_column($rows[(int) $several->getId()]['reasons'], 'key'));
+        self::assertSame(['sales', 'month', 'year', 'promo'], array_column($rows[(int) $several->getId()]['reasons'], 'key'));
         self::assertSame(30, $rows[(int) $several->getId()]['scoreParts']['promo']);
         self::assertSame(54, $rows[(int) $noEan->getId()]['scoreParts']['sales'], 'the best seller here takes the full weight');
         self::assertSame(1, $rows[(int) $soldOnly->getId()]['variants'], 'counted on its variants with a valid EAN');
@@ -150,6 +150,40 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         self::assertContains((int) $unwatched->getId(), $ids);
         self::assertArrayHasKey((int) $paused->getId(), $bestOfTheFamily, 'the watched best seller takes no line of its family');
         self::assertNotContains((int) $watchedPromo->getId(), $repository->onPromotionByFamily(10.0, 1000, []));
+    }
+
+    /**
+     * Asked 2026-10-20: the best sellers of the month and of the year too. A
+     * product that sold all year but not this autumn is still worth a look.
+     */
+    public function testTheBestSellersOfTheMonthAndOfTheYearAreSuggested(): void
+    {
+        $this->isolateFromTheShop();
+        [$helmets, $fullFace] = $this->family('Casques');
+        $watched = $this->product('Suivi '.$this->tag, category: $fullFace);
+        $this->sale($watched, 'paid', 10, '900.00', daysAgo: 200);
+        $this->identity($watched, collectedDaysAgo: 1);
+        $yearOnly = $this->product('Vendu au printemps '.$this->tag, category: $fullFace);
+        $this->sale($yearOnly, 'paid', 2, '500.00', daysAgo: 200);
+        $thisMonth = $this->product('Vendu ce mois '.$this->tag, category: $fullFace);
+        $this->sale($thisMonth, 'paid', 1, '300.00', daysAgo: 5);
+        $tooOld = $this->product('Vendu il y a deux ans '.$this->tag, category: $fullFace);
+        $this->sale($tooOld, 'paid', 9, '900.00', daysAgo: 400);
+
+        $rows = array_column($this->presenter()->present('fr_FR'), null, 'id');
+        $year = (new SuggestionRepository())->bestSellersByFamily(new \DateTimeImmutable('-'.SuggestionPresenter::YEAR_DAYS.' days'), 1, []);
+
+        self::assertArrayHasKey((int) $yearOnly->getId(), $rows, 'no sale for 90 days, a best seller of the year');
+        self::assertArrayNotHasKey((int) $tooOld->getId(), $rows, 'sold over a year ago');
+        self::assertSame(['year'], array_column($rows[(int) $yearOnly->getId()]['reasons'], 'key'));
+        self::assertSame(2, $rows[(int) $yearOnly->getId()]['reasons'][0]['rank'], 'second of its family: the watched helmet sold more');
+        self::assertSame(2, $rows[(int) $yearOnly->getId()]['reasons'][0]['quantity']);
+        self::assertSame(54, $rows[(int) $yearOnly->getId()]['scoreParts']['sales'], 'the best seller of the year here takes the full weight');
+        self::assertSame(['sales', 'month', 'year'], array_column($rows[(int) $thisMonth->getId()]['reasons'], 'key'));
+        self::assertSame(1, $rows[(int) $thisMonth->getId()]['reasons'][1]['rank'], 'first of the month in its family');
+        self::assertSame(3, $rows[(int) $thisMonth->getId()]['reasons'][2]['rank']);
+        self::assertSame([(int) $yearOnly->getId()], array_keys($year), 'the watched best seller takes no line of its family');
+        self::assertSame(2, $year[(int) $yearOnly->getId()]['rank'], 'but keeps its rank');
     }
 
     public function testWhatWeCannotSellIsNeverSuggested(): void
@@ -237,6 +271,22 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         self::assertEqualsWithDelta(18.0, $scores[1]->sales, 0.0001, 'measured against the best seller among the products we can sell');
         self::assertSame([2, 3, 5, 1, 4], SuggestionPresenter::rank($scores, $sales), '54; 30; 18 + 8 new; 18; 8 new');
         self::assertSame([7, 6], SuggestionPresenter::rank([6 => SuggestionScore::of(0.0, null, true, 0.0), 7 => SuggestionScore::of(0.0, null, true, 0.0)], [7 => ['quantity' => 1, 'revenue' => 1.0]]), 'on a tie, what sells');
+    }
+
+    public function testTheSalesPartTakesTheBestOfTheThreePeriods(): void
+    {
+        $plain = ['discountPct' => null, 'isNew' => false, 'stockValue' => 0.0];
+        $scores = SuggestionPresenter::score(
+            [1 => ['quantity' => 1, 'revenue' => 100.0], 2 => ['quantity' => 9, 'revenue' => 900.0]],
+            [1 => $plain, 2 => $plain, 3 => $plain, 4 => $plain],
+            month: [3 => ['quantity' => 1, 'revenue' => 25.0]],
+            year: [1 => ['quantity' => 40, 'revenue' => 4000.0], 2 => ['quantity' => 9, 'revenue' => 900.0], 4 => ['quantity' => 10, 'revenue' => 1000.0]],
+        );
+
+        self::assertEqualsWithDelta(54.0, $scores[1]->sales, 0.0001, 'small over 90 days, the best of the year');
+        self::assertEqualsWithDelta(54.0, $scores[2]->sales, 0.0001);
+        self::assertEqualsWithDelta(54.0, $scores[3]->sales, 0.0001, 'the only sale of the month');
+        self::assertEqualsWithDelta(27.0, $scores[4]->sales, 0.0001, 'a quarter of the best of the year: half the weight');
     }
 
     public function testCollectingTheSelectionAddsWhatIsNotWatchedAndLeavesOutWhatCannotBeSearched(): void
@@ -441,13 +491,14 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
 
     /**
      * A real shop fills the candidates with its own orders and promotions:
-     * they are moved out of the way while the test runs (rolled back).
+     * they are moved out of the way while the test runs (rolled back): out
+     * of the longest period read, the year.
      */
     private function isolateFromTheShop(): void
     {
         OrderQuery::create()
-            ->filterByCreatedAt(['min' => new \DateTime('-'.(SuggestionPresenter::SALES_DAYS + 1).' days')])
-            ->update(['CreatedAt' => new \DateTime('-1 year')]);
+            ->filterByCreatedAt(['min' => new \DateTime('-'.(SuggestionPresenter::YEAR_DAYS + 1).' days')])
+            ->update(['CreatedAt' => new \DateTime('-2 years')]);
         ProductSaleElementsQuery::create()->filterByPromo(1)->update(['Promo' => 0]);
     }
 

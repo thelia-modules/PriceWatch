@@ -135,6 +135,8 @@ return [
     'dashboard.stale' => '%count% watched product(s) last read over %days% days ago',
     'dashboard.never' => '%count% watched product(s) never read',
     'dashboard.see' => 'See them',
+    'suggestion.month_rank' => '#%rank% seller of the month',
+    'suggestion.year_rank' => '#%rank% seller of the year',
     'watched.batch.never' => 'Collect %count% product(s) never read (at most %cost%)',
     'watched.batch.stale' => 'Collect %count% product(s) read over %days% days ago (at most %cost%)',
     'watched.batch.of_total' => '– the first of %total%',

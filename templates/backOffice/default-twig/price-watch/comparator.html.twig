@@ -306,7 +306,7 @@
         {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_suggestions.html.twig' with {
             suggestions: suggestions, max: suggestionMax, costPerVariant: costPerVariant, csrfToken: csrfToken,
             families: suggestionFamilies, family: suggestionFamily,
-            running: run.running, salesDays: suggestionDays.sales, staleDays: suggestionDays.stale
+            running: run.running, salesDays: suggestionDays.sales, monthDays: suggestionDays.month, yearDays: suggestionDays.year, staleDays: suggestionDays.stale
         } only %}
     {% else %}
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
