@@ -9,15 +9,13 @@ use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Settings\PriceWatchSettings;
-use PriceWatch\Service\Watched\LastWatch;
-use PriceWatch\Service\Watched\WatchedRepository;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
- * The comparator's suggestions tab: products worth collecting now, each with
- * the reasons why, the highest score first (SuggestionScore), family by
- * family (SuggestionQuota): ranked across the shop, helmets took 47 lines out
- * of 50 (measured 2026-10-12).
+ * The comparator's suggestions tab: products worth adding to the watch now,
+ * never one already watched, each with the reasons why, the highest score
+ * first (SuggestionScore), family by family (SuggestionQuota): ranked across
+ * the shop, helmets took 47 lines out of 50 (measured 2026-10-12).
  */
 final readonly class SuggestionPresenter
 {
@@ -42,7 +40,6 @@ final readonly class SuggestionPresenter
         private UrlGeneratorInterface $urlGenerator,
         private GtinNormalizer $gtin,
         private PriceWatchSettings $settings,
-        private WatchedRepository $watched,
     ) {
     }
 
@@ -63,9 +60,9 @@ final readonly class SuggestionPresenter
     public function screen(string $locale, ?\DateTimeImmutable $now = null, ?int $family = null): array
     {
         $now ??= new \DateTimeImmutable();
-        ['sales' => $sales, 'dearer' => $dearer, 'stale' => $stale, 'signals' => $signals, 'families' => $familyOf] = $this->candidates($now);
+        ['sales' => $sales, 'signals' => $signals, 'families' => $familyOf] = $this->candidates($now);
 
-        $scores = self::score($sales, $dearer, $stale, $signals, $now);
+        $scores = self::score($sales, $signals);
         $products = $this->repository->products(array_keys($scores), $locale);
         $ranked = array_values(array_filter(self::rank($scores, $sales), static fn (int $productId): bool => isset($products[$productId])));
         $quota = self::quota($ranked, $familyOf, $this->repository->familyRevenue($now->modify('-'.self::SALES_DAYS.' days'), $this->settings->excludedFamilies()));
@@ -73,11 +70,8 @@ final readonly class SuggestionPresenter
         $family = $family !== null && isset($quota[$family]) ? $family : null;
 
         $ranked = self::lines($ranked, $familyOf, $family === null ? $quota : [$family => self::SHOWN]);
-        $eanCodes = $this->repository->eanCodes(array_values(array_filter($ranked, static fn (int $productId): bool => $products[$productId]['watched'] === 0)));
+        $eanCodes = $this->repository->eanCodes($ranked);
         $pictures = $this->comparator->cardImages($ranked);
-        // Already watched: when it was last read, so a recent reading is not
-        // paid for again by mistake.
-        $lastWatched = $this->watched->lastWatchedOf(array_values(array_filter($ranked, static fn (int $productId): bool => $products[$productId]['watched'] > 0)));
         $pictures += $this->thumbnails->urls(array_values(array_diff($ranked, array_keys($pictures))));
 
         $money = new \NumberFormatter($locale, \NumberFormatter::CURRENCY);
@@ -91,21 +85,13 @@ final readonly class SuggestionPresenter
 
         foreach ($ranked as $productId) {
             $product = $products[$productId];
-            // Not watched yet: added when collected, and only its variants
-            // with a valid EAN of their own will be searched.
-            $variants = $product['watched'] > 0 ? $product['collectable'] : self::searchableVariants($this->gtin, $eanCodes[$productId] ?? []);
+            // Added to the watch when collected: only its variants with a
+            // valid EAN of their own will be searched.
+            $variants = self::searchableVariants($this->gtin, $eanCodes[$productId] ?? []);
             $reasons = [];
 
             if (isset($sales[$productId])) {
                 $reasons[] = ['key' => 'sales', 'quantity' => $sales[$productId]['quantity'], 'revenue' => $money->formatCurrency($sales[$productId]['revenue'], 'EUR')];
-            }
-
-            if (isset($dearer[$productId])) {
-                $reasons[] = ['key' => 'dearer', 'gap' => $percent->format(abs($dearer[$productId]['gapPct']) / 100), 'competitors' => $dearer[$productId]['competitors']];
-            }
-
-            if (isset($stale[$productId])) {
-                $reasons[] = ['key' => 'stale', 'days' => (int) $stale[$productId]->diff($now)->days];
             }
 
             $discount = $signals[$productId]['discountPct'];
@@ -126,12 +112,6 @@ final readonly class SuggestionPresenter
                 'ref' => $product['ref'],
                 'image' => $pictures[$productId] ?? null,
                 'editUrl' => $this->urlGenerator->generate('admin.products.update', ['product_id' => $productId]),
-                'watched' => $product['watched'] > 0,
-                'lastWatch' => isset($lastWatched[$productId]) ? [
-                    'at' => $lastWatched[$productId]->format('d/m/Y H:i'),
-                    'daysAgo' => LastWatch::daysAgo($lastWatched[$productId], $now),
-                    'stale' => LastWatch::isStale($lastWatched[$productId], $now),
-                ] : null,
                 'variants' => $variants,
                 'cost' => $usd->formatCurrency(ManualRun::worstCaseUsd($variants), 'USD'),
                 'reasons' => $reasons,
@@ -227,15 +207,14 @@ final readonly class SuggestionPresenter
     }
 
     /**
-     * Every product one reason puts forward, kept only if we can sell it
-     * (collecting the price of a hidden or out of stock product is money
-     * lost) and if its family is one to suggest from. Best sellers and
-     * promotions are read family by family, so every family has candidates.
+     * Every product not watched yet one reason puts forward, kept only if we
+     * can sell it (collecting the price of a hidden or out of stock product
+     * is money lost) and if its family is one to suggest from. Best sellers
+     * and promotions are read family by family, so every family has
+     * candidates.
      *
      * @return array{
      *     sales: array<int, array{quantity: int, revenue: float}>,
-     *     dearer: array<int, array{gapPct: float, competitors: int}>,
-     *     stale: array<int, \DateTimeImmutable>,
      *     signals: array<int, array{discountPct: float|null, isNew: bool, stockValue: float}>,
      *     families: array<int, int>,
      * }
@@ -244,16 +223,12 @@ final readonly class SuggestionPresenter
     {
         $excluded = $this->settings->excludedFamilies();
         $sales = $this->repository->bestSellersByFamily($now->modify('-'.self::SALES_DAYS.' days'), self::SHOWN, $excluded);
-        $dearer = $this->repository->weWereDearer(self::SHOWN);
-        $stale = $this->repository->stale($now->modify('-'.self::STALE_DAYS.' days'), self::SHOWN);
         $promoted = $this->repository->onPromotionByFamily(SuggestionScore::PROMO_FROM_PCT, self::SHOWN, $excluded);
-        $signals = $this->repository->catalogSignals(array_values(array_unique([...array_keys($sales), ...array_keys($dearer), ...array_keys($stale), ...$promoted])));
+        $signals = $this->repository->catalogSignals(array_values(array_unique([...array_keys($sales), ...$promoted])));
         $families = $this->repository->families(array_keys($signals), $excluded);
 
         return [
             'sales' => $sales,
-            'dearer' => $dearer,
-            'stale' => $stale,
             'signals' => array_intersect_key($signals, $families),
             'families' => $families,
         ];
@@ -264,13 +239,11 @@ final readonly class SuggestionPresenter
      * we can sell, so the score tells apart what the list shows.
      *
      * @param array<int, array{quantity: int, revenue: float}>                              $sales
-     * @param array<int, array{gapPct: float, competitors: int}>                            $dearer
-     * @param array<int, \DateTimeImmutable>                                                $stale
      * @param array<int, array{discountPct: float|null, isNew: bool, stockValue: float}> $signals
      *
      * @return array<int, SuggestionScore> product id => score, for the products in $signals only
      */
-    public static function score(array $sales, array $dearer, array $stale, array $signals, \DateTimeImmutable $now): array
+    public static function score(array $sales, array $signals): array
     {
         $bestRevenue = max([0.0, ...array_map(static fn (int $productId): float => $sales[$productId]['revenue'] ?? 0.0, array_keys($signals))]);
         $largestStock = max([0.0, ...array_column($signals, 'stockValue')]);
@@ -279,9 +252,7 @@ final readonly class SuggestionPresenter
         foreach ($signals as $productId => $signal) {
             $scores[$productId] = SuggestionScore::of(
                 $bestRevenue > 0 ? ($sales[$productId]['revenue'] ?? 0.0) / $bestRevenue : 0.0,
-                $dearer[$productId]['gapPct'] ?? null,
                 $signal['discountPct'],
-                isset($stale[$productId]) ? (int) $stale[$productId]->diff($now)->days : null,
                 $signal['isNew'],
                 $largestStock > 0 ? $signal['stockValue'] / $largestStock : 0.0,
             );

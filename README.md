@@ -25,9 +25,9 @@ DataForSEO bills those all the same. A pass costs at most two tasks per
 variant: a title search, a sellers lookup.
 
 A product's last watch is the latest of its last Google Shopping search and
-its last competitor page read with a price. Beyond 14 days (`LastWatch`, the
-same rule as the suggestions) the product card, the watched products list
-("Stale reading" tab) and the admin home say so.
+its last competitor page read with a price. Beyond 14 days (`LastWatch`) the
+product card, the watched products list ("Stale reading" tab) and the admin
+home say so.
 
 Requires Thelia 3.0.0 and PHP 8.3.
 
@@ -119,8 +119,12 @@ need a container.
 
 ## Suggestions by family
 
-The suggestions tab lists 50 products, family by family: a family is the
-visible top-level category of a product's default category. Each family gets
+The suggestions tab lists 50 products not watched yet, best sellers and deep
+promotions, to add to the watch. A watched product is never suggested (paused
+ones are, collecting resumes them): it is collected by the rotation and, when
+stale, from the watched products list. Products come family by family: a
+family is the visible top-level category of a product's default category.
+Each family gets
 lines in proportion to its revenue over 90 days, and at least 3; best sellers
 and promotions are read per family, or the dearest family fills the list
 (helmets took 47 lines out of 50 before). Hidden top-level categories are
