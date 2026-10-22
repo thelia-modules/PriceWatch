@@ -6,8 +6,9 @@ namespace PriceWatch\Service\Schedule;
 
 /**
  * A watched product as the scheduler sees it. lastRead is the latest of its
- * last Google Shopping search, its last competitor page read and the last
- * scheduled pass that took it.
+ * last Google Shopping search (made and paid, found or not) and its last
+ * competitor page read with a price; scheduledAt, when a scheduled pass last
+ * took it, whatever came of it.
  */
 final readonly class ScheduledProduct
 {
@@ -17,6 +18,7 @@ final readonly class ScheduledProduct
         public WatchTier $tier,
         public int $collectable,
         public ?\DateTimeImmutable $lastRead,
+        public ?\DateTimeImmutable $scheduledAt = null,
     ) {
     }
 }

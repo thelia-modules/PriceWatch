@@ -92,7 +92,8 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
         self::assertSame([$searched->getId(), $scheduled->getId(), $failedPage->getId()], array_keys($byId), 'paused and offline products are never scheduled');
         self::assertSame('2026-10-12 09:00', $byId[$searched->getId()]->lastRead?->format('Y-m-d H:i'), 'a page read counts as a reading');
         self::assertSame(WatchTier::Base, $byId[$searched->getId()]->tier, 'no tier set: base');
-        self::assertSame('2026-10-15 02:00', $byId[$scheduled->getId()]->lastRead?->format('Y-m-d H:i'), 'taken by a scheduled pass counts, found or not');
+        self::assertSame('2026-10-01 10:00', $byId[$scheduled->getId()]->lastRead?->format('Y-m-d H:i'), 'taken by a scheduled pass is no reading');
+        self::assertSame('2026-10-15 02:00', $byId[$scheduled->getId()]->scheduledAt?->format('Y-m-d H:i'));
         self::assertSame(WatchTier::Flagship, $byId[$scheduled->getId()]->tier, 'the scheduled mark kept the tier set');
         self::assertSame(1, $byId[$scheduled->getId()]->collectable, 'only variants with a valid GTIN of their own are searched');
         self::assertNull($byId[$failedPage->getId()]->lastRead, 'a page that showed nothing of ours read nothing');
@@ -127,8 +128,24 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
 
         $again = $this->scheduledRun($settings)->tick(new \DateTimeImmutable(), ignoreHours: true);
 
-        self::assertSame('nothing_due', $again['status'], 'taken an instant ago: not paid for again at the next hour, found or not');
+        self::assertSame('nothing_due', $again['status'], 'taken an instant ago: not again at the next hour, found or not');
         self::assertCount(1, $this->started);
+    }
+
+    /**
+     * Seen 2026-10-22: DataForSEO refused every task on an empty balance; the
+     * products a pass took then were read by nothing.
+     */
+    public function testAProductAPassReadNothingForIsTakenAgainTheNextDay(): void
+    {
+        $product = $this->product('Casque refusé par DataForSEO');
+        $this->variant($product, collectable: true, collectedAt: (new \DateTimeImmutable('-9 days'))->format('Y-m-d H:i:s'));
+        $this->repository()->markScheduled([$product->getId()], new \DateTimeImmutable('-1 day'));
+
+        $outcome = $this->scheduledRun($this->settings())->tick(new \DateTimeImmutable(), ignoreHours: true);
+
+        self::assertSame('started', $outcome['status'], 'weekly, last read nine days ago: yesterday\'s attempt read nothing');
+        self::assertSame([$product->getId()], array_map(static fn (ScheduledProduct $scheduled): int => $scheduled->productId, $outcome['products']));
     }
 
     public function testNothingStartsWhenOffOutsideItsHoursOrForADryRun(): void

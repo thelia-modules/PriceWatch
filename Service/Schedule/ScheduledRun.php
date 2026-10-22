@@ -74,8 +74,9 @@ final readonly class ScheduledRun
             return $nothing('running');
         }
 
-        // Marked once started: a product Google finds nothing for waits for
-        // its next period instead of being paid for again every hour.
+        // Marked once started: whatever comes of it, the product is not taken
+        // again before tomorrow. Its period runs from a real reading: a
+        // Google search made (found or not) or a page read with a price.
         $this->repository->markScheduled(array_map(static fn (ScheduledProduct $product): int => $product->productId, $batch), $now);
         $this->settings->recordPass($now, \count($batch), $variants, $costUsd);
 

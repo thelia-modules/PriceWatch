@@ -38,6 +38,18 @@ final class DueProductsTest extends TestCase
         self::assertNull((new DueProducts(['base' => 1]))->nextDue($product, $now), 'due now: no later day');
     }
 
+    public function testAPassThatReadNothingIsTriedAgainOnceADay(): void
+    {
+        $due = new DueProducts(['flagship' => 1, 'base' => 7, 'simple' => 15]);
+        $now = new \DateTimeImmutable(self::NOW);
+        $takenTonight = new ScheduledProduct(1, 'REF1', WatchTier::Base, 1, new \DateTimeImmutable('2026-10-01 10:00:00'), new \DateTimeImmutable('2026-10-22 02:00:00'));
+        $takenYesterday = new ScheduledProduct(2, 'REF2', WatchTier::Base, 1, null, new \DateTimeImmutable('2026-10-21 06:50:00'));
+
+        self::assertFalse($due->isDue($takenTonight, $now), 'never twice the same day, whatever came of it');
+        self::assertSame('2026-10-23', $due->nextDue($takenTonight, $now)?->format('Y-m-d'));
+        self::assertTrue($due->isDue($takenYesterday, $now), 'yesterday read nothing: never read still');
+    }
+
     public function testFlagshipsComeFirstThenNeverReadThenTheOldestReading(): void
     {
         $due = new DueProducts(['flagship' => 1, 'base' => 7, 'simple' => 15]);

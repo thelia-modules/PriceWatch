@@ -121,11 +121,14 @@ final readonly class WatchedPresenter
         $productId = (int) $row['product_id'];
         $tier = WatchTier::fromStored($row['tier'] === null ? null : (string) $row['tier']);
         $proposed = $proposals[$productId] ?? null;
-        $lastRead = max(
+        $scheduled = new ScheduledProduct(
+            $productId,
+            (string) $row['ref'],
+            $tier,
+            (int) $row['collectable'],
             $row['last_watched_at'] === null ? null : new \DateTimeImmutable((string) $row['last_watched_at']),
             $row['scheduled_at'] === null ? null : new \DateTimeImmutable((string) $row['scheduled_at']),
         );
-        $scheduled = new ScheduledProduct($productId, (string) $row['ref'], $tier, (int) $row['collectable'], $lastRead);
         // Paused or offline products are never taken by a scheduled pass.
         $taken = (int) $row['monitored'] > 0 && $proposed !== null;
 

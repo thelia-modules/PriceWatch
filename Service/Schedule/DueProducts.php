@@ -12,6 +12,10 @@ use PriceWatch\Service\Watched\LastWatch;
  * Due when never read, or read at least the tier's period ago, in calendar
  * days: a flagship read yesterday at 02:10 is due again tonight at 02:00.
  * Flagships first, then the oldest reading.
+ *
+ * A pass that read nothing (DataForSEO refusing tasks on an empty balance,
+ * seen 2026-10-20 to 22, or every page failing) is no reading: the product
+ * is tried again, once a calendar day, not every hour of the window.
  */
 final readonly class DueProducts
 {
@@ -31,7 +35,8 @@ final readonly class DueProducts
 
     public function isDue(ScheduledProduct $product, \DateTimeInterface $now): bool
     {
-        return $product->lastRead === null || LastWatch::daysAgo($product->lastRead, $now) >= $this->days($product->tier);
+        return ($product->lastRead === null || LastWatch::daysAgo($product->lastRead, $now) >= $this->days($product->tier))
+            && ($product->scheduledAt === null || LastWatch::daysAgo($product->scheduledAt, $now) >= 1);
     }
 
     /**
@@ -39,11 +44,14 @@ final readonly class DueProducts
      */
     public function nextDue(ScheduledProduct $product, \DateTimeInterface $now): ?\DateTimeImmutable
     {
-        if ($this->isDue($product, $now) || $product->lastRead === null) {
+        if ($this->isDue($product, $now)) {
             return null;
         }
 
-        return $product->lastRead->setTime(0, 0)->modify('+'.$this->days($product->tier).' days');
+        return max(
+            $product->lastRead?->setTime(0, 0)->modify('+'.$this->days($product->tier).' days'),
+            $product->scheduledAt?->setTime(0, 0)->modify('+1 day'),
+        );
     }
 
     /**

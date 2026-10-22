@@ -27,12 +27,11 @@ final readonly class ScheduleRepository
     public function watched(): array
     {
         $rows = $this->fetch(
-            "SELECT i.product_id, p.ref, s.tier,
+            "SELECT i.product_id, p.ref, s.tier, s.scheduled_at,
                 SUM(i.monitored = 1 AND i.gtin_valid = 1 AND i.gtin_shared = 0) AS collectable,
                 NULLIF(GREATEST(
                     COALESCE(MAX(i.last_collected_at), '".self::NEVER."'),
-                    COALESCE(MAX(pg.last_read), '".self::NEVER."'),
-                    COALESCE(s.scheduled_at, '".self::NEVER."')
+                    COALESCE(MAX(pg.last_read), '".self::NEVER."')
                 ), '".self::NEVER."') AS last_read
             FROM pw_product_identity i
             JOIN product p ON p.id = i.product_id AND p.visible = 1
@@ -50,6 +49,7 @@ final readonly class ScheduleRepository
             WatchTier::fromStored($row['tier'] === null ? null : (string) $row['tier']),
             (int) $row['collectable'],
             $row['last_read'] === null ? null : new \DateTimeImmutable((string) $row['last_read']),
+            $row['scheduled_at'] === null ? null : new \DateTimeImmutable((string) $row['scheduled_at']),
         ), $rows);
     }
 

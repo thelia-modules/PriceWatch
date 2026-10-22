@@ -166,6 +166,10 @@ for. The CSV export has the same lines.
 
 ## Direct reading of competitor pages
 
+A confirmed page spares the Google search only while it reads: its last
+reading gave a price, or it was not read yet (`PageCoverage`). A page that
+read nothing of ours, no price or an error sends the product back to Google.
+
 `pricewatch:direct` reads prices straight from the competitor product pages
 tied to our products (`pw_competitor_page`): free, a few seconds a page, every
 size at once. It records exact matches only:
@@ -228,10 +232,11 @@ and those that sold nothing simple); "Apply the proposed tiers" takes them all.
 `pricewatch:scheduled`, called every hour, starts the same chain as the
 buttons (sitemaps, Google Shopping, pages, Jev) on the products due, in
 DataForSEO's standard queue: half the price, results within 45 minutes. A
-product is due once its period has passed, in calendar days, since the latest
-of its Google search, its page read with a price and the last scheduled pass
-that took it: a product Google finds nothing for waits for its next period.
-Flagships first, then the oldest reading, up to the variants per pass; the
+product is due once its period has passed, in calendar days, since its last
+reading: a Google search made (paid, found or not) or a page read with a
+price. A pass that read nothing (tasks refused on an empty DataForSEO balance,
+every page failing) is no reading: the product is tried again the next day,
+never twice the same day (`pw_product_schedule.scheduled_at`). Flagships first, then the oldest reading, up to the variants per pass; the
 rest goes at the next hour. Paused and offline products are never taken.
 
 The settings page turns it on (off by default), sets the three periods, the
