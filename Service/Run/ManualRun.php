@@ -23,10 +23,21 @@ final readonly class ManualRun
     /** DataForSEO priority queue, per task (list price read 2026-10-08). */
     public const PRIORITY_COST_PER_TASK = 0.002;
 
+    /** DataForSEO standard queue, per task: the scheduled passes, nobody waiting. */
+    public const STANDARD_COST_PER_TASK = 0.001;
+
+    /**
+     * Seconds the collect pass waits on each batch of tasks: minutes in the
+     * priority queue, up to the 45 minutes of the standard one.
+     */
+    private const PRIORITY_MAX_WAIT = 600;
+    private const STANDARD_MAX_WAIT = 3000;
+
     /** A title search, a sellers lookup: Google Shopping is never searched by GTIN. */
     public const TASKS_PER_VARIANT = 2;
 
     public const LOG_FILE = 'var/log/pricewatch-manual.log';
+    public const SCHEDULED_LOG_FILE = 'var/log/pricewatch-scheduled.log';
 
     /** Same lock names as the commands: a click cannot start a second pass. */
     private const LOCKS = ['pricewatch.collect', 'pricewatch.direct', 'pricewatch.judge'];
@@ -50,9 +61,9 @@ final readonly class ManualRun
         $this->startMarker = $startMarker !== '' ? $startMarker : $projectDir.'/var/pricewatch-manual.started';
     }
 
-    public static function worstCaseUsd(int $variants): float
+    public static function worstCaseUsd(int $variants, bool $priority = true): float
     {
-        return $variants * self::TASKS_PER_VARIANT * self::PRIORITY_COST_PER_TASK;
+        return $variants * self::TASKS_PER_VARIANT * ($priority ? self::PRIORITY_COST_PER_TASK : self::STANDARD_COST_PER_TASK);
     }
 
     public function isRunning(): bool
@@ -83,10 +94,12 @@ final readonly class ManualRun
     /**
      * @param list<string> $productRefs only these products' variants;
      *                                  otherwise the ones collected longest ago
+     * @param bool         $priority    false for the scheduled passes: the
+     *                                  standard queue, half the price, nobody waiting
      *
      * @throws \RuntimeException when a pass is already running
      */
-    public function start(int $variants, array $productRefs = []): void
+    public function start(int $variants, array $productRefs = [], bool $priority = true): void
     {
         if ($this->isRunning()) {
             throw new \RuntimeException('A price watch pass is already running.');
@@ -102,9 +115,9 @@ final readonly class ManualRun
         $collect = [
             $php, $console, 'pricewatch:collect',
             '--limit='.max(1, $variants),
-            '--priority',
-            '--max-wait=600',
-            '--budget-usd='.number_format(self::worstCaseUsd(max(1, $variants)), 3, '.', ''),
+            ...($priority ? ['--priority'] : []),
+            '--max-wait='.($priority ? self::PRIORITY_MAX_WAIT : self::STANDARD_MAX_WAIT),
+            '--budget-usd='.number_format(self::worstCaseUsd(max(1, $variants), $priority), 3, '.', ''),
             '--no-ansi',
         ];
 
@@ -122,7 +135,7 @@ final readonly class ManualRun
 
         $this->runner->start(
             [$sitemaps, $collect, $direct, [$php, $console, 'pricewatch:judge', '--no-ansi']],
-            $this->projectDir.'/'.self::LOG_FILE,
+            $this->projectDir.'/'.($priority ? self::LOG_FILE : self::SCHEDULED_LOG_FILE),
         );
         touch($this->startMarker);
     }

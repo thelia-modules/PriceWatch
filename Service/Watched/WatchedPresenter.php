@@ -8,6 +8,11 @@ use PriceWatch\Controller\Admin\RunController;
 use PriceWatch\Service\Comparator\PricePosition;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\RunStatus;
+use PriceWatch\Service\Schedule\DueProducts;
+use PriceWatch\Service\Schedule\ScheduledProduct;
+use PriceWatch\Service\Schedule\ScheduleSettings;
+use PriceWatch\Service\Schedule\TierAdvisor;
+use PriceWatch\Service\Schedule\WatchTier;
 use PriceWatch\Service\Suggestion\SuggestionPresenter;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
@@ -23,6 +28,8 @@ final readonly class WatchedPresenter
         private WatchedRepository $repository,
         private RunStatus $runStatus,
         private UrlGeneratorInterface $urlGenerator,
+        private ScheduleSettings $schedule,
+        private TierAdvisor $tierAdvisor,
     ) {
     }
 
@@ -36,11 +43,16 @@ final readonly class WatchedPresenter
         $total = $counts[$filters->view->value];
         $percent = new \NumberFormatter($locale, \NumberFormatter::PERCENT);
         $percent->setAttribute(\NumberFormatter::FRACTION_DIGITS, 1);
+        $proposals = $this->tierAdvisor->proposals($now);
+        $due = new DueProducts($this->schedule->allDays());
 
         return [
             'filters' => $filters,
             'view' => $filters->view->value,
-            'rows' => array_map(fn (array $row): array => $this->row($row, $locale, $percent, $now), $this->repository->page($filters, $locale, $now)),
+            'rows' => array_map(fn (array $row): array => $this->row($row, $locale, $percent, $now) + $this->tier($row, $proposals, $due, $now), $this->repository->page($filters, $locale, $now)),
+            'tiers' => array_map(static fn (WatchTier $tier): string => $tier->value, WatchTier::cases()),
+            'scheduleEnabled' => $this->schedule->enabled(),
+            'tierChanges' => \count($this->tierAdvisor->changes($now)),
             'staleDays' => LastWatch::STALE_DAYS,
             'counts' => $counts,
             'run' => $this->runStatus->present(),
@@ -93,6 +105,36 @@ final readonly class WatchedPresenter
         $batches['out_of_stock'] = ['total' => \count($this->repository->outOfStock())];
 
         return $batches;
+    }
+
+    /**
+     * The tier of a row, the one its sales propose when different, and when
+     * the scheduled passes read it next.
+     *
+     * @param array<string, mixed>  $row
+     * @param array<int, WatchTier> $proposals
+     *
+     * @return array{tier: string, proposedTier: ?string, nextDue: ?string, dueNow: bool}
+     */
+    private function tier(array $row, array $proposals, DueProducts $due, \DateTimeImmutable $now): array
+    {
+        $productId = (int) $row['product_id'];
+        $tier = WatchTier::fromStored($row['tier'] === null ? null : (string) $row['tier']);
+        $proposed = $proposals[$productId] ?? null;
+        $lastRead = max(
+            $row['last_watched_at'] === null ? null : new \DateTimeImmutable((string) $row['last_watched_at']),
+            $row['scheduled_at'] === null ? null : new \DateTimeImmutable((string) $row['scheduled_at']),
+        );
+        $scheduled = new ScheduledProduct($productId, (string) $row['ref'], $tier, (int) $row['collectable'], $lastRead);
+        // Paused or offline products are never taken by a scheduled pass.
+        $taken = (int) $row['monitored'] > 0 && $proposed !== null;
+
+        return [
+            'tier' => $tier->value,
+            'proposedTier' => $proposed !== null && $proposed !== $tier ? $proposed->value : null,
+            'nextDue' => $taken ? $due->nextDue($scheduled, $now)?->format('d/m') : null,
+            'dueNow' => $taken && $due->isDue($scheduled, $now),
+        ];
     }
 
     /**

@@ -217,12 +217,54 @@ ddev exec php Thelia pricewatch:direct [--discover] [--candidates] [--product=RE
 A variant read directly steps the Google Shopping offer of the same pair aside,
 and the collect pass no longer records that pair from Google.
 
+## Scheduled passes
+
+Each watched product has a tier, set in the watched products list: flagship
+(every day), base (every week, the tier of a product without one) or simple
+(every 15 days). The list proposes a tier from the revenue of the last 90 days
+among the watched products (top fifth flagship, next two fifths base, the rest
+and those that sold nothing simple); "Apply the proposed tiers" takes them all.
+
+`pricewatch:scheduled`, called every hour, starts the same chain as the
+buttons (sitemaps, Google Shopping, pages, Jev) on the products due, in
+DataForSEO's standard queue: half the price, results within 45 minutes. A
+product is due once its period has passed, in calendar days, since the latest
+of its Google search, its page read with a price and the last scheduled pass
+that took it: a product Google finds nothing for waits for its next period.
+Flagships first, then the oldest reading, up to the variants per pass; the
+rest goes at the next hour. Paused and offline products are never taken.
+
+The settings page turns it on (off by default), sets the three periods, the
+hours (start included, end excluded, across midnight if the end comes first)
+and the variants per pass, and shows what is due, the monthly worst case and
+the last pass. The command does nothing, and exits 0, when scheduling is off,
+outside its hours, while a pass runs (locks, start marker, or a pass row still
+open from the last 3 hours) or when nothing is due: cron mails real failures
+only.
+
+```bash
+ddev exec php Thelia pricewatch:scheduled --dry-run [--ignore-hours]   # what a pass would take
+```
+
+On the server, as the site's user, production only:
+
+```cron
+MAILTO=<team address>
+0 * * * * cd <root> && php8.4 bin/console pricewatch:scheduled --no-interaction --quiet || echo "PriceWatch scheduled pass failed, code $?, see var/log/pricewatch-scheduled.log"
+```
+
+Check after the first night: `pw_product_schedule.scheduled_at` set on the
+products taken, `var/log/pricewatch-scheduled.log` ends with the judge
+summary, the settings page shows the last pass. Rollback: remove the line, or
+untick the setting.
+
 ## Logs
 
 - `var/log/pricewatch.log`: what each collect pass did and why it stopped
   (searches posted, waits, DataForSEO errors, summary line).
 - `var/log/pricewatch-manual.log`: the console output of passes started from
   the back office.
+- `var/log/pricewatch-scheduled.log`: the console output of scheduled passes.
 
 While a pass runs, each step writes where it stands on its `pw_collect_run`
 row (`progress_step`, `progress_done`, `progress_total`); the back office polls

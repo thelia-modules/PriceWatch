@@ -182,6 +182,60 @@
             </div>
 
             <div class="col-12">
+                <div class="card" data-testid="pw-schedule-settings">
+                    <div class="card-header fw-semibold">{{ 'Scheduled passes'|trans({}, 'pricewatch') }}</div>
+                    <div class="card-body">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" value="1" id="pw-schedule-enabled" name="schedule_enabled" {% if schedule.enabled %}checked{% endif %} data-testid="pw-schedule-enabled">
+                            <label class="form-check-label fw-semibold" for="pw-schedule-enabled">{{ 'Read the watched products automatically, by tier'|trans({}, 'pricewatch') }}</label>
+                        </div>
+                        <p class="text-muted small">{{ 'schedule.settings.help'|trans({}, 'pricewatch') }}</p>
+                        <div class="row g-3 align-items-end">
+                            {% for tier, row in schedule.tiers %}
+                                <div class="col-12 col-md-4 col-xl-2">
+                                    <label class="form-label fw-semibold" for="pw-schedule-days-{{ tier }}">{{ 'schedule.tier.label'|trans({'%tier%': ('tier.' ~ tier)|trans({}, 'pricewatch')}, 'pricewatch') }}</label>
+                                    <div class="input-group flex-nowrap">
+                                        <input type="number" min="1" max="{{ schedule.maxDays }}" step="1" class="form-control" id="pw-schedule-days-{{ tier }}" name="schedule_days_{{ tier }}" value="{{ row.days }}" data-testid="pw-schedule-days-{{ tier }}">
+                                        <span class="input-group-text">{{ 'days'|trans({}, 'pricewatch') }}</span>
+                                    </div>
+                                    <div class="small text-muted mt-1">{{ 'schedule.tier.products'|trans({'%count%': row.products}, 'pricewatch') }}</div>
+                                </div>
+                            {% endfor %}
+                            <div class="col-12 col-md-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="pw-schedule-start">{{ 'Hours'|trans({}, 'pricewatch') }}</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">{{ 'from'|trans({}, 'pricewatch') }}</span>
+                                    <select class="form-select" id="pw-schedule-start" name="schedule_start_hour" data-testid="pw-schedule-start">
+                                        {% for hour in 0..23 %}<option value="{{ hour }}" {% if hour == schedule.startHour %}selected{% endif %}>{{ hour }} h</option>{% endfor %}
+                                    </select>
+                                    <span class="input-group-text">{{ 'to'|trans({}, 'pricewatch') }}</span>
+                                    <select class="form-select" id="pw-schedule-end" name="schedule_end_hour" data-testid="pw-schedule-end" aria-label="{{ 'End hour'|trans({}, 'pricewatch') }}">
+                                        {% for hour in 0..23 %}<option value="{{ hour }}" {% if hour == schedule.endHour %}selected{% endif %}>{{ hour }} h</option>{% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-12 col-md-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="pw-schedule-max">{{ 'Variants per pass'|trans({}, 'pricewatch') }}</label>
+                                <input type="number" min="1" max="{{ schedule.maxVariantsLimit }}" step="1" class="form-control" id="pw-schedule-max" name="schedule_max_variants" value="{{ schedule.maxVariants }}" data-testid="pw-schedule-max">
+                            </div>
+                        </div>
+                        <ul class="small text-muted mt-3 mb-0" data-testid="pw-schedule-status">
+                            <li>{{ 'schedule.status.due'|trans({'%count%': schedule.dueNow, '%batch%': schedule.nextBatch}, 'pricewatch') }}</li>
+                            <li>{{ 'schedule.status.monthly'|trans({'%cost%': schedule.monthlyCost}, 'pricewatch') }}</li>
+                            <li>
+                                {% if schedule.lastPass %}
+                                    {{ 'schedule.status.last'|trans({'%at%': schedule.lastPass.at, '%products%': schedule.lastPass.products, '%variants%': schedule.lastPass.variants, '%cost%': schedule.lastPass.cost}, 'pricewatch') }}
+                                {% else %}
+                                    {{ 'No scheduled pass yet.'|trans({}, 'pricewatch') }}
+                                {% endif %}
+                            </li>
+                            <li>{{ 'schedule.status.cron'|trans({}, 'pricewatch') }} <code>{{ schedule.cronLine }}</code></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header fw-semibold">DataForSEO</div>
                     <div class="card-body">

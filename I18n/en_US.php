@@ -211,4 +211,21 @@ return [
     'proposals.floor_reached' => 'margin floor',
     'proposals.at_floor' => 'At the floor already (%price% €)',
     'proposals.settings.help' => 'In percent of the selling price excl. tax: (price excl. tax - purchase price) / price excl. tax. No price proposal goes below it; a price below it today is flagged. Empty: 20 %.',
+
+    // Scheduled passes
+    'schedule.settings.help' => 'Each watched product is read once its period has passed since its last reading, found or not. DataForSEO standard queue: half the price of the buttons, results within 45 minutes. Flagships first, then the oldest readings, up to the variants per pass; the rest at the next hour\'s pass.',
+    'tier.flagship' => 'Flagship',
+    'tier.base' => 'Base',
+    'tier.simple' => 'Simple',
+    'schedule.tier.label' => '%tier%: every',
+    'schedule.tier.products' => '%count% product(s)',
+    'schedule.status.due' => '%count% product(s) to read now, %batch% at the next pass.',
+    'schedule.status.monthly' => 'At most %cost% a month at DataForSEO with these periods (every size searched; one only when all share a price).',
+    'schedule.status.last' => 'Last scheduled pass: %at%, %products% product(s), %variants% variant(s), at most %cost%.',
+    'schedule.status.cron' => 'On the server, a crontab line calls the command every hour; the hours above are checked by the command:',
+    'watched.tier.proposed' => 'Proposed from the sales: %tier%',
+    'watched.tier.next' => 'Next reading on %day%',
+    'watched.tiers.apply' => 'Apply the proposed tiers (%count%)',
+    'watched.tiers.confirm' => 'Move %count% product(s) to the tier their sales of the last 90 days propose?',
+    'watched.tiers.applied' => '%count% product(s) changed tier.',
 ];

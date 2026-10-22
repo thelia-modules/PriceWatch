@@ -8,6 +8,7 @@ use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Comparator\DashboardPresenter;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Comparator\ProductCardPresenter;
+use PriceWatch\Service\Schedule\SchedulePresenter;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\ReasoningEffort;
@@ -46,6 +47,7 @@ class PriceWatchAdminHook extends BaseHook
         private readonly DashboardPresenter $dashboard,
         private readonly CatalogVariantRepository $catalog,
         private readonly SuggestionRepository $suggestions,
+        private readonly SchedulePresenter $schedule,
         private readonly RequestStack $requestStack,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly Environment $twig,
@@ -238,6 +240,7 @@ class PriceWatchAdminHook extends BaseHook
             'families' => $this->suggestions->familyTitles($this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR'),
             'excludedFamilies' => $this->settings->excludedFamilies(),
             'minimumMarginPct' => rtrim(rtrim(number_format($this->settings->minimumMarginPct(), 1, ',', ''), '0'), ','),
+            'schedule' => $this->schedule->present($this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR'),
         ]));
     }
 }
