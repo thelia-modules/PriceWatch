@@ -45,7 +45,7 @@ final readonly class PriceProposalPresenter
         return [
             'view' => $view->value,
             'tabs' => $tabs,
-            'lines' => array_values(array_filter($lines, static fn (array $line): bool => $line['kind'] === $view->value)),
+            'lines' => $this->withHistory(array_values(array_filter($lines, static fn (array $line): bool => $line['kind'] === $view->value)), $now),
             'minimumMarginPct' => $this->settings->minimumMarginPct(),
             'salesDays' => SalesTrend::DAYS,
             'declineFromPct' => SalesTrend::DECLINE_FROM_PCT,
@@ -151,6 +151,46 @@ final readonly class PriceProposalPresenter
         usort($lines, static fn (array $a, array $b): int => [$order[$a['kind']], self::urgency($a), $a['productId']] <=> [$order[$b['kind']], self::urgency($b), $b['productId']]);
 
         return $lines;
+    }
+
+    /**
+     * Adds to each line the curve of its last SalesTrend::DAYS days, the
+     * window its sales are read over. The sizes of a line were read at the
+     * same price today; on a day they were not, the lowest of each series
+     * stands for the line, as the cheapest offer does.
+     *
+     * @param list<array<string, mixed>> $lines lines()
+     *
+     * @return list<array<string, mixed>> the same lines, each with its 'history' (null without any reading)
+     */
+    public function withHistory(array $lines, \DateTimeImmutable $now): array
+    {
+        $history = $this->repository->priceHistory(
+            array_values(array_map('intval', array_merge(...array_column($lines, 'saleElementIds')))),
+            $now->sub(new \DateInterval('P'.SalesTrend::DAYS.'D')),
+        );
+
+        foreach ($lines as $index => $line) {
+            $days = [];
+
+            foreach ($line['saleElementIds'] as $saleElementId) {
+                foreach ($history[$saleElementId] ?? [] as $day => $prices) {
+                    $days[$day] = [
+                        'ours' => self::lowest($days[$day]['ours'] ?? null, $prices['ours']),
+                        'cheapest' => self::lowest($days[$day]['cheapest'] ?? null, $prices['cheapest']),
+                    ];
+                }
+            }
+
+            $lines[$index]['history'] = PriceSparkline::of($days);
+        }
+
+        return $lines;
+    }
+
+    private static function lowest(?float $a, ?float $b): ?float
+    {
+        return $a === null || $b === null ? ($a ?? $b) : min($a, $b);
     }
 
     /**

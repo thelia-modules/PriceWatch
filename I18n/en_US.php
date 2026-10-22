@@ -210,6 +210,13 @@ return [
     'proposals.period_before' => '%count% the 90 d before',
     'proposals.floor_reached' => 'margin floor',
     'proposals.at_floor' => 'At the floor already (%price% €)',
+    'proposals.history' => 'Prices over %days% d',
+    'proposals.history.ours' => 'us',
+    'proposals.history.cheapest' => 'cheapest',
+    'proposals.history.summary' => 'Our price: %ours% · Cheapest competitor: %cheapest% · from %from% to %to%',
+    'proposals.history.reading' => 'read on %from%',
+    'proposals.history.readings' => '%count% readings, %from% → %to%',
+    'proposals.history.none' => 'no reading',
     'proposals.settings.help' => 'In percent of the selling price excl. tax: (price excl. tax - purchase price) / price excl. tax. No price proposal goes below it; a price below it today is flagged. Empty: 20 %.',
 
     // Scheduled passes

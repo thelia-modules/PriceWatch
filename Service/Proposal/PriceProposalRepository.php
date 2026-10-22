@@ -112,6 +112,48 @@ final readonly class PriceProposalRepository
     }
 
     /**
+     * Per variant and reading day since $since: our price including tax as
+     * the readings recorded it, and the cheapest offer that compares under
+     * the rules of cheapestOffers(). Our price is read from every offer of
+     * the variant, a rejected one included: it is our price all the same.
+     *
+     * @param list<int> $saleElementIds
+     *
+     * @return array<int, array<string, array{ours: ?float, cheapest: ?float}>> by sale element id, then Y-m-d
+     */
+    public function priceHistory(array $saleElementIds, \DateTimeImmutable $since): array
+    {
+        if ($saleElementIds === []) {
+            return [];
+        }
+
+        $rows = $this->rows(
+            'SELECT o.product_sale_elements_id, q.collected_day, MAX(q.our_price) AS ours,'
+            .' MIN(CASE WHEN c.status = :watched AND o.active = 1'
+            .' AND o.match_state IN ('.self::quoted(ComparatorView::MATCHED_STATES).')'
+            ." AND q.comparable = 1 AND q.currency_code = 'EUR' AND q.price > 0 THEN q.price END) AS cheapest"
+            .' FROM pw_price_quote q'
+            .' JOIN pw_competitor_offer o ON o.id = q.offer_id'
+            .' JOIN pw_competitor c ON c.id = o.competitor_id'
+            .' WHERE o.product_sale_elements_id IN ('.self::integers($saleElementIds).')'
+            .' AND q.collected_day >= :since'
+            .' GROUP BY o.product_sale_elements_id, q.collected_day',
+            ['watched' => CompetitorStatus::Watched->value, 'since' => $since->format('Y-m-d')],
+        );
+
+        $history = [];
+
+        foreach ($rows as $row) {
+            $history[(int) $row['product_sale_elements_id']][(string) $row['collected_day']] = [
+                'ours' => $row['ours'] === null || (float) $row['ours'] <= 0 ? null : (float) $row['ours'],
+                'cheapest' => $row['cheapest'] === null ? null : (float) $row['cheapest'],
+            ];
+        }
+
+        return $history;
+    }
+
+    /**
      * Units sold over the last 90 days, the same 90 days a year earlier and
      * the 90 days before, counted as the suggestions count sales (paid,
      * being prepared, sent).

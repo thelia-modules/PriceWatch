@@ -6,12 +6,14 @@ namespace PriceWatch\Tests\Integration;
 
 use PriceWatch\Model\PwCompetitor;
 use PriceWatch\Model\PwCompetitorOffer;
+use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Proposal\PriceProposalPresenter;
 use PriceWatch\Service\Proposal\PriceProposalRepository;
+use PriceWatch\Service\Proposal\PriceSparkline;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Source\OurPrice;
@@ -202,12 +204,73 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         self::assertSame([], $this->lines([$product]));
     }
 
+    public function testTheCurveTakesOurPriceAndTheCheapestMatchedReadingOfTheLast90Days(): void
+    {
+        $product = $this->product('Casque modulable');
+        $variant = $this->variant($product, 'M', '50');
+        $matched = $this->offer($variant, 'matched_exact', '110.49');
+        $this->quote($matched, daysAgo: 100, price: '90.00', ourPrice: '130.00');
+        $this->quote($matched, daysAgo: 5, price: '112.00', ourPrice: '120.00');
+        $this->quote($matched, daysAgo: 1, price: '110.49', ourPrice: '120.00');
+        $this->quote($matched, daysAgo: 1, price: '50.00', ourPrice: '120.00', comparable: false, source: 'direct');
+        $this->quote($this->offer($variant, 'needs_review', '60.00'), daysAgo: 3, price: '60.00', ourPrice: '125.00');
+        $rejected = (new CompetitorRepository())->create('h-'.strtolower($this->tag).'.example', CompetitorStatus::Rejected, 'manual');
+        $this->quote($this->offer($variant, 'matched_exact', '70.00', $rejected), daysAgo: 1, price: '70.00', ourPrice: '120.00');
+
+        $chart = $this->withHistory($this->lines([$product]))[0]['history'];
+
+        self::assertInstanceOf(PriceSparkline::class, $chart);
+        self::assertSame(['10/10/2026', '14/10/2026', 3], [$chart->from, $chart->to, $chart->readings], 'the reading 100 days ago is out of the window');
+        self::assertSame([120.0, 120.0], [$chart->oursFirst, $chart->oursLast]);
+        self::assertSame([112.0, 110.49], [$chart->cheapestFirst, $chart->cheapestLast], 'a doubt, a blacklisted shop or a reading that does not compare never draws the competitor line');
+        self::assertSame(125.0, $chart->high, 'our price is read on every offer, a doubtful one included');
+        self::assertCount(2, $chart->cheapest, 'the day only a doubtful offer was read has no competitor point');
+    }
+
+    public function testTheSizesOfOneLineShowTheLowestReadingOfEachDay(): void
+    {
+        $product = $this->product('Gants été');
+        $small = $this->offer($this->variant($product, 'S', '50'), 'matched_exact', '99.00');
+        $medium = $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '99.00');
+        $this->quote($small, daysAgo: 2, price: '100.00', ourPrice: '120.00');
+        $this->quote($medium, daysAgo: 2, price: '98.00', ourPrice: '120.00');
+        $this->quote($medium, daysAgo: 1, price: '99.00', ourPrice: '120.00');
+
+        $lines = $this->withHistory($this->lines([$product]));
+
+        self::assertCount(1, $lines, 'precondition: both sizes on one line');
+        self::assertSame([98.0, 99.0, 2], [$lines[0]['history']->cheapestFirst, $lines[0]['history']->cheapestLast, $lines[0]['history']->readings]);
+    }
+
+    public function testALineNeverReadHasNoCurve(): void
+    {
+        $product = $this->product('Sans relevé');
+        $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '80.00');
+
+        self::assertNull($this->withHistory($this->lines([$product]))[0]['history']);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $lines
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function withHistory(array $lines): array
+    {
+        return $this->presenter()->withHistory($lines, new \DateTimeImmutable(self::NOW));
+    }
+
     /**
      * @param list<Product> $products
      *
      * @return list<array<string, mixed>>
      */
     private function lines(array $products, string $minimumMargin = ''): array
+    {
+        return $this->presenter($minimumMargin)->lines('fr_FR', new \DateTimeImmutable(self::NOW), array_map(static fn (Product $product): int => (int) $product->getId(), $products));
+    }
+
+    private function presenter(string $minimumMargin = ''): PriceProposalPresenter
     {
         $routes = new RouteCollection();
         $routes->add('admin.products.update', new Route('/p'));
@@ -216,15 +279,13 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
         $settings->setMinimumMarginPct($minimumMargin);
 
-        $presenter = new PriceProposalPresenter(
+        return new PriceProposalPresenter(
             new PriceProposalRepository(),
             new ComparatorRepository(),
             new OurPrice(new TaxCalculatorFactory()),
             $settings,
             new UrlGenerator($routes, new RequestContext()),
         );
-
-        return $presenter->lines('fr_FR', new \DateTimeImmutable(self::NOW), array_map(static fn (Product $product): int => (int) $product->getId(), $products));
     }
 
     private function product(string $title): Product
@@ -268,9 +329,25 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         return $saleElement;
     }
 
-    private function offer(ProductSaleElements $variant, string $state, string $price, ?PwCompetitor $competitor = null): void
+    private function quote(PwCompetitorOffer $offer, int $daysAgo, string $price, string $ourPrice, bool $comparable = true, string $source = 'test'): void
     {
-        (new PwCompetitorOffer())
+        $day = (new \DateTime(self::NOW))->modify('-'.$daysAgo.' days');
+
+        (new PwPriceQuote())
+            ->setOfferId($offer->getId())
+            ->setCollectedDay($day)
+            ->setSource($source)
+            ->setCollectedAt($day)
+            ->setPrice($price)
+            ->setOurPrice($ourPrice)
+            ->setComparable($comparable ? 1 : 0)
+            ->setCurrencyCode('EUR')
+            ->save();
+    }
+
+    private function offer(ProductSaleElements $variant, string $state, string $price, ?PwCompetitor $competitor = null): PwCompetitorOffer
+    {
+        $offer = (new PwCompetitorOffer())
             ->setCompetitorId(($competitor ?? $this->watched)->getId())
             ->setProductSaleElementsId($variant->getId())
             ->setOfferKey('p-'.bin2hex(random_bytes(5)))
@@ -279,8 +356,10 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
             ->setLastPrice($price)
             ->setLastCurrencyCode('EUR')
             ->setLastSeenAt(new \DateTime('2026-10-14 08:00:00'))
-            ->setActive(1)
-            ->save();
+            ->setActive(1);
+        $offer->save();
+
+        return $offer;
     }
 
     private function sale(Product $product, int $quantity, int $daysAgo): void

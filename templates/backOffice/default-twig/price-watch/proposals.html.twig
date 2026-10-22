@@ -14,6 +14,7 @@
 {% endblock %}
 
 {% macro euros(value) %}{% if value is not null %}{{ value|number_format(2, ',', ' ') }} €{% else %}<span class="text-muted">-</span>{% endif %}{% endmacro %}
+{% macro change(first, last) %}{% if first is null %}-{% elseif first == last %}{{ first|number_format(2, ',', ' ') }} €{% else %}{{ first|number_format(2, ',', ' ') }} € → {{ last|number_format(2, ',', ' ') }} €{% endif %}{% endmacro %}
 {% macro pct(value, signed) %}{% if value is not null %}{{ signed and value > 0 ? '+' : '' }}{{ value|number_format(1, ',', ' ') }} %{% endif %}{% endmacro %}
 
 {% block content %}
@@ -53,6 +54,13 @@
                         <th scope="col" class="text-end">{{ 'Our price'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Purchase price'|trans({}, 'pricewatch') }}</th>
                         <th scope="col">{{ 'Cheapest competitor'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">
+                            {{ 'proposals.history'|trans({'%days%': salesDays}, 'pricewatch') }}
+                            <div class="small fw-normal text-muted text-nowrap">
+                                <svg width="14" height="6" aria-hidden="true"><line x1="0" y1="3" x2="14" y2="3" stroke="var(--bs-dark)" stroke-width="1.5"/></svg> {{ 'proposals.history.ours'|trans({}, 'pricewatch') }}
+                                <svg width="14" height="6" class="ms-1" aria-hidden="true"><line x1="0" y1="3" x2="14" y2="3" stroke="var(--bs-blue)" stroke-width="1.5" stroke-dasharray="3 2"/></svg> {{ 'proposals.history.cheapest'|trans({}, 'pricewatch') }}
+                            </div>
+                        </th>
                         <th scope="col">{{ 'proposals.sales'|trans({'%days%': salesDays}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Proposal'|trans({}, 'pricewatch') }}</th>
                     </tr>
@@ -88,6 +96,27 @@
                                 </div>
                             {% else %}
                                 <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td data-testid="pw-proposal-history-{{ line.productId }}">
+                            {% set chart = line.history %}
+                            {% if chart %}
+                                {% set summary = 'proposals.history.summary'|trans({
+                                    '%ours%': _self.change(chart.oursFirst, chart.oursLast),
+                                    '%cheapest%': _self.change(chart.cheapestFirst, chart.cheapestLast),
+                                    '%from%': chart.from,
+                                    '%to%': chart.to,
+                                }, 'pricewatch') %}
+                                <svg width="{{ constant('PriceWatch\\Service\\Proposal\\PriceSparkline::WIDTH') }}" height="{{ constant('PriceWatch\\Service\\Proposal\\PriceSparkline::HEIGHT') }}" class="d-block" role="img" aria-label="{{ summary }}">
+                                    <title>{{ summary }}</title>
+                                    <polyline points="{{ chart.cheapestPolyline }}" fill="none" stroke="var(--bs-blue)" stroke-width="1.5" stroke-dasharray="3 2"/>
+                                    {% for point in chart.cheapest %}<circle cx="{{ point.x }}" cy="{{ point.y }}" r="1.5" fill="var(--bs-blue)"/>{% endfor %}
+                                    <polyline points="{{ chart.oursPolyline }}" fill="none" stroke="var(--bs-dark)" stroke-width="1.5"/>
+                                    {% for point in chart.ours %}<circle cx="{{ point.x }}" cy="{{ point.y }}" r="1.5" fill="var(--bs-dark)"/>{% endfor %}
+                                </svg>
+                                <div class="small text-muted text-nowrap">{{ (chart.readings == 1 ? 'proposals.history.reading' : 'proposals.history.readings')|trans({'%count%': chart.readings, '%from%': chart.from|slice(0, 5), '%to%': chart.to|slice(0, 5)}, 'pricewatch') }}</div>
+                            {% else %}
+                                <span class="small text-muted">{{ 'proposals.history.none'|trans({}, 'pricewatch') }}</span>
                             {% endif %}
                         </td>
                         <td class="small" style="white-space: normal; min-width: 11rem">
