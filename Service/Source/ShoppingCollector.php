@@ -214,10 +214,16 @@ final readonly class ShoppingCollector
             $byTitle = $this->searchCards($run, PassStep::TitleSearch, $titleKeywords, $titleKeywords, $titleBrands, 'product', $priority, $maxWaitSeconds, $sandbox);
 
             // Paid at the post, whatever comes back: these go to the back of
-            // the queue for the next pass.
-            PwProductIdentityQuery::create()
-                ->filterById(array_keys($identities), Criteria::IN)
-                ->update(['LastCollectedAt' => new \DateTime()]);
+            // the queue for the next pass. A search DataForSEO refused was
+            // neither paid nor made: its product keeps its place.
+            $created = array_flip($byTitle['created']);
+            $searchedIds = array_keys(array_filter($identities, static fn (PwProductIdentity $identity): bool => isset($created['p'.$identity->getProductId()])));
+
+            if ($searchedIds !== []) {
+                PwProductIdentityQuery::create()
+                    ->filterById($searchedIds, Criteria::IN)
+                    ->update(['LastCollectedAt' => new \DateTime()]);
+            }
             // Keyed like the search tags, which the sellers step reads back.
             /** @var array<array-key, ShoppingCard> $cards */
             $cards = [];
@@ -269,6 +275,10 @@ final readonly class ShoppingCollector
                 $tally->costUsd += $postedSellers['costUsd'];
                 $tally->tasks += \count($postedSellers['tasks']);
                 $this->log->info('Collect: {count} sellers lookup(s) posted.', ['count' => \count($postedSellers['tasks'])]);
+
+                foreach ($postedSellers['refused'] as $card => $reason) {
+                    $tally->errors[] = \sprintf('sellers of card %s not created: %s', $card, $reason);
+                }
 
                 $ready = $this->waitFor($run, PassStep::Sellers, 'sellers', $postedSellers['tasks'], $maxWaitSeconds, $sandbox);
                 $read = 0;
@@ -360,13 +370,13 @@ final readonly class ShoppingCollector
      * @param array<array-key, string> $ourTitleByTag
      * @param array<array-key, ?string> $brandByTag    our brand: alone, it makes no card ours
      *
-     * @return array{cards: array<array-key, ShoppingCard>, missed: array<array-key, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>} errors keyed by tag; failed: tags whose search ended in error
+     * @return array{cards: array<array-key, ShoppingCard>, missed: array<array-key, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>, created: list<string>} errors keyed by tag; failed: tags whose search was refused or ended in error; created: tags DataForSEO took, and billed
      *
      * @throws DataForSeoException
      */
     private function searchCards(PwCollectRun $run, PassStep $step, array $keywordsByTag, array $ourTitleByTag, array $brandByTag, string $subject, int $priority, int $maxWaitSeconds, bool $sandbox): array
     {
-        $found = ['cards' => [], 'missed' => [], 'costUsd' => 0.0, 'tasks' => 0, 'errors' => [], 'failed' => []];
+        $found = ['cards' => [], 'missed' => [], 'costUsd' => 0.0, 'tasks' => 0, 'errors' => [], 'failed' => [], 'created' => []];
 
         if ($keywordsByTag === []) {
             return $found;
@@ -377,8 +387,18 @@ final readonly class ShoppingCollector
         $found['tasks'] = \count($posted['tasks']);
         $this->log->info('Collect: {count} {subject} search(es) posted for {cost} USD.', ['count' => $found['tasks'], 'subject' => $subject, 'cost' => number_format($posted['costUsd'], 3, '.', '')]);
 
+        $found['created'] = array_map('strval', array_keys($posted['tasks']));
+
         if ($found['tasks'] < \count($keywordsByTag)) {
             $this->log->warning('Collect: DataForSEO created {created} of {asked} {subject} search(es).', ['created' => $found['tasks'], 'asked' => \count($keywordsByTag), 'subject' => $subject]);
+        }
+
+        // Not created is not "no card": the product was never searched.
+        foreach (array_keys($keywordsByTag) as $tag) {
+            if (!isset($posted['tasks'][(string) $tag])) {
+                $found['errors'][(string) $tag] = \sprintf('search for %s %s not created: %s', $subject, $tag, $posted['refused'][(string) $tag] ?? 'no answer for it');
+                $found['failed'][] = (string) $tag;
+            }
         }
 
         foreach ($this->waitFor($run, $step, 'products', $posted['tasks'], $maxWaitSeconds, $sandbox) as $tag => $taskId) {

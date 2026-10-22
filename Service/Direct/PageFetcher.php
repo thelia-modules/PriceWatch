@@ -101,16 +101,21 @@ final class PageFetcher
 
     /**
      * Sitemaps can be gzipped files: inflated here, whatever the headers said.
+     * The failure stays readable: the back office tells why a site is not read.
      */
-    public function fetchText(string $url): ?string
+    public function fetchText(string $url): FetchedPage
     {
         $fetched = $this->fetch($url);
 
-        if ($fetched->html === null) {
-            return null;
+        if ($fetched->html === null || !str_starts_with($fetched->html, "\x1f\x8b")) {
+            return $fetched;
         }
 
-        return str_starts_with($fetched->html, "\x1f\x8b") ? (gzdecode($fetched->html) ?: null) : $fetched->html;
+        $text = gzdecode($fetched->html);
+
+        return $text === false
+            ? new FetchedPage($fetched->url, $fetched->status, null, PageOutcome::HttpError, 'not a readable gzip file')
+            : new FetchedPage($fetched->url, $fetched->status, $text);
     }
 
     /**

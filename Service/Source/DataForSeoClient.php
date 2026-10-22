@@ -41,7 +41,7 @@ final readonly class DataForSeoClient
     /**
      * @param array<string, string> $keywordsByTag tag => keyword (our product title)
      *
-     * @return array{tasks: array<string, string>, costUsd: float} tag => task id
+     * @return array{tasks: array<string, string>, costUsd: float, refused: array<string, string>} tag => task id; refused: tag => reason
      *
      * @throws DataForSeoException
      */
@@ -67,7 +67,7 @@ final readonly class DataForSeoClient
     /**
      * @param array<string, string> $productIdsByTag tag => Google product_id
      *
-     * @return array{tasks: array<string, string>, costUsd: float}
+     * @return array{tasks: array<string, string>, costUsd: float, refused: array<string, string>}
      *
      * @throws DataForSeoException
      */
@@ -209,15 +209,20 @@ final readonly class DataForSeoClient
     }
 
     /**
+     * A task DataForSEO refuses comes back with its reason, so the pass can
+     * say it: on 2026-10-20 an empty balance (40200) refused every search and
+     * the pass reported ten products Google did not know.
+     *
      * @param list<array<string, mixed>> $tasks
      *
-     * @return array{tasks: array<string, string>, costUsd: float}
+     * @return array{tasks: array<string, string>, costUsd: float, refused: array<string, string>} tag => task id; refused: tag => reason
      *
      * @throws DataForSeoException
      */
     private function post(string $path, array $tasks, bool $sandbox): array
     {
         $ids = [];
+        $refused = [];
         $cost = 0.0;
 
         foreach (array_chunk($tasks, self::MAX_TASKS_PER_POST) as $chunk) {
@@ -225,19 +230,21 @@ final readonly class DataForSeoClient
             $cost += (float) ($payload['cost'] ?? 0);
 
             foreach ($payload['tasks'] ?? [] as $task) {
-                if ((int) ($task['status_code'] ?? 0) !== 20100 || !\is_string($task['id'] ?? null)) {
+                $tag = $task['data']['tag'] ?? null;
+
+                if (!\is_string($tag)) {
                     continue;
                 }
 
-                $tag = $task['data']['tag'] ?? null;
-
-                if (\is_string($tag)) {
+                if ((int) ($task['status_code'] ?? 0) === 20100 && \is_string($task['id'] ?? null)) {
                     $ids[$tag] = $task['id'];
+                } else {
+                    $refused[$tag] = DataForSeoException::fromStatus((int) ($task['status_code'] ?? 0), (string) ($task['status_message'] ?? ''))->getMessage();
                 }
             }
         }
 
-        return ['tasks' => $ids, 'costUsd' => $cost];
+        return ['tasks' => $ids, 'costUsd' => $cost, 'refused' => $refused];
     }
 
     /**

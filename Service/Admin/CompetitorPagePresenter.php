@@ -8,6 +8,7 @@ use PriceWatch\Model\PwCompetitor;
 use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Direct\SitemapIndex;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 
 /**
@@ -18,6 +19,7 @@ final readonly class CompetitorPagePresenter
     public function __construct(
         private CompetitorRepository $competitors,
         private PriceWatchSettings $settings,
+        private SitemapIndex $sitemaps,
     ) {
     }
 
@@ -27,7 +29,7 @@ final readonly class CompetitorPagePresenter
     public function present(): array
     {
         $proposed = array_map($this->row(...), $this->competitors->byStatus(CompetitorStatus::Proposed));
-        $whitelist = array_map($this->row(...), [
+        $whitelist = array_map(fn (PwCompetitor $competitor): array => [...$this->row($competitor), 'sitemap' => $this->sitemap((string) $competitor->getDomain())], [
             ...$this->competitors->byStatus(CompetitorStatus::Watched),
             ...$this->competitors->byStatus(CompetitorStatus::Paused),
         ]);
@@ -68,6 +70,24 @@ final readonly class CompetitorPagePresenter
         }
 
         return $safe;
+    }
+
+    /**
+     * Whether the direct pass can find the competitor's pages: without
+     * addresses from its sitemaps only Google Shopping covers it.
+     *
+     * @return array{problem: ?string, detail: ?string, urls: int, checkedAt: string}|null null before the first direct pass with discovery
+     */
+    public function sitemap(string $domain): ?array
+    {
+        $diagnosis = $this->sitemaps->diagnosis($domain);
+
+        return $diagnosis === null ? null : [
+            'problem' => $diagnosis['problem'],
+            'detail' => $diagnosis['detail'],
+            'urls' => $diagnosis['urls'],
+            'checkedAt' => $diagnosis['checkedAt']->format('d/m/Y H:i'),
+        ];
     }
 
     /**

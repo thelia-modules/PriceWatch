@@ -104,6 +104,10 @@ return [
     'Suggested by the model' => 'Suggéré par le modèle',
     'Reference file' => 'Fichier de référence',
     'Added by hand' => 'Ajouté à la main',
+    'Not read directly: its robots.txt announces no sitemap. Only Google Shopping covers it.' => 'Pas de lecture directe : son robots.txt n\'annonce aucun sitemap. Seul Google Shopping le couvre.',
+    'Not read directly: every sitemap was refused (%detail%). Only Google Shopping covers it.' => 'Pas de lecture directe : tous ses sitemaps ont été refusés (%detail%). Seul Google Shopping le couvre.',
+    'Not read directly: its sitemaps list none of its pages. Only Google Shopping covers it.' => 'Pas de lecture directe : ses sitemaps ne listent aucune de ses pages. Seul Google Shopping le couvre.',
+    'Sitemap: %count% address(es), read on %at%' => 'Sitemap : %count% adresse(s), lu le %at%',
 
     // Competitors feedback
     '"%domain%" is not a usable domain name.' => '« %domain% » n\'est pas un nom de domaine utilisable.',
