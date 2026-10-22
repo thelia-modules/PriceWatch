@@ -309,7 +309,21 @@
             running: run.running, salesDays: suggestionDays.sales, staleDays: suggestionDays.stale
         } only %}
     {% else %}
-    <p class="small text-muted mb-2">{{ ('view.' ~ view ~ '.help')|trans({}, 'pricewatch') }}</p>
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+        <p class="small text-muted mb-0">{{ ('view.' ~ view ~ '.help')|trans({}, 'pricewatch') }}</p>
+        {# The gaps list read again as filtered, the oldest readings first (asked 2026-10-16). #}
+        {% if gapsReading %}
+            <form method="post" action="{{ path('pricewatch_comparator_read_gaps') }}" class="d-inline" onsubmit="return confirm({{ 'gaps.read.confirm'|trans({'%count%': gapsReading.products, '%variants%': gapsReading.variants, '%cost%': gapsReading.cost}, 'pricewatch')|json_encode }})">
+                <input type="hidden" name="_token" value="{{ csrfToken }}">
+                <input type="hidden" name="return" value="{{ returnQuery }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap" data-testid="pw-read-gaps" {% if gapsReading.products == 0 or run.running %}disabled{% endif %}>
+                    <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>
+                    {{- 'gaps.read'|trans({'%count%': gapsReading.products, '%cost%': gapsReading.cost}, 'pricewatch') -}}
+                    {%- if gapsReading.total > gapsReading.products %} {{ 'gaps.read.of_total'|trans({'%total%': gapsReading.total}, 'pricewatch') }}{% endif %}
+                </button>
+            </form>
+        {% endif %}
+    </div>
 
     {% if rows is empty %}
         <div class="alert alert-light border" data-testid="pw-empty">
@@ -352,7 +366,8 @@
                                 {% endif %}
                                 <div style="min-width: 0">
                                     {% if product.product.editUrl %}<a href="{{ product.product.editUrl }}" class="fw-semibold d-block text-truncate" title="{{ product.product.title }}">{{ product.product.title }}</a>{% else %}<span class="fw-semibold d-block text-truncate">{{ product.product.title }}</span>{% endif %}
-                                    <div class="small text-muted text-truncate">{{ product.product.ref }}</div>
+                                    {# A long reference is cut, never the day of the reading. #}
+                                    <div class="small text-muted d-flex"><span class="text-truncate">{{ product.product.ref }}</span>{% if product.readOn %}<span class="text-nowrap flex-shrink-0 ms-1" data-testid="pw-read-on-{{ product.id }}">· {{ 'read on %day%'|trans({'%day%': product.readOn}, 'pricewatch') }}</span>{% endif %}</div>
                                 </div>
                             </div>
                         </td>
@@ -377,6 +392,15 @@
                         </td>
                         <td class="text-end" style="width: 9rem" data-testid="pw-gap-product-{{ product.id }}" data-position="{{ headline.position }}">{{ _self.gap(headline) }}</td>
                         <td class="text-end text-nowrap">
+                            {% if product.collectCost %}
+                                {% set readAgain = 'Read this product again (at most %cost%)'|trans({'%cost%': product.collectCost}, 'pricewatch') %}
+                                <form method="post" action="{{ path('pricewatch_product_collect', {productId: product.id}) }}" class="d-inline">
+                                    <input type="hidden" name="_token" value="{{ csrfToken }}">
+                                    <input type="hidden" name="back" value="comparator">
+                                    <input type="hidden" name="return" value="{{ returnQuery }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="tooltip" title="{{ readAgain }}" aria-label="{{ readAgain }}" data-testid="pw-read-product-{{ product.id }}" {% if run.running %}disabled{% endif %}><i class="bi bi-arrow-repeat" aria-hidden="true"></i></button>
+                                </form>
+                            {% endif %}
                             <button type="button" class="btn btn-sm btn-outline-secondary border-0 pw-toggle" data-bs-toggle="collapse" data-bs-target="#pw-product-detail-{{ product.id }}" aria-expanded="false" aria-controls="pw-product-detail-{{ product.id }}" aria-label="{{ 'Details'|trans({}, 'pricewatch') }}" data-testid="pw-toggle-product-{{ product.id }}"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>
                         </td>
                     </tr>
@@ -402,6 +426,7 @@
                                             <div class="fw-semibold text-body">{{ row.theirs ?? '–' }}</div>
                                             {% if row.change %}<div class="small text-body-secondary" data-testid="pw-change-{{ row.id }}"><i class="bi {{ row.change.direction == 'down' ? 'bi-caret-down-fill' : 'bi-caret-up-fill' }} me-1" aria-hidden="true"></i>{{ ('change.' ~ row.change.direction)|trans({'%pct%': row.change.pct, '%since%': row.change.since, '%previous%': row.change.previous}, 'pricewatch') }}</div>{% endif %}
                                             <div class="small text-muted">{{ 'ours %price%'|trans({'%price%': row.ours ?? '–'}, 'pricewatch') }}</div>
+                                            {% if row.readOn %}<div class="small text-muted" data-testid="pw-read-on-offer-{{ row.id }}">{{ 'read on %day%'|trans({'%day%': row.readOn}, 'pricewatch') }}</div>{% endif %}
                                         </td>
                                         <td class="text-end" style="width: 9rem" data-testid="pw-gap-{{ row.id }}" data-position="{{ row.position }}">{{ _self.gap(row) }}</td>
                                         <td class="ps-4">

@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Comparator;
 
+use PriceWatch\Controller\Admin\RunController;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwPriceQuote;
+use PriceWatch\Service\Referential\CatalogVariantRepository;
+use PriceWatch\Service\Run\ManualRun;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
@@ -17,6 +20,7 @@ final readonly class ComparatorPresenter
         private ComparatorRepository $repository,
         private UrlGeneratorInterface $urlGenerator,
         private CatalogThumbnails $thumbnails,
+        private CatalogVariantRepository $catalog,
     ) {
     }
 
@@ -60,12 +64,17 @@ final readonly class ComparatorPresenter
         $direction = $filters->gapDirection();
 
         $summary = $this->repository->gapSummary($filters);
+        // Each line can be read again on its own (asked 2026-10-16), at a
+        // cost told in advance; a product no pass can search has no button.
+        $collectable = $this->catalog->collectableVariantCounts($productIds);
 
         return [
             'filters' => $filters,
             'view' => $filters->view->value,
             'rows' => $rows,
-            'products' => self::products($rows, $productIds),
+            'products' => array_map(static fn (array $product): array => $product + [
+                'collectCost' => isset($collectable[$product['id']]) ? RunController::usd(ManualRun::worstCaseUsd($collectable[$product['id']]), $locale) : null,
+            ], self::products($rows, $productIds)),
             'counts' => $productCounts,
             'competitors' => $competitors,
             'summary' => [
@@ -269,6 +278,10 @@ final readonly class ComparatorPresenter
             'bar' => self::bar($deltaPct),
             'availability' => $quote?->getAvailability(),
             'seenAt' => $offer->getLastSeenAt()?->format('d/m/Y H:i'),
+            // The day of the last reading, a hint on the line (asked 2026-10-16):
+            // the passes rotate through the catalogue, so each product has its own.
+            'readDay' => $offer->getLastSeenAt()?->format('Y-m-d'),
+            'readOn' => $offer->getLastSeenAt()?->format('d/m'),
             'searchedBy' => \is_array($payload) && \is_string($payload['searched_by'] ?? null) ? $payload['searched_by'] : null,
             'extraction' => $quote?->getExtractionMethod(),
             'confidence' => MatchConfidence::of($offer->getMatchMethod(), \is_array($judgment) ? $judgment : [], $state),
@@ -302,6 +315,7 @@ final readonly class ComparatorPresenter
                 $line = &$lines[$lineOf[$key]];
                 $line['groupIds'][] = $row['id'];
                 $line['sizes'] = [...$line['sizes'], ...$row['sizes']];
+                ['readDay' => $line['readDay'], 'readOn' => $line['readOn']] = self::latestReading($line, $row);
                 unset($line);
                 continue;
             }
@@ -355,11 +369,13 @@ final readonly class ComparatorPresenter
             $cheapest = $priced[0]['ours'] ?? null;
             $dearest = $priced === [] ? null : $priced[\count($priced) - 1]['ours'];
             $pictured = array_values(array_filter(array_column($productLines, 'image')));
+            $latest = array_reduce($productLines, static fn (array $carry, array $line): array => self::latestReading($carry, $line), ['readDay' => null, 'readOn' => null]);
 
             $products[] = [
                 'id' => $key,
                 'product' => $productLines[0]['product'],
                 'image' => $pictured[0] ?? null,
+                'readOn' => $latest['readOn'],
                 'headline' => $productLines[0],
                 'ours' => ['from' => $cheapest, 'to' => $dearest === $cheapest ? null : $dearest],
                 'competitors' => array_values($competitors),
@@ -368,6 +384,22 @@ final readonly class ComparatorPresenter
         }
 
         return $products;
+    }
+
+    /**
+     * The more recent of two readings: a line of several sizes, or a product
+     * of several lines, shows the last day any of them was read.
+     *
+     * @param array{readDay?: ?string, readOn?: ?string} $one
+     * @param array{readDay?: ?string, readOn?: ?string} $other
+     *
+     * @return array{readDay: ?string, readOn: ?string}
+     */
+    private static function latestReading(array $one, array $other): array
+    {
+        $latest = ($other['readDay'] ?? null) !== null && ($other['readDay'] > ($one['readDay'] ?? '')) ? $other : $one;
+
+        return ['readDay' => $latest['readDay'] ?? null, 'readOn' => $latest['readOn'] ?? null];
     }
 
     private function url(ComparatorFilters $filters): string

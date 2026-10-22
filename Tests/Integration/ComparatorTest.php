@@ -16,10 +16,16 @@ use PriceWatch\Service\Comparator\ComparatorFilters;
 use PriceWatch\Service\Comparator\ComparatorPresenter;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Comparator\ComparatorView;
+use PriceWatch\Service\Comparator\GapsReading;
 use PriceWatch\Service\Comparator\OfferReview;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Referential\CatalogVariantRepository;
+use PriceWatch\Service\Run\BackgroundRunner;
+use PriceWatch\Service\Run\ManualRun;
 use Propel\Runtime\Propel;
+use Symfony\Component\Lock\LockFactory;
+use Symfony\Component\Lock\Store\InMemoryStore;
 use Symfony\Component\Routing\Generator\UrlGenerator;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Route;
@@ -149,6 +155,82 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertCount(2, $shown['lines'], 'the size that moved is not merged with the one that did not');
         self::assertSame(['down'], array_values(array_filter(array_map(static fn (array $line): ?string => $line['change']['direction'] ?? null, $shown['lines']))));
         self::assertSame('down', $shown['competitors'][0]['change']['direction'] ?? null, 'the chip shows a move of any of its sizes');
+    }
+
+    /**
+     * Asked 2026-10-16: the day of the last reading, as a hint, on the
+     * product and on each competitor's line.
+     */
+    public function testTheDayOfTheLastReadingShowsOnTheProductAndItsLines(): void
+    {
+        $other = (new CompetitorRepository())->create('other-'.$this->tag.'.example', CompetitorStatus::Watched, 'manual');
+        $product = $this->product('Casque Shoei '.$this->tag);
+        $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-4.000', size: 'S')->setLastSeenAt(new \DateTime('2026-10-09 08:00'))->save();
+        $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-4.000', size: 'M')->setLastSeenAt(new \DateTime('2026-10-11 08:00'))->save();
+        $this->offer($product, 'matched_exact', comparable: true, deltaPct: '-2.000', competitor: $other)->setLastSeenAt(new \DateTime('2026-10-14 08:00'))->save();
+
+        $shown = $this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['products'][0];
+        $readOn = array_column($shown['lines'], 'readOn', 'competitor');
+
+        self::assertSame('14/10', $shown['readOn'], 'the product shows the last day any of its offers was read');
+        self::assertSame('11/10', $readOn['cmp-'.$this->tag.'.example'], 'sizes merged on one line: the last of their days');
+        self::assertSame('14/10', $readOn['other-'.$this->tag.'.example']);
+    }
+
+    /**
+     * Asked 2026-10-16: a product line can be read again on its own, at a
+     * cost told in advance; one no pass could search has no button.
+     */
+    public function testEachProductLineCanBeReadAgainAtAKnownCost(): void
+    {
+        $searchable = $this->product('Casque Shark '.$this->tag);
+        $this->offer($searchable, 'matched_exact', comparable: true, deltaPct: '-4.000');
+        $this->offer($searchable, 'matched_exact', comparable: true, deltaPct: '-4.000', size: 'L');
+        $this->searchable($searchable);
+        $withoutEan = $this->product('Casque sans EAN '.$this->tag);
+        $this->offer($withoutEan, 'matched_exact', comparable: true, deltaPct: '-2.000');
+
+        $products = array_column($this->presenter()->present(new ComparatorFilters(search: $this->tag), 'fr_FR')['products'], null, 'id');
+
+        self::assertStringContainsString('0,008', (string) $products[(int) $searchable->getId()]['collectCost'], 'two sizes, two tasks each at the priority price');
+        self::assertNull($products[(int) $withoutEan->getId()]['collectCost']);
+    }
+
+    /**
+     * Asked 2026-10-16: the gaps list read again as filtered, the products
+     * read longest ago first, a pass's worth, nothing added to the watch.
+     */
+    public function testTheGapsListIsReadAgainOldestFirstAsFiltered(): void
+    {
+        $recent = $this->product('Récent '.$this->tag);
+        $this->offer($recent, 'matched_exact', comparable: true, deltaPct: '-3.000')->setLastSeenAt(new \DateTime('2026-10-12'))->save();
+        $oldest = $this->product('Ancien '.$this->tag);
+        $this->offer($oldest, 'matched_exact', comparable: true, deltaPct: '-6.000')->setLastSeenAt(new \DateTime('2026-10-08'))->save();
+        $cheaper = $this->product('Nous moins chers '.$this->tag);
+        $this->offer($cheaper, 'matched_exact', comparable: true, deltaPct: '8.000')->setLastSeenAt(new \DateTime('2026-10-10'))->save();
+        $withoutEan = $this->product('Sans EAN '.$this->tag);
+        $this->offer($withoutEan, 'matched_exact', comparable: true, deltaPct: '-9.000')->setLastSeenAt(new \DateTime('2026-10-01'))->save();
+        $inReview = $this->product('À revoir '.$this->tag);
+        $this->offer($inReview, 'needs_review', comparable: false, deltaPct: '-1.000')->setLastSeenAt(new \DateTime('2026-10-02'))->save();
+
+        foreach ([$recent, $oldest, $cheaper, $inReview] as $product) {
+            $this->searchable($product);
+        }
+
+        $started = [];
+        $reading = $this->gapsReading($started);
+        $batch = $reading->batch(new ComparatorFilters(search: $this->tag));
+
+        self::assertSame([(int) $oldest->getId(), (int) $cheaper->getId(), (int) $recent->getId()], $batch['products'], 'gaps only, the oldest reading first, none without a searchable variant');
+        self::assertSame(4, $batch['total']);
+        self::assertSame([(int) $oldest->getId(), (int) $recent->getId()], $reading->batch(new ComparatorFilters(search: $this->tag, cheaperOnly: true))['products'], 'the screen filters hold');
+
+        self::assertSame(['products' => 2, 'variants' => 2], $reading->start(new ComparatorFilters(search: $this->tag, cheaperOnly: true)));
+        $collect = $started[0][1];
+        self::assertContains('--limit=2', $collect);
+        self::assertContains('--product='.$oldest->getRef(), $collect);
+        self::assertContains('--product='.$recent->getRef(), $collect);
+        self::assertNotContains('--product='.$cheaper->getRef(), $collect);
     }
 
     public function testOffersOfCompetitorsOffTheWhitelistAreNeverShown(): void
@@ -455,7 +537,37 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $dispatcher = self::coreService('event_dispatcher');
         self::assertInstanceOf(EventDispatcherInterface::class, $dispatcher);
 
-        return new ComparatorPresenter($this->repository, new UrlGenerator($routes, new RequestContext()), new CatalogThumbnails($dispatcher));
+        return new ComparatorPresenter($this->repository, new UrlGenerator($routes, new RequestContext()), new CatalogThumbnails($dispatcher), new CatalogVariantRepository());
+    }
+
+    /**
+     * @param list<list<list<string>>> $started the commands of each pass started
+     */
+    private function gapsReading(array &$started): GapsReading
+    {
+        $runner = new class($started) implements BackgroundRunner {
+            /** @param list<list<list<string>>> $started */
+            public function __construct(private array &$started)
+            {
+            }
+
+            public function start(array $commands, string $logFile): void
+            {
+                $this->started[] = $commands;
+            }
+        };
+
+        return new GapsReading($this->repository, new CatalogVariantRepository(), new ManualRun($runner, new LockFactory(new InMemoryStore()), '/tmp', sys_get_temp_dir().'/pricewatch-test-'.$this->tag.'.started'));
+    }
+
+    /**
+     * Every variant of the product gets an EAN of its own: a pass can search it.
+     */
+    private function searchable(Product $product): void
+    {
+        foreach (PwProductIdentityQuery::create()->filterByProductId($product->getId())->find() as $identity) {
+            $identity->setGtin('0'.random_int(1000000000000, 9999999999999))->setGtinValid(1)->setGtinShared(0)->setMonitored(1)->save();
+        }
     }
 
     /**

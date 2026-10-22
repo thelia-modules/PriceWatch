@@ -100,6 +100,33 @@ final readonly class ComparatorRepository
             ->getData(), 'productId'));
     }
 
+    /**
+     * The products of the gaps tab under these filters, every page, the
+     * product read longest ago first: what a new reading of the list starts
+     * with (asked 2026-10-16).
+     *
+     * @return list<int> product ids
+     */
+    public function gapProductsReadLongestAgo(ComparatorFilters $filters, int $limit): array
+    {
+        $query = $this->productQuery($filters->withView(ComparatorView::Gaps));
+
+        if ($query === null) {
+            return [];
+        }
+
+        return array_map('intval', array_column($query
+            ->withColumn(ProductSaleElementsTableMap::COL_PRODUCT_ID, 'productId')
+            ->withColumn('MAX('.PwCompetitorOfferTableMap::COL_LAST_SEEN_AT.')', 'lastRead')
+            ->groupBy('productId')
+            ->orderBy('lastRead', Criteria::ASC)
+            ->orderBy('productId', Criteria::ASC)
+            ->select(['productId'])
+            ->limit($limit)
+            ->find()
+            ->getData(), 'productId'));
+    }
+
     public function productCount(ComparatorFilters $filters): int
     {
         $count = $this->productQuery($filters)
