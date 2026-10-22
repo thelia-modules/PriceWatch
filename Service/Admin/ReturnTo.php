@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Admin;
 
+use PriceWatch\Service\Comparator\ComparatorFilters;
 use PriceWatch\Service\Watched\WatchedFilters;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
@@ -17,6 +18,7 @@ final class ReturnTo
 {
     public const WATCHED_LIST = 'watched';
     public const CATEGORY_LIST = 'category';
+    public const COMPARATOR_LIST = 'comparator';
 
     public static function url(Request $request, UrlGeneratorInterface $urlGenerator): ?string
     {
@@ -26,6 +28,7 @@ final class ReturnTo
 
         return match ($back) {
             self::WATCHED_LIST => $urlGenerator->generate('pricewatch_watched', WatchedFilters::fromRequest(new Request($query))->toQueryParams()),
+            self::COMPARATOR_LIST => $urlGenerator->generate('pricewatch_comparator', ComparatorFilters::fromRequest(new Request($query))->toQueryParams()),
             self::CATEGORY_LIST => $urlGenerator->generate('admin.categories.default', array_filter([
                 'category_id' => self::positiveInt($query['category_id'] ?? null),
                 'page' => self::positiveInt($query['page'] ?? null),

@@ -6,8 +6,10 @@ namespace PriceWatch\Controller\Admin;
 
 use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Admin\ReturnTo;
+use PriceWatch\Service\Admin\WatchCell;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Referential\ProductEnrolment;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -25,6 +27,7 @@ final readonly class ProductWatchController
         private AdminRequestGuard $guard,
         private ProductEnrolment $enrolment,
         private CatalogVariantRepository $catalog,
+        private WatchCell $cell,
         private UrlGeneratorInterface $urlGenerator,
         private TranslatorInterface $translator,
     ) {
@@ -80,9 +83,19 @@ final readonly class ProductWatchController
     /**
      * @param array<string, string|int> $parameters
      */
-    private function back(Request $request, int $productId, string $type, string $message, array $parameters = []): RedirectResponse
+    private function back(Request $request, int $productId, string $type, string $message, array $parameters = []): Response
     {
-        $request->getSession()->getFlashBag()->add($type, $this->trans($message, $parameters));
+        $flashBag = $request->getSession()->getFlashBag();
+        $flashBag->add($type, $this->trans($message, $parameters));
+
+        // A click in the best sales table: answered in place, the messages
+        // with the new cell rather than on the next page.
+        if (\in_array('application/json', $request->getAcceptableContentTypes(), true)) {
+            return new JsonResponse([
+                'messages' => $flashBag->all(),
+                'cell' => $this->cell->render($productId, $this->catalog->watchState($productId)),
+            ]);
+        }
 
         return new RedirectResponse(
             ReturnTo::url($request, $this->urlGenerator)

@@ -4,18 +4,14 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Suggestion;
 
-use PriceWatch\Service\Comparator\ComparatorView;
-use PriceWatch\Service\Comparator\PricePosition;
-use PriceWatch\Service\Competitor\CompetitorStatus;
-use PriceWatch\Service\Direct\PageOutcome;
-use PriceWatch\Service\Watched\WatchedRepository;
 use Propel\Runtime\Propel;
 
 /**
- * The four reasons to collect a product now rather than when the rotation
- * reaches it: it sells, we were dearer last time, what a competitor showed
- * is getting old, or it is on a deep promotion. One grouped query each,
- * product ids out; then what the catalogue says of them.
+ * The reasons to add a product to the watch now: it sells (over the month,
+ * 90 days or the year), or it is on a deep promotion. One grouped query
+ * each, product ids out; then what the catalogue says of them. A product
+ * already watched is never suggested: the rotation and the watched tab
+ * collect it (asked 2026-10-20).
  */
 final readonly class SuggestionRepository
 {
@@ -56,64 +52,6 @@ final readonly class SuggestionRepository
         }
 
         return $sellers;
-    }
-
-    /**
-     * @return array<int, array{gapPct: float, competitors: int}> product id => widest gap against us, worst first
-     */
-    public function weWereDearer(int $limit): array
-    {
-        $rows = $this->rows(
-            'SELECT pse.product_id, MIN(o.last_delta_pct) AS gap, COUNT(DISTINCT o.competitor_id) AS competitors'
-            .' FROM pw_competitor_offer o'
-            .' JOIN product_sale_elements pse ON pse.id = o.product_sale_elements_id'
-            .' JOIN pw_competitor c ON c.id = o.competitor_id AND c.status = :watched'
-            .' WHERE o.active = 1 AND '.ComparatorView::inGapSql('o.')
-            .' AND o.last_delta_pct <= :dearer'
-            .' GROUP BY pse.product_id ORDER BY gap ASC, pse.product_id LIMIT '.max(1, $limit),
-            ['watched' => CompetitorStatus::Watched->value, 'dearer' => -PricePosition::EQUAL_BELOW],
-        );
-
-        $dearer = [];
-
-        foreach ($rows as $row) {
-            $dearer[(int) $row['product_id']] = ['gapPct' => (float) $row['gap'], 'competitors' => (int) $row['competitors']];
-        }
-
-        return $dearer;
-    }
-
-    /**
-     * Products a whitelisted competitor was found selling, last watched
-     * before $before (Google search or competitor page read, LastWatch):
-     * what they showed may no longer hold.
-     *
-     * @return array<int, \DateTimeImmutable> product id => last collected, oldest first
-     */
-    public function stale(\DateTimeInterface $before, int $limit): array
-    {
-        $rows = $this->rows(
-            'SELECT i.product_id, '.WatchedRepository::lastWatchedSql().' AS last_collected'
-            .' FROM pw_product_identity i'
-            .' LEFT JOIN ('.WatchedRepository::pagesReadSql().') pg ON pg.product_id = i.product_id'
-            .' JOIN (SELECT DISTINCT pse.product_id FROM pw_competitor_offer o'
-            .' JOIN product_sale_elements pse ON pse.id = o.product_sale_elements_id'
-            .' JOIN pw_competitor c ON c.id = o.competitor_id AND c.status = :watched'
-            .' WHERE o.active = 1 AND (o.match_state IN ('.self::quoted(ComparatorView::MATCHED_STATES).') OR '.ComparatorView::inGapSql('o.').')) found'
-            .' ON found.product_id = i.product_id'
-            .' WHERE i.monitored = 1 AND i.gtin_valid = 1 AND i.gtin_shared = 0'
-            .' GROUP BY i.product_id HAVING last_collected < :before'
-            .' ORDER BY last_collected ASC, i.product_id LIMIT '.max(1, $limit),
-            ['watched' => CompetitorStatus::Watched->value, 'before' => $before->format('Y-m-d H:i:s'), 'read' => PageOutcome::Read->value],
-        );
-
-        $stale = [];
-
-        foreach ($rows as $row) {
-            $stale[(int) $row['product_id']] = new \DateTimeImmutable((string) $row['last_collected']);
-        }
-
-        return $stale;
     }
 
     /**
@@ -184,10 +122,14 @@ final readonly class SuggestionRepository
     /**
      * Best sellers family by family: ranked across the shop, dear helmets
      * took 47 lines out of 50 (measured 2026-10-12) and no glove ever got in.
+     * The rank is the product's among every product its family sold, watched
+     * ones included; only the lines are left to the products not watched.
+     * An offline product is no line and no rank (asked 2026-10-20): left out
+     * here, it took a family's line before the catalogue signals dropped it.
      *
      * @param list<int> $excludedFamilies
      *
-     * @return array<int, array{quantity: int, revenue: float}> product id => units and revenue excluding tax
+     * @return array<int, array{quantity: int, revenue: float, rank: int}> product id => units, revenue excluding tax, rank in its family
      */
     public function bestSellersByFamily(\DateTimeInterface $since, int $perFamily, array $excludedFamilies): array
     {
@@ -198,22 +140,24 @@ final readonly class SuggestionRepository
             .' FROM order_product op'
             .' JOIN `order` o ON o.id = op.order_id'
             .' JOIN order_status os ON os.id = o.status_id'
-            .' JOIN product p ON p.ref = op.product_ref'
+            .' JOIN product p ON p.ref = op.product_ref AND p.visible = 1'
             .' WHERE o.created_at >= :since AND os.code IN ('.self::quoted(self::SOLD_STATUSES).')'
             .' GROUP BY p.id),'
-            .' ranked AS (SELECT sold.*, ROW_NUMBER() OVER (PARTITION BY tree.root ORDER BY sold.revenue DESC, sold.product_id) AS position'
+            .' ranked AS (SELECT sold.*, tree.root, ROW_NUMBER() OVER (PARTITION BY tree.root ORDER BY sold.revenue DESC, sold.product_id) AS family_rank'
             .' FROM sold'
             .' JOIN product_category pc ON pc.product_id = sold.product_id AND pc.default_category = 1'
             .' JOIN tree ON tree.id = pc.category_id'
-            .self::excluding($excludedFamilies).')'
-            .' SELECT product_id, quantity, revenue FROM ranked WHERE position <= '.max(1, $perFamily),
+            .self::excluding($excludedFamilies).'),'
+            .' unwatched AS (SELECT ranked.*, ROW_NUMBER() OVER (PARTITION BY ranked.root ORDER BY ranked.family_rank) AS position'
+            .' FROM ranked WHERE '.self::notWatched('ranked.product_id').')'
+            .' SELECT product_id, quantity, revenue, family_rank FROM unwatched WHERE position <= '.max(1, $perFamily),
             ['since' => $since->format('Y-m-d H:i:s')],
         );
 
         $sellers = [];
 
         foreach ($rows as $row) {
-            $sellers[(int) $row['product_id']] = ['quantity' => (int) $row['quantity'], 'revenue' => (float) $row['revenue']];
+            $sellers[(int) $row['product_id']] = ['quantity' => (int) $row['quantity'], 'revenue' => (float) $row['revenue'], 'rank' => (int) $row['family_rank']];
         }
 
         return $sellers;
@@ -237,6 +181,7 @@ final readonly class SuggestionRepository
             .' JOIN currency cur ON cur.id = pp.currency_id AND cur.by_default = 1'
             .' WHERE pse.promo = 1 AND pse.quantity > 0 AND pp.price > 0'
             .' AND pp.promo_price <= pp.price * (1 - :minimum / 100)'
+            .' AND '.self::notWatched('pse.product_id')
             .' GROUP BY pse.product_id),'
             .' ranked AS (SELECT promoted.product_id, ROW_NUMBER() OVER (PARTITION BY tree.root ORDER BY promoted.saving DESC, promoted.product_id) AS position'
             .' FROM promoted'
@@ -343,7 +288,7 @@ final readonly class SuggestionRepository
     /**
      * @param list<int> $productIds
      *
-     * @return array<int, array{title: string, ref: string, variants: int, watched: int, collectable: int}>
+     * @return array<int, array{title: string, ref: string, variants: int}>
      */
     public function products(array $productIds, string $locale): array
     {
@@ -356,9 +301,7 @@ final readonly class SuggestionRepository
         $rows = $this->rows(
             'SELECT p.id, p.ref,'
             .' COALESCE(NULLIF(i18n.title, \'\'), NULLIF(fr.title, \'\'), p.ref) AS title,'
-            .' (SELECT COUNT(*) FROM product_sale_elements pse WHERE pse.product_id = p.id) AS variants,'
-            .' (SELECT COUNT(*) FROM pw_product_identity w WHERE w.product_id = p.id AND w.monitored = 1) AS watched,'
-            .' (SELECT COUNT(*) FROM pw_product_identity c WHERE c.product_id = p.id AND c.monitored = 1 AND c.gtin_valid = 1 AND c.gtin_shared = 0) AS collectable'
+            .' (SELECT COUNT(*) FROM product_sale_elements pse WHERE pse.product_id = p.id) AS variants'
             .' FROM product p'
             .' LEFT JOIN product_i18n i18n ON i18n.id = p.id AND i18n.locale = :locale'
             .' LEFT JOIN product_i18n fr ON fr.id = p.id AND fr.locale = \'fr_FR\''
@@ -373,8 +316,6 @@ final readonly class SuggestionRepository
                 'title' => (string) $row['title'],
                 'ref' => (string) $row['ref'],
                 'variants' => (int) $row['variants'],
-                'watched' => (int) $row['watched'],
-                'collectable' => (int) $row['collectable'],
             ];
         }
 
@@ -422,6 +363,15 @@ final readonly class SuggestionRepository
         $ids = array_values(array_filter(array_map('intval', $families), static fn (int $id): bool => $id > 0));
 
         return $ids === [] ? '' : ' '.$keyword.' tree.root NOT IN ('.implode(',', $ids).')';
+    }
+
+    /**
+     * Left out before each family is ranked, so a watched product takes no
+     * family's line. A paused product is not watched: collecting resumes it.
+     */
+    private static function notWatched(string $productIdColumn): string
+    {
+        return 'NOT EXISTS (SELECT 1 FROM pw_product_identity w WHERE w.product_id = '.$productIdColumn.' AND w.monitored = 1)';
     }
 
     /**

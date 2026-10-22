@@ -136,6 +136,24 @@ final class DataForSeoClientTest extends TestCase
         }
     }
 
+    public function testATaskRefusedAtThePostComesBackWithItsReason(): void
+    {
+        $client = $this->client([new MockResponse((string) json_encode([
+            'status_code' => 20000,
+            'cost' => 0,
+            'tasks' => [
+                ['id' => 'ok-1', 'status_code' => 20100, 'data' => ['tag' => 'p1']],
+                ['id' => 'no-2', 'status_code' => 40200, 'status_message' => 'Payment Required.', 'data' => ['tag' => 'p2']],
+            ],
+        ]))]);
+
+        $posted = $client->postProductSearches(['p1' => 'Casque A', 'p2' => 'Casque B'], 1);
+
+        self::assertSame(['p1' => 'ok-1'], $posted['tasks']);
+        self::assertSame(['p2'], array_keys($posted['refused']));
+        self::assertStringContainsString('no funds left', $posted['refused']['p2']);
+    }
+
     public function testReadyTaskIdsAreCollectedFromEveryResultEntry(): void
     {
         $client = $this->client([new MockResponse((string) json_encode([

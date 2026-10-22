@@ -77,6 +77,36 @@ final readonly class CatalogVariantRepository
     }
 
     /**
+     * collectableVariantCount() for several products in one query.
+     *
+     * @param list<int> $productIds
+     *
+     * @return array<int, int> product id => variants a pass would search; products without any left out
+     */
+    public function collectableVariantCounts(array $productIds): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+
+        $counts = [];
+
+        foreach (PwProductIdentityQuery::create()
+            ->filterByProductId($productIds, Criteria::IN)
+            ->filterByMonitored(1)
+            ->filterByGtinValid(1)
+            ->filterByGtinShared(0)
+            ->groupByProductId()
+            ->withColumn('COUNT(*)', 'collectable')
+            ->select(['ProductId', 'collectable'])
+            ->find() as $row) {
+            $counts[(int) $row['ProductId']] = (int) $row['collectable'];
+        }
+
+        return $counts;
+    }
+
+    /**
      * none: not in the referential; watched: at least one variant watched;
      * paused: in the referential, every variant paused.
      */
@@ -94,6 +124,33 @@ final readonly class CatalogVariantRepository
             (int) ($row['watched'] ?? 0) > 0 => 'watched',
             default => 'paused',
         };
+    }
+
+    /**
+     * watchState() for several products in one query.
+     *
+     * @param list<int> $productIds
+     *
+     * @return array<int, string> product id => none, watched or paused, for every id given
+     */
+    public function watchStates(array $productIds): array
+    {
+        $states = array_fill_keys($productIds, 'none');
+
+        if ($productIds === []) {
+            return $states;
+        }
+
+        foreach (PwProductIdentityQuery::create()
+            ->filterByProductId($productIds, Criteria::IN)
+            ->groupByProductId()
+            ->withColumn('COALESCE(SUM(monitored = 1), 0)', 'watched')
+            ->select(['ProductId', 'watched'])
+            ->find() as $row) {
+            $states[(int) $row['ProductId']] = (int) $row['watched'] > 0 ? 'watched' : 'paused';
+        }
+
+        return $states;
     }
 
     public function productRef(int $productId): ?string

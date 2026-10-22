@@ -29,6 +29,10 @@ final readonly class PriceWatchSettings
     private const SHOP_DESCRIPTION = 'shop_description';
     private const SHOP_DESCRIPTION_MAX_LENGTH = 500;
     private const EXCLUDED_FAMILIES = 'suggestions_excluded_families';
+    private const MINIMUM_MARGIN = 'proposals_minimum_margin_pct';
+
+    /** Asked 2026-10-20: 20 % of the selling price excluding tax. */
+    public const DEFAULT_MINIMUM_MARGIN_PCT = 20.0;
 
     public function __construct(
         private ConfigStore $store,
@@ -258,6 +262,37 @@ final readonly class PriceWatchSettings
         $ids = array_values(array_unique(array_filter(array_map('intval', $categoryIds), static fn (int $id): bool => $id > 0)));
         sort($ids);
         $this->store->set(self::EXCLUDED_FAMILIES, implode(',', $ids));
+    }
+
+    /**
+     * The margin no price proposal goes below, in percent of the selling
+     * price excluding tax: (price - purchase) / price.
+     */
+    public function minimumMarginPct(): float
+    {
+        $stored = $this->store->get(self::MINIMUM_MARGIN);
+
+        return is_numeric($stored) ? (float) $stored : self::DEFAULT_MINIMUM_MARGIN_PCT;
+    }
+
+    /**
+     * @throws InvalidSettingException
+     */
+    public function setMinimumMarginPct(string $value): void
+    {
+        $value = str_replace(',', '.', trim($value));
+
+        if ($value === '') {
+            $this->store->set(self::MINIMUM_MARGIN, '');
+
+            return;
+        }
+
+        if (!is_numeric($value) || (float) $value < 0.0 || (float) $value >= 90.0) {
+            throw new InvalidSettingException(self::MINIMUM_MARGIN, 'The minimum margin must be a number from 0 to 89.9.');
+        }
+
+        $this->store->set(self::MINIMUM_MARGIN, (string) round((float) $value, 1));
     }
 
     public function isJevReady(): bool

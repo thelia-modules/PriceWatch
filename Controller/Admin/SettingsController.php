@@ -7,6 +7,8 @@ namespace PriceWatch\Controller\Admin;
 use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Llm\LlmException;
 use PriceWatch\Service\Llm\OpenRouterClient;
+use PriceWatch\Service\Schedule\ScheduleSettings;
+use PriceWatch\Service\Schedule\WatchTier;
 use PriceWatch\Service\Settings\ConnectionCheck;
 use PriceWatch\Service\Settings\InvalidSettingException;
 use PriceWatch\Service\Settings\JevProvider;
@@ -26,6 +28,7 @@ final readonly class SettingsController
     public function __construct(
         private AdminRequestGuard $guard,
         private PriceWatchSettings $settings,
+        private ScheduleSettings $schedule,
         private ConnectionCheck $connectionCheck,
         private OpenRouterClient $openRouter,
         private UrlGeneratorInterface $urlGenerator,
@@ -87,6 +90,14 @@ final readonly class SettingsController
 
         $this->settings->setWebSearchEnabled($request->request->get('llm_web_search') === '1');
         $this->settings->setExcludedFamilies(array_map('intval', array_filter((array) $request->request->all('excluded_families'), 'is_numeric')));
+        $attempt(fn () => $this->settings->setMinimumMarginPct((string) $request->request->get('minimum_margin_pct', '')));
+
+        $this->schedule->setEnabled($request->request->get('schedule_enabled') === '1');
+        foreach (WatchTier::cases() as $tier) {
+            $attempt(fn () => $this->schedule->setDays($tier, (string) $request->request->get('schedule_days_'.$tier->value, '')));
+        }
+        $attempt(fn () => $this->schedule->setHours((string) $request->request->get('schedule_start_hour', ''), (string) $request->request->get('schedule_end_hour', '')));
+        $attempt(fn () => $this->schedule->setMaxVariants((string) $request->request->get('schedule_max_variants', '')));
 
         foreach ($errors as $error) {
             $this->flash($request, 'danger', $error);

@@ -8,6 +8,9 @@ use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Referential\ProductEnrolment;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Schedule\ScheduleRepository;
+use PriceWatch\Service\Schedule\TierAdvisor;
+use PriceWatch\Service\Schedule\WatchTier;
 use PriceWatch\Service\Suggestion\SuggestionRun;
 use PriceWatch\Service\Watched\WatchedFilters;
 use PriceWatch\Service\Watched\WatchedPresenter;
@@ -38,6 +41,8 @@ final readonly class WatchedController
         private ComparatorRepository $comparator,
         private UrlGeneratorInterface $urlGenerator,
         private TranslatorInterface $translator,
+        private ScheduleRepository $schedule,
+        private TierAdvisor $tierAdvisor,
     ) {
     }
 
@@ -106,6 +111,55 @@ final readonly class WatchedController
         }
 
         return $this->back($request, WatchedView::Paused->value, 'success', 'watched.paused.'.$which, ['%products%' => \count($productIds), '%count%' => $variants]);
+    }
+
+    /**
+     * How often the scheduled passes read this product (asked 2026-10-20).
+     */
+    #[Route('/admin/module/pricewatch/watched/{productId}/tier', name: 'pricewatch_watched_tier', requirements: ['productId' => '\d+'], methods: ['POST'])]
+    public function tier(Request $request, int $productId): Response
+    {
+        if ($denied = $this->guard->denyChange($request)) {
+            return $denied;
+        }
+
+        $tier = WatchTier::tryFrom((string) $request->request->get('tier'));
+
+        if ($tier === null) {
+            return $this->backToList($request, 'danger', 'Choose a tier.');
+        }
+
+        $this->schedule->setTier($productId, $tier);
+
+        return $this->backToList($request, 'success', 'Tier saved.');
+    }
+
+    /**
+     * Every watched product to the tier its sales propose.
+     */
+    #[Route('/admin/module/pricewatch/watched/tiers/apply', name: 'pricewatch_watched_tiers_apply', methods: ['POST'])]
+    public function applyTiers(Request $request): Response
+    {
+        if ($denied = $this->guard->denyChange($request)) {
+            return $denied;
+        }
+
+        return $this->backToList($request, 'success', 'watched.tiers.applied', ['%count%' => $this->tierAdvisor->apply()]);
+    }
+
+    /**
+     * Back to the list as filtered, rebuilt from the form's return field,
+     * never taken as given: no open redirect through this form.
+     *
+     * @param array<string, string|int> $parameters
+     */
+    private function backToList(Request $request, string $type, string $message, array $parameters = []): RedirectResponse
+    {
+        $request->getSession()->getFlashBag()->add($type, $this->translator->trans($message, $parameters, AdminRequestGuard::MODULE_CODE));
+        parse_str((string) $request->request->get('return', ''), $query);
+        $filters = WatchedFilters::fromRequest(new Request(\is_array($query) ? $query : []));
+
+        return new RedirectResponse($this->urlGenerator->generate('pricewatch_watched', $filters->toQueryParams()));
     }
 
     /**

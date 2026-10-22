@@ -21,6 +21,7 @@ final class ReturnToTest extends TestCase
         $routes = new RouteCollection();
         $routes->add('pricewatch_watched', new Route('/admin/module/pricewatch/watched'));
         $routes->add('admin.categories.default', new Route('/admin/categories'));
+        $routes->add('pricewatch_comparator', new Route('/admin/module/pricewatch/comparator'));
         $this->urls = new UrlGenerator($routes, new RequestContext());
     }
 
@@ -29,6 +30,13 @@ final class ReturnToTest extends TestCase
         $request = new Request([], ['back' => 'watched', 'return' => 'view=never&q=Bell&page=2&next=https://evil.example']);
 
         self::assertSame('/admin/module/pricewatch/watched?view=never&q=Bell&page=2', ReturnTo::url($request, $this->urls));
+    }
+
+    public function testBackToTheComparatorWithItsFilters(): void
+    {
+        $request = new Request([], ['back' => 'comparator', 'return' => 'view=gaps&q=Bell&cheaper=1&page=2&next=https://evil.example']);
+
+        self::assertSame('/admin/module/pricewatch/comparator?view=gaps&q=Bell&cheaper=1&page=2', ReturnTo::url($request, $this->urls));
     }
 
     public function testBackToTheCatalogueCategoryAndPage(): void

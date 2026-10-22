@@ -220,12 +220,15 @@ final readonly class WatchedRepository
                 $lastWatched AS last_watched_at,
                 COALESCE(SUM(o.compared), 0) AS compared,
                 COALESCE(SUM(o.review), 0) AS review,
-                MIN(o.best_gap) AS best_gap
+                MIN(o.best_gap) AS best_gap,
+                MAX(s.tier) AS tier,
+                MAX(s.scheduled_at) AS scheduled_at
             FROM pw_product_identity i
             JOIN product p ON p.id = i.product_id
             LEFT JOIN product_i18n loc ON loc.id = p.id AND loc.locale = :locale
             LEFT JOIN product_i18n fb ON fb.id = p.id AND fb.locale = :fallback
             LEFT JOIN ($pagesRead) pg ON pg.product_id = i.product_id
+            LEFT JOIN pw_product_schedule s ON s.product_id = i.product_id
             LEFT JOIN (
                 SELECT
                     product_sale_elements_id,

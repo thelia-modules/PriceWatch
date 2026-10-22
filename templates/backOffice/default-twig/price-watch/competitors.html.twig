@@ -30,6 +30,20 @@
     {% if competitor.decidedBy %}<div class="small text-muted">{{ competitor.decidedBy }}, {{ competitor.decidedAt }}</div>{% endif %}
 {% endmacro %}
 
+{% macro sitemap(sitemap) %}
+    {% if sitemap %}
+        {% if sitemap.problem == 'no_sitemap' %}
+            <div class="small text-warning-emphasis" data-testid="pw-sitemap-problem">{{ 'Not read directly: its robots.txt announces no sitemap. Only Google Shopping covers it.'|trans({}, 'pricewatch') }}</div>
+        {% elseif sitemap.problem == 'unreadable' %}
+            <div class="small text-warning-emphasis" data-testid="pw-sitemap-problem">{{ 'Not read directly: every sitemap was refused (%detail%). Only Google Shopping covers it.'|trans({'%detail%': sitemap.detail}, 'pricewatch') }}</div>
+        {% elseif sitemap.problem == 'no_address' %}
+            <div class="small text-warning-emphasis" data-testid="pw-sitemap-problem">{{ 'Not read directly: its sitemaps list none of its pages. Only Google Shopping covers it.'|trans({}, 'pricewatch') }}</div>
+        {% else %}
+            <div class="small text-muted" data-testid="pw-sitemap-ok">{{ 'Sitemap: %count% address(es), read on %at%'|trans({'%count%': sitemap.urls|number_format(0, ',', ' '), '%at%': sitemap.checkedAt}, 'pricewatch') }}</div>
+        {% endif %}
+    {% endif %}
+{% endmacro %}
+
 {% macro source_label(source) %}
     {% if source == 'llm' %}{{ 'Suggested by the model'|trans({}, 'pricewatch') }}
     {% elseif source == 'import' %}{{ 'Reference file'|trans({}, 'pricewatch') }}
@@ -144,6 +158,7 @@
                                 {{ _self.identity(competitor) }}
                                 {% if competitor.status == 'paused' %}<span class="badge text-bg-secondary">{{ 'Paused'|trans({}, 'pricewatch') }}</span>{% endif %}
                                 {{ _self.decision(competitor) }}
+                                {{ _self.sitemap(competitor.sitemap) }}
                             </td>
                             <td class="text-end text-nowrap">{{ _self.status_form(competitor, 'rejected', 'Exclude'|trans({}, 'pricewatch'), 'btn-outline-danger', csrfToken) }}</td>
                         </tr>

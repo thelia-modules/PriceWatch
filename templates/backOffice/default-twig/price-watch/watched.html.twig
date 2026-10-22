@@ -58,6 +58,14 @@
                 </button>
             </form>
         {% endfor %}
+        <span class="vr mx-1"></span>
+        <form method="post" action="{{ path('pricewatch_watched_tiers_apply') }}" class="d-inline" onsubmit="return confirm({{ 'watched.tiers.confirm'|trans({'%count%': tierChanges}, 'pricewatch')|json_encode }})">
+            <input type="hidden" name="_token" value="{{ csrfToken }}">
+            <input type="hidden" name="return" value="{{ returnQuery }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary" data-testid="pw-watched-tiers-apply" {% if tierChanges == 0 %}disabled{% endif %}>
+                <i class="bi bi-calendar-check me-1" aria-hidden="true"></i>{{ 'watched.tiers.apply'|trans({'%count%': tierChanges}, 'pricewatch') }}
+            </button>
+        </form>
         {% if run.running %}<span class="small text-warning-emphasis">{{ 'A pass is running: wait until it ends.'|trans({}, 'pricewatch') }}</span>{% endif %}
     </div></div>
 
@@ -113,6 +121,7 @@
                         <th scope="col">{{ 'Product'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Variants watched'|trans({}, 'pricewatch') }}</th>
                         <th scope="col">{{ 'Last collect'|trans({}, 'pricewatch') }}</th>
+                        <th scope="col">{{ 'Tier'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'Offers compared'|trans({}, 'pricewatch') }}</th>
                         <th scope="col">{{ 'Best gap'|trans({}, 'pricewatch') }}</th>
                         <th scope="col" class="text-end">{{ 'To review'|trans({}, 'pricewatch') }}</th>
@@ -138,6 +147,26 @@
                                 <div class="small {{ row.status == 'stale' ? 'text-warning-emphasis' : 'text-muted' }}" data-testid="pw-watched-last-{{ row.productId }}">
                                     {{ row.lastCollected }} · {{ 'watched.days_ago'|trans({'%count%': row.daysAgo}, 'pricewatch') }}
                                 </div>
+                            {% endif %}
+                        </td>
+                        <td style="white-space: normal; min-width: 9rem">
+                            <form method="post" action="{{ path('pricewatch_watched_tier', {productId: row.productId}) }}" class="d-flex gap-1">
+                                <input type="hidden" name="_token" value="{{ csrfToken }}">
+                                <input type="hidden" name="return" value="{{ returnQuery }}">
+                                <select class="form-select form-select-sm" name="tier" aria-label="{{ 'Tier'|trans({}, 'pricewatch') }}" onchange="this.form.requestSubmit()" data-testid="pw-watched-tier-{{ row.productId }}">
+                                    {% for tier in tiers %}<option value="{{ tier }}" {% if tier == row.tier %}selected{% endif %}>{{ ('tier.' ~ tier)|trans({}, 'pricewatch') }}</option>{% endfor %}
+                                </select>
+                                <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">{{ 'Save'|trans({}, 'pricewatch') }}</button></noscript>
+                            </form>
+                            {% if row.proposedTier %}
+                                <div class="small text-muted" data-testid="pw-watched-proposed-{{ row.productId }}">{{ 'watched.tier.proposed'|trans({'%tier%': ('tier.' ~ row.proposedTier)|trans({}, 'pricewatch')}, 'pricewatch') }}</div>
+                            {% endif %}
+                            {% if scheduleEnabled %}
+                                {% if row.dueNow %}
+                                    <div class="small text-muted" data-testid="pw-watched-next-{{ row.productId }}">{{ 'Read at the next scheduled pass'|trans({}, 'pricewatch') }}</div>
+                                {% elseif row.nextDue %}
+                                    <div class="small text-muted" data-testid="pw-watched-next-{{ row.productId }}">{{ 'watched.tier.next'|trans({'%day%': row.nextDue}, 'pricewatch') }}</div>
+                                {% endif %}
                             {% endif %}
                         </td>
                         <td class="text-end">{{ row.compared ?: '–' }}</td>

@@ -1,0 +1,162 @@
+{# Watch actions of the best sales table (Statistic module). The cells come as plain text (watch-cell): the badge and
+   the button are added here, the action posted with fetch, the cell redrawn in place and the messages shown above
+   the table. Statistic draws the table again from its JSON on every sort, filter or page: the cells changed here are
+   put back each time. #}
+<div hidden data-pw-stat-watch
+     data-token="{{ csrfToken }}"
+     data-enrol-url="{{ path('pricewatch_product_enrol', {productId: 0}) }}"
+     data-pause-url="{{ path('pricewatch_product_monitoring', {productId: 0, action: 'pause'}) }}"
+     data-resume-url="{{ path('pricewatch_product_monitoring', {productId: 0, action: 'resume'}) }}"
+     data-watched="{{ 'Watched'|trans({}, 'pricewatch') }}"
+     data-paused="{{ 'Paused'|trans({}, 'pricewatch') }}"
+     data-enrol="{{ 'Start watching'|trans({}, 'pricewatch') }}"
+     data-pause="{{ 'Pause'|trans({}, 'pricewatch') }}"
+     data-resume="{{ 'Resume'|trans({}, 'pricewatch') }}"
+     data-error="{{ 'The change could not be saved. Reload the page and try again.'|trans({}, 'pricewatch') }}"
+     data-close="{{ 'Close'|trans({}, 'pricewatch') }}"></div>
+<script>
+    (function () {
+        if (window.pricewatchStatWatch) {
+            return;
+        }
+        window.pricewatchStatWatch = true;
+
+        const config = document.querySelector('[data-pw-stat-watch]').dataset;
+        const urls = { enrol: config.enrolUrl, pause: config.pauseUrl, resume: config.resumeUrl };
+        // state => badge, then action; the same look as the catalogue column.
+        const looks = {
+            watched: { badge: config.watched, badgeClass: 'bg-success-subtle text-success-emphasis border border-success-subtle', action: 'pause', label: config.pause, buttonClass: 'btn-link py-0' },
+            paused: { badge: config.paused, badgeClass: 'bg-body-secondary text-body border', action: 'resume', label: config.resume, buttonClass: 'btn-link py-0' },
+            none: { action: 'enrol', label: config.enrol, buttonClass: 'btn-outline-primary py-0', icon: 'bi-plus-circle' },
+        };
+        // product id => cell HTML since the last change; cell => HTML it was built from; cells already decorated.
+        const changed = new Map();
+        const built = new WeakMap();
+        const decorated = new WeakSet();
+
+        function decorate(cell) {
+            const look = looks[cell.dataset.state];
+
+            if (!look) {
+                return;
+            }
+
+            const productId = cell.dataset.pwWatch;
+            const parts = [];
+
+            if (look.badge) {
+                const badge = document.createElement('span');
+                badge.className = 'badge ' + look.badgeClass;
+                badge.textContent = look.badge;
+                parts.push(badge, ' ');
+            }
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-sm ' + look.buttonClass;
+            button.dataset.pwAction = look.action;
+            button.dataset.testid = 'pw-stat-' + look.action + '-' + productId;
+
+            if (look.icon) {
+                const icon = document.createElement('i');
+                icon.className = 'bi ' + look.icon + ' me-1';
+                icon.setAttribute('aria-hidden', 'true');
+                button.append(icon);
+            }
+
+            button.append(look.label);
+            parts.push(button);
+            cell.classList.add('text-nowrap');
+            cell.dataset.testid = 'pw-stat-watch-' + productId;
+            decorated.add(cell);
+            cell.replaceChildren(...parts);
+        }
+
+        function refresh(root) {
+            root.querySelectorAll('[data-pw-watch]').forEach((cell) => {
+                const html = changed.get(cell.dataset.pwWatch);
+
+                if (html !== undefined && built.get(cell) !== html) {
+                    const template = document.createElement('template');
+                    template.innerHTML = html.trim();
+                    const fresh = template.content.firstElementChild;
+                    built.set(fresh, html);
+                    cell.replaceWith(fresh);
+                    cell = fresh;
+                }
+
+                if (!decorated.has(cell)) {
+                    decorate(cell);
+                }
+            });
+        }
+
+        function show(table, messages) {
+            const card = table.closest('[data-stat-table-card]') ?? table;
+            let box = card.previousElementSibling;
+
+            if (!box?.hasAttribute('data-pw-stat-messages')) {
+                box = document.createElement('div');
+                box.setAttribute('data-pw-stat-messages', '');
+                box.dataset.testid = 'pw-stat-messages';
+                card.before(box);
+            }
+
+            box.replaceChildren();
+            Object.entries(messages).forEach(([type, list]) => list.forEach((text) => {
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-' + type + ' alert-dismissible fade show small py-2';
+                alert.setAttribute('role', 'alert');
+                alert.textContent = text;
+                const close = document.createElement('button');
+                close.type = 'button';
+                close.className = 'btn-close';
+                close.dataset.bsDismiss = 'alert';
+                close.setAttribute('aria-label', config.close);
+                alert.append(close);
+                box.append(alert);
+            }));
+        }
+
+        document.querySelectorAll('[data-stat-table]').forEach((table) => {
+            refresh(table);
+            new MutationObserver(() => refresh(table)).observe(table, { childList: true, subtree: true });
+        });
+
+        document.addEventListener('click', async (event) => {
+            const button = event.target.closest('[data-pw-watch] [data-pw-action]');
+            const table = button?.closest('[data-stat-table]');
+
+            if (!button || !table || !urls[button.dataset.pwAction]) {
+                return;
+            }
+
+            const productId = button.closest('[data-pw-watch]').dataset.pwWatch;
+            const body = new FormData();
+            body.append('_token', config.token);
+            button.disabled = true;
+
+            try {
+                const response = await fetch(urls[button.dataset.pwAction].replace('/product/0/', '/product/' + productId + '/'), {
+                    method: 'POST',
+                    body,
+                    headers: { Accept: 'application/json' },
+                    credentials: 'same-origin',
+                });
+
+                // A refusal comes back as a page (login, 403), not as JSON.
+                if (!response.ok || !(response.headers.get('Content-Type') ?? '').includes('application/json')) {
+                    throw new Error(String(response.status));
+                }
+
+                const answer = await response.json();
+                changed.set(productId, answer.cell);
+                refresh(table);
+                show(table, answer.messages ?? {});
+            } catch {
+                button.disabled = false;
+                show(table, { danger: [config.error] });
+            }
+        });
+    })();
+</script>

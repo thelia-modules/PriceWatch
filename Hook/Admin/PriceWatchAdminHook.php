@@ -8,6 +8,7 @@ use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Comparator\DashboardPresenter;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Comparator\ProductCardPresenter;
+use PriceWatch\Service\Schedule\SchedulePresenter;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\ReasoningEffort;
@@ -46,6 +47,7 @@ class PriceWatchAdminHook extends BaseHook
         private readonly DashboardPresenter $dashboard,
         private readonly CatalogVariantRepository $catalog,
         private readonly SuggestionRepository $suggestions,
+        private readonly SchedulePresenter $schedule,
         private readonly RequestStack $requestStack,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly Environment $twig,
@@ -65,6 +67,8 @@ class PriceWatchAdminHook extends BaseHook
             // The catalogue's product table: one extra column, header and rows.
             'products.header' => [['type' => 'back', 'method' => 'onProductsHeader']],
             'products.row' => [['type' => 'back', 'method' => 'onProductsRow']],
+            // After the statistics tabs (home and tool page): the watch actions of the best sales table.
+            'statistic.footer.js' => [['type' => 'back', 'method' => 'onStatisticFooterJs']],
         ];
     }
 
@@ -93,6 +97,13 @@ class PriceWatchAdminHook extends BaseHook
             'class' => '',
             'url' => $this->urlGenerator->generate('pricewatch_competitors'),
             'title' => $this->trans('Price watch: competitors', [], AdminRequestGuard::MODULE_CODE),
+        ]);
+
+        $event->add([
+            'id' => 'pricewatch-proposals',
+            'class' => '',
+            'url' => $this->urlGenerator->generate('pricewatch_proposals'),
+            'title' => $this->trans('Price watch: price proposals', [], AdminRequestGuard::MODULE_CODE),
         ]);
     }
 
@@ -126,6 +137,21 @@ class PriceWatchAdminHook extends BaseHook
             'csrfToken' => $this->guard->token(),
             // Raw here, validated by ReturnTo on the way back.
             'returnQuery' => http_build_query(array_intersect_key($query, ['category_id' => true, 'page' => true])),
+        ]));
+    }
+
+    /**
+     * The column itself comes with the table's JSON (BestSalesWatchColumn);
+     * without the right to change, its cells hold no button and need no script.
+     */
+    public function onStatisticFooterJs(HookRenderEvent $event): void
+    {
+        if (!$this->securityContext->isGranted(['ADMIN'], [], [AdminRequestGuard::MODULE_CODE], [AccessManager::UPDATE])) {
+            return;
+        }
+
+        $event->add($this->twig->render('@PriceWatchModule/backOffice/default-twig/hook/watch-cell-js.html.twig', [
+            'csrfToken' => $this->guard->token(),
         ]));
     }
 
@@ -213,6 +239,8 @@ class PriceWatchAdminHook extends BaseHook
             'dataforseoLoginFromEnvironment' => $this->settings->dataforseoLoginFromEnvironment(),
             'families' => $this->suggestions->familyTitles($this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR'),
             'excludedFamilies' => $this->settings->excludedFamilies(),
+            'minimumMarginPct' => rtrim(rtrim(number_format($this->settings->minimumMarginPct(), 1, ',', ''), '0'), ','),
+            'schedule' => $this->schedule->present($this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR'),
         ]));
     }
 }

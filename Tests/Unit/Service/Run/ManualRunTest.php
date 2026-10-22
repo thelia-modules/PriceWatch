@@ -85,6 +85,18 @@ final class ManualRunTest extends TestCase
     {
         self::assertEqualsWithDelta(0.04, ManualRun::worstCaseUsd(10), 1e-9);
         self::assertEqualsWithDelta(2.0, ManualRun::worstCaseUsd(500), 1e-9);
+        self::assertEqualsWithDelta(0.02, ManualRun::worstCaseUsd(10, false), 1e-9, 'the standard queue costs half');
+    }
+
+    public function testAScheduledPassUsesTheStandardQueueAndItsOwnLog(): void
+    {
+        $this->manualRun()->start(10, ['1SAA340'], false);
+
+        $collect = $this->started[0]['commands'][1];
+        self::assertNotContains('--priority', $collect, 'nobody waits for a scheduled pass');
+        self::assertContains('--max-wait=3000', $collect, 'the standard queue takes up to 45 minutes');
+        self::assertContains('--budget-usd=0.020', $collect, 'the cap follows the queue price');
+        self::assertSame('/var/www/html/var/log/pricewatch-scheduled.log', $this->started[0]['log']);
     }
 
     public function testNoSecondPassWhileOneIsRunning(): void

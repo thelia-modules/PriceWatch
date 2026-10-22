@@ -128,6 +128,26 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
     }
 
     /**
+     * Seen 2026-10-20: with the balance at zero DataForSEO refused all ten
+     * searches (40200) and the pass listed ten products Google did not know,
+     * then sent them to the back of the queue.
+     */
+    public function testASearchDataForSeoRefusedIsAnErrorAndKeepsItsPlaceInTheQueue(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $answers = $this->answers([$this->watched, null, null]);
+        $answers['products/task_post']['tasks'][0]['status_code'] = 40200;
+        $answers['products/task_post']['tasks'][0]['status_message'] = 'Payment Required.';
+
+        $run = $this->collector($answers)->collect(10, 1, 60, [], true)['run'];
+
+        self::assertSame(PassItems::ERROR, $this->item($run, (int) $identity->getProductId())[0], 'never searched: not a product Google does not know');
+        self::assertSame('partial', $run->getStatus());
+        self::assertStringContainsString('no funds left', (string) $run->getErrorsJson());
+        self::assertNull(\PriceWatch\Model\PwProductIdentityQuery::create()->findPk($identity->getId())?->getLastCollectedAt(), 'neither paid nor searched: first in line next time');
+    }
+
+    /**
      * Observed live (2026-10-09): a search that ends in error (40101) never
      * shows in tasks_ready, and the pass waited for it until the deadline.
      * Read directly after a while, it stops being waited for.
@@ -575,13 +595,44 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $this->confirmedPage($identity, $this->watched, '-80 days');
         // Google showed another seller without a page: one page is enough.
         $other = 'other-'.bin2hex(random_bytes(4)).'.example';
-        (new CompetitorRepository())->create($other, CompetitorStatus::Watched, 'manual');
+        $this->watchedSince($other, '-85 days');
         $this->shoppingOffer($identity, $other, 'candidate');
 
         $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
 
         self::assertSame(0, $result['run']->getDataforseoTasks(), 'nothing to ask Google');
         self::assertSame(0, $result['run']->getTargetsPlanned());
+    }
+
+    /**
+     * Seen 2026-10-20: speedway.fr, martimotos.com and motocard.com were
+     * watched, none readable directly, and no product a page covered was
+     * put to Google, their only source.
+     */
+    public function testACompetitorWatchedSinceTheLastSearchPutsTheProductToGoogleAgain(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-10 days'))->save();
+        $this->confirmedPage($identity, $this->watched, '-10 days');
+        $this->watchedSince('new-'.bin2hex(random_bytes(4)).'.example', '-1 day');
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getTargetsPlanned(), 'Google never saw the new competitor for it');
+    }
+
+    public function testACompetitorWatchedSinceWithItsOwnConfirmedPageAsksGoogleNothing(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-10 days'))->save();
+        $this->confirmedPage($identity, $this->watched, '-10 days');
+        $newcomer = 'new-'.bin2hex(random_bytes(4)).'.example';
+        $this->watchedSince($newcomer, '-1 day');
+        $this->confirmedPage($identity, $newcomer);
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, $result['run']->getTargetsPlanned(), 'its page is read directly');
     }
 
     public function testACoveredProductIsSearchedAgainAfterNinetyDays(): void
@@ -614,6 +665,35 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
 
         self::assertSame(1, $result['run']->getTargetsPlanned(), 'not proven yet: it covers nothing');
+    }
+
+    /**
+     * Seen 2026-10-16 and 22 (Segura Mojo gloves, Bell Race Star): a
+     * confirmed page that reads nothing of ours left the product unread by
+     * both the direct pass and Google.
+     */
+    public function testAConfirmedPageThatReadsNothingSendsTheProductToGoogle(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-10 days'))->save();
+        $this->confirmedPage($identity, $this->watched, '-10 days');
+        \PriceWatch\Model\PwCompetitorPageQuery::create()->filterByProductId($identity->getProductId())->update(['LastFetchedAt' => new \DateTime('-1 hour'), 'LastOutcome' => 'read_no_match']);
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(1, $result['run']->getTargetsPlanned(), 'a page that reads nothing covers nothing');
+    }
+
+    public function testAConfirmedPageThatReadAPriceStillCovers(): void
+    {
+        $identity = $this->identity('3660600123454');
+        $identity->setLastCollectedAt(new \DateTime('-10 days'))->save();
+        $this->confirmedPage($identity, $this->watched, '-10 days');
+        \PriceWatch\Model\PwCompetitorPageQuery::create()->filterByProductId($identity->getProductId())->update(['LastFetchedAt' => new \DateTime('-1 hour'), 'LastOutcome' => \PriceWatch\Service\Direct\PageOutcome::Read->value]);
+
+        $result = $this->collector($this->answers([$this->watched, null, null]))->collect(10, 1, 60, [], true);
+
+        self::assertSame(0, $result['run']->getTargetsPlanned());
     }
 
     public function testWithoutWhitelistNothingIsPaidFor(): void
@@ -678,6 +758,12 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $page = $pages->add((int) $competitor->getId(), (int) $identity->getProductId(), 'https://www.'.$domain.'/casque-'.bin2hex(random_bytes(3)).'.html', 'manual');
         $pages->setStatus($page, $status, 'manual');
         \PriceWatch\Model\PwCompetitorPageQuery::create()->filterById($page->getId())->update(['CreatedAt' => new \DateTime($createdAt)]);
+    }
+
+    private function watchedSince(string $domain, string $decidedAt): void
+    {
+        $competitor = (new CompetitorRepository())->create($domain, CompetitorStatus::Watched, 'manual', decidedBy: 'test');
+        \PriceWatch\Model\PwCompetitorQuery::create()->filterById($competitor->getId())->update(['ValidatedAt' => new \DateTime($decidedAt), 'CreatedAt' => new \DateTime($decidedAt)]);
     }
 
     private function shoppingOffer(PwProductIdentity $identity, string $domain, string $state): void

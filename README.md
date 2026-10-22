@@ -25,9 +25,9 @@ DataForSEO bills those all the same. A pass costs at most two tasks per
 variant: a title search, a sellers lookup.
 
 A product's last watch is the latest of its last Google Shopping search and
-its last competitor page read with a price. Beyond 14 days (`LastWatch`, the
-same rule as the suggestions) the product card, the watched products list
-("Stale reading" tab) and the admin home say so.
+its last competitor page read with a price. Beyond 14 days (`LastWatch`) the
+product card, the watched products list ("Stale reading" tab) and the admin
+home say so.
 
 Requires Thelia 3.0.0 and PHP 8.3.
 
@@ -119,15 +119,56 @@ need a container.
 
 ## Suggestions by family
 
-The suggestions tab lists 50 products, family by family: a family is the
-visible top-level category of a product's default category. Each family gets
+The suggestions tab lists 50 products not watched yet, best sellers and deep
+promotions, to add to the watch. Best sellers are read over 90 days, the last
+30 days (the month) and the last 365 days (the year); a best seller of the
+month or of the year shows its rank among every product its family sold,
+watched ones included, and the sales part of the score takes the best share
+of the three periods. A watched product is never suggested (paused
+ones are, collecting resumes them): it is collected by the rotation and, when
+stale, from the watched products list. Products come family by family: a
+family is the visible top-level category of a product's default category.
+Each family gets
 lines in proportion to its revenue over 90 days, and at least 3; best sellers
 and promotions are read per family, or the dearest family fills the list
 (helmets took 47 lines out of 50 before). Hidden top-level categories are
 never suggested, and the settings page lists the families to leave out (what
 competitors do not sell as such). The tab can be filtered on one family.
 
+## Price proposals
+
+`/admin/module/pricewatch/proposals` (Catalogue menu) puts forward a price for
+the watched variants, read only: nothing is written to `product_price`, the
+change is made on the product page. Four tabs, most urgent first:
+
+- **to lower, sales down**: a matched competitor (`matched_*`, comparable,
+  whitelisted) sells cheaper and the product sells less;
+- **to lower**: the same, sales steady, rising or too thin to tell;
+- **cannot align**: the competitor sells below the margin floor, the proposal
+  stops at the floor;
+- **margin below the floor**: our price today is already below it, the
+  proposal is the floor.
+
+The proposed price is the cheapest matched competitor rounded down to the
+euro. The floor is the purchase price (first `product_sale_elements_purchase`
+row of the variant, the ClassicRide purchase tab, excluding tax, decimal comma
+or dot) divided by `1 - minimum margin`, with our tax ratio, rounded up to the
+cent. The minimum margin is set on the settings page, 20 % of the selling
+price excluding tax by default. Without that table or a purchase price, no
+floor applies and no margin shows. An offer still to check never sets a price.
+
+Sales are the units sold (paid, processing, sent) of the product over the last
+90 days, against the same 90 days a year earlier and the 90 days before. The
+year before decides when it sold at least 2 units, otherwise the 90 days
+before; a fall of 20 % or more is a decline. Sizes read at the same price
+against the same competitor share one line; a size not read is not proposed
+for. The CSV export has the same lines.
+
 ## Direct reading of competitor pages
+
+A confirmed page spares the Google search only while it reads: its last
+reading gave a price, or it was not read yet (`PageCoverage`). A page that
+read nothing of ours, no price or an error sends the product back to Google.
 
 `pricewatch:direct` reads prices straight from the competitor product pages
 tied to our products (`pw_competitor_page`): free, a few seconds a page, every
@@ -180,12 +221,55 @@ ddev exec php Thelia pricewatch:direct [--discover] [--candidates] [--product=RE
 A variant read directly steps the Google Shopping offer of the same pair aside,
 and the collect pass no longer records that pair from Google.
 
+## Scheduled passes
+
+Each watched product has a tier, set in the watched products list: flagship
+(every day), base (every week, the tier of a product without one) or simple
+(every 15 days). The list proposes a tier from the revenue of the last 90 days
+among the watched products (top fifth flagship, next two fifths base, the rest
+and those that sold nothing simple); "Apply the proposed tiers" takes them all.
+
+`pricewatch:scheduled`, called every hour, starts the same chain as the
+buttons (sitemaps, Google Shopping, pages, Jev) on the products due, in
+DataForSEO's standard queue: half the price, results within 45 minutes. A
+product is due once its period has passed, in calendar days, since its last
+reading: a Google search made (paid, found or not) or a page read with a
+price. A pass that read nothing (tasks refused on an empty DataForSEO balance,
+every page failing) is no reading: the product is tried again the next day,
+never twice the same day (`pw_product_schedule.scheduled_at`). Flagships first, then the oldest reading, up to the variants per pass; the
+rest goes at the next hour. Paused and offline products are never taken.
+
+The settings page turns it on (off by default), sets the three periods, the
+hours (start included, end excluded, across midnight if the end comes first)
+and the variants per pass, and shows what is due, the monthly worst case and
+the last pass. The command does nothing, and exits 0, when scheduling is off,
+outside its hours, while a pass runs (locks, start marker, or a pass row still
+open from the last 3 hours) or when nothing is due: cron mails real failures
+only.
+
+```bash
+ddev exec php Thelia pricewatch:scheduled --dry-run [--ignore-hours]   # what a pass would take
+```
+
+On the server, as the site's user, production only:
+
+```cron
+MAILTO=<team address>
+0 * * * * cd <root> && php8.4 bin/console pricewatch:scheduled --no-interaction --quiet || echo "PriceWatch scheduled pass failed, code $?, see var/log/pricewatch-scheduled.log"
+```
+
+Check after the first night: `pw_product_schedule.scheduled_at` set on the
+products taken, `var/log/pricewatch-scheduled.log` ends with the judge
+summary, the settings page shows the last pass. Rollback: remove the line, or
+untick the setting.
+
 ## Logs
 
 - `var/log/pricewatch.log`: what each collect pass did and why it stopped
   (searches posted, waits, DataForSEO errors, summary line).
 - `var/log/pricewatch-manual.log`: the console output of passes started from
   the back office.
+- `var/log/pricewatch-scheduled.log`: the console output of scheduled passes.
 
 While a pass runs, each step writes where it stands on its `pw_collect_run`
 row (`progress_step`, `progress_done`, `progress_total`); the back office polls

@@ -8,6 +8,8 @@ use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Comparator\ComparatorFilters;
 use PriceWatch\Service\Comparator\ComparatorPresenter;
 use PriceWatch\Service\Comparator\ComparatorRepository;
+use PriceWatch\Service\Comparator\ComparatorView;
+use PriceWatch\Service\Comparator\GapsReading;
 use PriceWatch\Service\Comparator\OfferReview;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\RunStatus;
@@ -40,6 +42,7 @@ final readonly class ComparatorController
         private TranslatorInterface $translator,
         private Environment $twig,
         private SuggestionPresenter $suggestions,
+        private GapsReading $gapsReading,
     ) {
     }
 
@@ -71,7 +74,7 @@ final readonly class ComparatorController
             'suggestionFamilies' => $suggestionScreen['families'] ?? [],
             'suggestionFamily' => $suggestionScreen['family'] ?? null,
             'suggestionMax' => SuggestionPresenter::MAX_SELECTED,
-            'suggestionDays' => ['sales' => SuggestionPresenter::SALES_DAYS, 'stale' => SuggestionPresenter::STALE_DAYS],
+            'suggestionDays' => ['sales' => SuggestionPresenter::SALES_DAYS, 'month' => SuggestionPresenter::MONTH_DAYS, 'year' => SuggestionPresenter::YEAR_DAYS, 'stale' => SuggestionPresenter::STALE_DAYS],
             'costPerVariant' => ManualRun::worstCaseUsd(1),
             'usage' => $this->usage->present($request->getLocale()),
             'run' => $this->runStatus->present(),
@@ -79,8 +82,56 @@ final readonly class ComparatorController
                 'size' => $size,
                 'cost' => RunController::usd(ManualRun::worstCaseUsd($size), $request->getLocale()),
             ], RunController::BATCH_SIZES),
+            'gapsReading' => $screen['view'] === ComparatorView::Gaps->value ? $this->gapsReadingButton($screen['filters'], $request->getLocale()) : null,
             'csrfToken' => $this->guard->token(),
         ]));
+    }
+
+    /**
+     * Reads the gaps list again, as filtered on the screen (asked
+     * 2026-10-16): the products read longest ago first, a pass's worth.
+     */
+    #[Route('/admin/module/pricewatch/comparator/read-gaps', name: 'pricewatch_comparator_read_gaps', methods: ['POST'])]
+    public function readGaps(Request $request): Response
+    {
+        if ($denied = $this->guard->denyChange($request)) {
+            return $denied;
+        }
+
+        if ($this->repository->competitors() === []) {
+            return $this->back($request, 'warning', 'No competitor is whitelisted: there would be nothing to compare.');
+        }
+
+        try {
+            $covered = $this->gapsReading->start($this->returnFilters($request));
+        } catch (\RuntimeException) {
+            return $this->back($request, 'warning', 'A pass is already running: wait until it ends, then reload the page.');
+        }
+
+        if ($covered['products'] === 0) {
+            return $this->back($request, 'warning', 'None of these products has a variant with a valid EAN code of its own: nothing can be collected.');
+        }
+
+        return $this->back($request, 'success', 'Price watch started on %products% product(s), %count% variant(s), at most %cost%. Its progress shows on the page.', [
+            '%products%' => $covered['products'],
+            '%count%' => $covered['variants'],
+            '%cost%' => RunController::usd(ManualRun::worstCaseUsd($covered['variants']), $request->getLocale()),
+        ]);
+    }
+
+    /**
+     * @return array{products: int, variants: int, total: int, cost: string}
+     */
+    private function gapsReadingButton(ComparatorFilters $filters, string $locale): array
+    {
+        $batch = $this->gapsReading->batch($filters);
+
+        return [
+            'products' => \count($batch['products']),
+            'variants' => $batch['variants'],
+            'total' => $batch['total'],
+            'cost' => RunController::usd(ManualRun::worstCaseUsd($batch['variants']), $locale),
+        ];
     }
 
     #[Route(
@@ -121,15 +172,24 @@ final readonly class ComparatorController
         });
     }
 
-    private function back(Request $request, string $type, string $message): RedirectResponse
+    /**
+     * @param array<string, string|int> $parameters
+     */
+    private function back(Request $request, string $type, string $message, array $parameters = []): RedirectResponse
     {
-        $request->getSession()->getFlashBag()->add($type, $this->translator->trans($message, [], AdminRequestGuard::MODULE_CODE));
+        $request->getSession()->getFlashBag()->add($type, $this->translator->trans($message, $parameters, AdminRequestGuard::MODULE_CODE));
 
-        // The return address is rebuilt from the screen's own filters, never
-        // taken as given: no open redirect through this form.
+        return new RedirectResponse($this->urlGenerator->generate('pricewatch_comparator', $this->returnFilters($request)->toQueryParams()));
+    }
+
+    /**
+     * The screen's own filters, rebuilt from the form's return field, never
+     * taken as given: no open redirect through this form.
+     */
+    private function returnFilters(Request $request): ComparatorFilters
+    {
         parse_str((string) $request->request->get('return', ''), $query);
-        $filters = ComparatorFilters::fromRequest(new Request(\is_array($query) ? $query : []));
 
-        return new RedirectResponse($this->urlGenerator->generate('pricewatch_comparator', $filters->toQueryParams()));
+        return ComparatorFilters::fromRequest(new Request(\is_array($query) ? $query : []));
     }
 }
