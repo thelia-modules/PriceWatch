@@ -6,14 +6,13 @@ namespace PriceWatch\Tests\Integration;
 
 use PriceWatch\Model\PwCompetitor;
 use PriceWatch\Model\PwCompetitorOffer;
-use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Proposal\PriceProposalPresenter;
 use PriceWatch\Service\Proposal\PriceProposalRepository;
-use PriceWatch\Service\Proposal\PriceSparkline;
+use PriceWatch\Service\Proposal\SalesHistogram;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Source\OurPrice;
@@ -204,50 +203,44 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         self::assertSame([], $this->lines([$product]));
     }
 
-    public function testTheCurveTakesOurPriceAndTheCheapestMatchedReadingOfTheLast90Days(): void
+    public function testTheSalesChartCountsRealSalesPerMonthOverTheLast24Months(): void
     {
         $product = $this->product('Casque modulable');
-        $variant = $this->variant($product, 'M', '50');
-        $matched = $this->offer($variant, 'matched_exact', '110.49');
-        $this->quote($matched, daysAgo: 100, price: '90.00', ourPrice: '130.00');
-        $this->quote($matched, daysAgo: 5, price: '112.00', ourPrice: '120.00');
-        $this->quote($matched, daysAgo: 1, price: '110.49', ourPrice: '120.00');
-        $this->quote($matched, daysAgo: 1, price: '50.00', ourPrice: '120.00', comparable: false, source: 'direct');
-        $this->quote($this->offer($variant, 'needs_review', '60.00'), daysAgo: 3, price: '60.00', ourPrice: '125.00');
-        $rejected = (new CompetitorRepository())->create('h-'.strtolower($this->tag).'.example', CompetitorStatus::Rejected, 'manual');
-        $this->quote($this->offer($variant, 'matched_exact', '70.00', $rejected), daysAgo: 1, price: '70.00', ourPrice: '120.00');
+        $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '110.49');
+        $this->sale($product, 3, daysAgo: 10);
+        $this->sale($product, 2, daysAgo: 20);
+        $this->sale($product, 4, daysAgo: 400);
+        $this->sale($product, 7, daysAgo: 720);
+        $this->sale($product, 5, daysAgo: 5, status: 'canceled');
 
-        $chart = $this->withHistory($this->lines([$product]))[0]['history'];
+        $chart = $this->withSalesHistory($this->lines([$product]))[0]['salesHistory'];
 
-        self::assertInstanceOf(PriceSparkline::class, $chart);
-        self::assertSame(['10/10/2026', '14/10/2026', 3], [$chart->from, $chart->to, $chart->readings], 'the reading 100 days ago is out of the window');
-        self::assertSame([120.0, 120.0], [$chart->oursFirst, $chart->oursLast]);
-        self::assertSame([112.0, 110.49], [$chart->cheapestFirst, $chart->cheapestLast], 'a doubt, a blacklisted shop or a reading that does not compare never draws the competitor line');
-        self::assertSame(125.0, $chart->high, 'our price is read on every offer, a doubtful one included');
-        self::assertCount(2, $chart->cheapest, 'the day only a doubtful offer was read has no competitor point');
+        self::assertInstanceOf(SalesHistogram::class, $chart);
+        self::assertSame('11/2024', $chart->bars[0]['month'], 'the sale of 10/2024 is out of the window');
+        $units = array_column($chart->bars, 'units', 'month');
+        self::assertSame([3, 2, 4], [$units['10/2026'], $units['09/2026'], $units['09/2025']], 'a cancelled order is not a sale');
+        self::assertSame([5, 4], [$chart->lastTwelveUnits, $chart->twelveBeforeUnits]);
     }
 
-    public function testTheSizesOfOneLineShowTheLowestReadingOfEachDay(): void
+    public function testTheLinesOfOneProductShareItsSalesChart(): void
     {
         $product = $this->product('Gants été');
-        $small = $this->offer($this->variant($product, 'S', '50'), 'matched_exact', '99.00');
-        $medium = $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '99.00');
-        $this->quote($small, daysAgo: 2, price: '100.00', ourPrice: '120.00');
-        $this->quote($medium, daysAgo: 2, price: '98.00', ourPrice: '120.00');
-        $this->quote($medium, daysAgo: 1, price: '99.00', ourPrice: '120.00');
+        $this->offer($this->variant($product, 'S', '50'), 'matched_exact', '99.90');
+        $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '95.00');
+        $this->sale($product, 2, daysAgo: 3);
 
-        $lines = $this->withHistory($this->lines([$product]));
+        $lines = $this->withSalesHistory($this->lines([$product]));
 
-        self::assertCount(1, $lines, 'precondition: both sizes on one line');
-        self::assertSame([98.0, 99.0, 2], [$lines[0]['history']->cheapestFirst, $lines[0]['history']->cheapestLast, $lines[0]['history']->readings]);
+        self::assertCount(2, $lines, 'precondition: two competitor prices, two lines');
+        self::assertSame([2, 2], [$lines[0]['salesHistory']->lastTwelveUnits, $lines[1]['salesHistory']->lastTwelveUnits]);
     }
 
-    public function testALineNeverReadHasNoCurve(): void
+    public function testAProductNeverSoldHasNoSalesChart(): void
     {
-        $product = $this->product('Sans relevé');
+        $product = $this->product('Sans vente');
         $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '80.00');
 
-        self::assertNull($this->withHistory($this->lines([$product]))[0]['history']);
+        self::assertNull($this->withSalesHistory($this->lines([$product]))[0]['salesHistory']);
     }
 
     /**
@@ -255,9 +248,9 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
      *
      * @return list<array<string, mixed>>
      */
-    private function withHistory(array $lines): array
+    private function withSalesHistory(array $lines): array
     {
-        return $this->presenter()->withHistory($lines, new \DateTimeImmutable(self::NOW));
+        return $this->presenter()->withSalesHistory($lines, new \DateTimeImmutable(self::NOW));
     }
 
     /**
@@ -329,25 +322,9 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         return $saleElement;
     }
 
-    private function quote(PwCompetitorOffer $offer, int $daysAgo, string $price, string $ourPrice, bool $comparable = true, string $source = 'test'): void
+    private function offer(ProductSaleElements $variant, string $state, string $price, ?PwCompetitor $competitor = null): void
     {
-        $day = (new \DateTime(self::NOW))->modify('-'.$daysAgo.' days');
-
-        (new PwPriceQuote())
-            ->setOfferId($offer->getId())
-            ->setCollectedDay($day)
-            ->setSource($source)
-            ->setCollectedAt($day)
-            ->setPrice($price)
-            ->setOurPrice($ourPrice)
-            ->setComparable($comparable ? 1 : 0)
-            ->setCurrencyCode('EUR')
-            ->save();
-    }
-
-    private function offer(ProductSaleElements $variant, string $state, string $price, ?PwCompetitor $competitor = null): PwCompetitorOffer
-    {
-        $offer = (new PwCompetitorOffer())
+        (new PwCompetitorOffer())
             ->setCompetitorId(($competitor ?? $this->watched)->getId())
             ->setProductSaleElementsId($variant->getId())
             ->setOfferKey('p-'.bin2hex(random_bytes(5)))
@@ -356,15 +333,13 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
             ->setLastPrice($price)
             ->setLastCurrencyCode('EUR')
             ->setLastSeenAt(new \DateTime('2026-10-14 08:00:00'))
-            ->setActive(1);
-        $offer->save();
-
-        return $offer;
+            ->setActive(1)
+            ->save();
     }
 
-    private function sale(Product $product, int $quantity, int $daysAgo): void
+    private function sale(Product $product, int $quantity, int $daysAgo, string $status = 'paid'): void
     {
-        $order = $this->createFixtureFactory()->order(null, ['statusCode' => 'paid']);
+        $order = $this->createFixtureFactory()->order(null, ['statusCode' => $status]);
         $order->setCreatedAt((new \DateTime(self::NOW))->modify('-'.$daysAgo.' days'))->save();
 
         (new OrderProduct())

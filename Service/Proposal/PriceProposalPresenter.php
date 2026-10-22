@@ -45,9 +45,10 @@ final readonly class PriceProposalPresenter
         return [
             'view' => $view->value,
             'tabs' => $tabs,
-            'lines' => $this->withHistory(array_values(array_filter($lines, static fn (array $line): bool => $line['kind'] === $view->value)), $now),
+            'lines' => $this->withSalesHistory(array_values(array_filter($lines, static fn (array $line): bool => $line['kind'] === $view->value)), $now),
             'minimumMarginPct' => $this->settings->minimumMarginPct(),
             'salesDays' => SalesTrend::DAYS,
+            'salesHistoryMonths' => SalesHistogram::MONTHS,
             'declineFromPct' => SalesTrend::DECLINE_FROM_PCT,
             'csvUrl' => $this->urlGenerator->generate('pricewatch_proposals_csv'),
         ];
@@ -154,43 +155,27 @@ final readonly class PriceProposalPresenter
     }
 
     /**
-     * Adds to each line the curve of its last SalesTrend::DAYS days, the
-     * window its sales are read over. The sizes of a line were read at the
-     * same price today; on a day they were not, the lowest of each series
-     * stands for the line, as the cheapest offer does.
+     * Adds to each line the units its product sold per month over the last
+     * SalesHistogram::MONTHS months. Sales are counted per product, so the
+     * lines of one product share the same chart.
      *
      * @param list<array<string, mixed>> $lines lines()
      *
-     * @return list<array<string, mixed>> the same lines, each with its 'history' (null without any reading)
+     * @return list<array<string, mixed>> the same lines, each with its 'salesHistory' (null without any sale)
      */
-    public function withHistory(array $lines, \DateTimeImmutable $now): array
+    public function withSalesHistory(array $lines, \DateTimeImmutable $now): array
     {
-        $history = $this->repository->priceHistory(
-            array_values(array_map('intval', array_merge(...array_column($lines, 'saleElementIds')))),
-            $now->sub(new \DateInterval('P'.SalesTrend::DAYS.'D')),
+        $sales = $this->repository->monthlySales(
+            array_values(array_unique(array_map('intval', array_column($lines, 'productId')))),
+            SalesHistogram::since($now),
+            $now,
         );
 
         foreach ($lines as $index => $line) {
-            $days = [];
-
-            foreach ($line['saleElementIds'] as $saleElementId) {
-                foreach ($history[$saleElementId] ?? [] as $day => $prices) {
-                    $days[$day] = [
-                        'ours' => self::lowest($days[$day]['ours'] ?? null, $prices['ours']),
-                        'cheapest' => self::lowest($days[$day]['cheapest'] ?? null, $prices['cheapest']),
-                    ];
-                }
-            }
-
-            $lines[$index]['history'] = PriceSparkline::of($days);
+            $lines[$index]['salesHistory'] = SalesHistogram::of($sales[$line['productId']] ?? [], $now);
         }
 
         return $lines;
-    }
-
-    private static function lowest(?float $a, ?float $b): ?float
-    {
-        return $a === null || $b === null ? ($a ?? $b) : min($a, $b);
     }
 
     /**
