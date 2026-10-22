@@ -207,6 +207,29 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         self::assertSame(\count($ids), $presenter->count(), 'the badge counts what the tab shows');
     }
 
+    /**
+     * Asked 2026-10-20: an offline product is never listed, nor does it take
+     * a line of its family or a place in the rank the reasons show.
+     */
+    public function testAnOfflineBestSellerTakesNoLineNorRank(): void
+    {
+        $this->isolateFromTheShop();
+        [$helmets, $fullFace] = $this->family('Casques');
+        $offline = $this->product('Hors ligne '.$this->tag, category: $fullFace);
+        $offline->setVisible(0)->save();
+        $this->sale($offline, 'paid', 3, '900.00');
+        $online = $this->product('En ligne '.$this->tag, category: $fullFace);
+        $this->sale($online, 'paid', 1, '600.00');
+
+        $bestOfTheFamily = (new SuggestionRepository())->bestSellersByFamily(new \DateTimeImmutable('-90 days'), 1, []);
+        $rows = array_column($this->presenter()->present('fr_FR'), null, 'id');
+
+        self::assertSame([(int) $online->getId()], array_keys($bestOfTheFamily), 'the offline best seller takes no line of its family');
+        self::assertSame(1, $bestOfTheFamily[(int) $online->getId()]['rank'], 'first of what the shop shows');
+        self::assertArrayNotHasKey((int) $offline->getId(), $rows);
+        self::assertSame(['key' => 'month', 'rank' => 1], array_intersect_key($rows[(int) $online->getId()]['reasons'][1] ?? [], ['key' => true, 'rank' => true]), 'first of the month in its family');
+    }
+
     public function testADeepPromotionPutsAProductForwardWithoutAnySale(): void
     {
         $this->isolateFromTheShop();

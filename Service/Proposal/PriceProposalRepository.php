@@ -27,6 +27,8 @@ final readonly class PriceProposalRepository
     public const PURCHASE_TABLE = 'product_sale_elements_purchase';
 
     /**
+     * Offline products left out: no customer sees their price (asked 2026-10-20).
+     *
      * @param list<int>|null $productIds null for every watched product
      *
      * @return list<array{saleElementId: int, productId: int, ref: string, size: ?string, purchase: ?string}>
@@ -45,6 +47,7 @@ final readonly class PriceProposalRepository
             'SELECT i.product_sale_elements_id, i.product_id, i.size_label, pse.ref, '.$purchase.' AS purchase'
             .' FROM pw_product_identity i'
             .' JOIN product_sale_elements pse ON pse.id = i.product_sale_elements_id'
+            .' JOIN product p ON p.id = i.product_id AND p.visible = 1'
             .' WHERE i.monitored = 1'
             .($productIds === null ? '' : ' AND i.product_id IN ('.self::integers($productIds).')')
             .' ORDER BY i.product_id, i.product_sale_elements_id',

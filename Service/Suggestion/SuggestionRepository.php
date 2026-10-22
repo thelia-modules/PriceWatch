@@ -124,6 +124,8 @@ final readonly class SuggestionRepository
      * took 47 lines out of 50 (measured 2026-10-12) and no glove ever got in.
      * The rank is the product's among every product its family sold, watched
      * ones included; only the lines are left to the products not watched.
+     * An offline product is no line and no rank (asked 2026-10-20): left out
+     * here, it took a family's line before the catalogue signals dropped it.
      *
      * @param list<int> $excludedFamilies
      *
@@ -138,7 +140,7 @@ final readonly class SuggestionRepository
             .' FROM order_product op'
             .' JOIN `order` o ON o.id = op.order_id'
             .' JOIN order_status os ON os.id = o.status_id'
-            .' JOIN product p ON p.ref = op.product_ref'
+            .' JOIN product p ON p.ref = op.product_ref AND p.visible = 1'
             .' WHERE o.created_at >= :since AND os.code IN ('.self::quoted(self::SOLD_STATUSES).')'
             .' GROUP BY p.id),'
             .' ranked AS (SELECT sold.*, tree.root, ROW_NUMBER() OVER (PARTITION BY tree.root ORDER BY sold.revenue DESC, sold.product_id) AS family_rank'

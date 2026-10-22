@@ -190,6 +190,19 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
     }
 
     /**
+     * Asked 2026-10-20: an offline product is never listed. No customer
+     * sees its price: nothing to propose.
+     */
+    public function testAnOfflineProductIsLeftOut(): void
+    {
+        $product = $this->product('Hors ligne');
+        $this->offer($this->variant($product, 'M', '50'), 'matched_exact', '80.00');
+        $product->setVisible(0)->save();
+
+        self::assertSame([], $this->lines([$product]));
+    }
+
+    /**
      * @param list<Product> $products
      *
      * @return list<array<string, mixed>>
