@@ -6,6 +6,7 @@ namespace PriceWatch\Service\Matching;
 
 use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\OfferQuestions;
+use PriceWatch\Service\Normalizer\GtinNormalizer;
 
 /**
  * Where code decides. Three stages:
@@ -17,6 +18,9 @@ use PriceWatch\Service\Jev\OfferQuestions;
  * 3. withGap(): a price far from ours is a doubt, checked, never decided by
  *    the gap alone (asked 2026-10-12). Beyond 70 % it used to be rejected
  *    blind; from 25 % a Jev "yes" alone let it into the gap.
+ * 4. withGtinCheck(): whatever the gap, a match only Jev vouched for is not
+ *    taken on its word: it needs the GTIN of the competitor to agree with
+ *    ours, or a human to look.
  */
 final readonly class MatchDecision
 {
@@ -79,6 +83,38 @@ final readonly class MatchDecision
 
         if ($gap >= self::SUSPECT_GAP && $verdict->state === MatchVerdict::MATCHED && $verdict->comparable) {
             return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'PRICE_GAP_SUSPECT', true, null, $verdict->judgedByJev);
+        }
+
+        return $verdict;
+    }
+
+    /**
+     * A match Jev alone made stands only when both GTINs are known and equal. A
+     * GTIN known on both sides and different is a conflict between two
+     * witnesses: the price stays out of the gap until a human settles it. A
+     * GTIN missing on either side proves nothing: the match waits for a human,
+     * its price counted in the gaps and tagged to check, as for any doubt that
+     * is not about the article itself.
+     *
+     * Applied after withGap(): a verdict already sent to a human keeps its own
+     * reason.
+     */
+    public function withGtinCheck(MatchVerdict $verdict, ?string $ourGtin, ?string $theirGtin): MatchVerdict
+    {
+        if ($verdict->state !== MatchVerdict::MATCHED || !$verdict->judgedByJev) {
+            return $verdict;
+        }
+
+        $normalizer = new GtinNormalizer();
+        $ours = $normalizer->normalize($ourGtin);
+        $theirs = $normalizer->normalize($theirGtin);
+
+        if (!$ours->isUsable() || !$theirs->isUsable()) {
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'GTIN_UNVERIFIED', $verdict->comparable, $verdict->exclusionReason, true);
+        }
+
+        if ($ours->value !== $theirs->value) {
+            return new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'GTIN_MISMATCH', false, 'GTIN_MISMATCH', true);
         }
 
         return $verdict;

@@ -140,6 +140,43 @@ final class MatchDecisionTest extends TestCase
         self::assertFalse(MatchDecision::implausibleGap('100.00', '140.00'), 'a GTIN match at +40 % is a price, not a doubt');
     }
 
+    public function testAJevMatchWithEqualGtinsIsKept(): void
+    {
+        $matched = new MatchVerdict(MatchVerdict::MATCHED, 'JEV', true, null, true);
+
+        self::assertSame($matched, (new MatchDecision())->withGtinCheck($matched, '4006381333931', '04006381333931'));
+    }
+
+    public function testAJevMatchWithoutAUsableGtinWaitsForAHuman(): void
+    {
+        $matched = new MatchVerdict(MatchVerdict::MATCHED, 'JEV', true, null, true);
+        $decision = new MatchDecision();
+
+        foreach ([[null, '4006381333931'], ['4006381333931', null], ['4006381333931', '4006381333932'], ['abc', 'abc']] as [$ours, $theirs]) {
+            $verdict = $decision->withGtinCheck($matched, $ours, $theirs);
+            self::assertSame([MatchVerdict::NEEDS_REVIEW, 'GTIN_UNVERIFIED', true], [$verdict->state, $verdict->reason, $verdict->comparable], (string) $ours.'/'.(string) $theirs);
+        }
+    }
+
+    public function testADifferentGtinIsAMismatchEvenAtALowGap(): void
+    {
+        $matched = new MatchDecision();
+        $verdict = $matched->withGap(new MatchVerdict(MatchVerdict::MATCHED, 'JEV', true, null, true), '100.00', '99.00');
+        $checked = $matched->withGtinCheck($verdict, '4006381333931', '5012345678900');
+
+        self::assertSame([MatchVerdict::NEEDS_REVIEW, 'GTIN_MISMATCH', false, 'GTIN_MISMATCH'], [$checked->state, $checked->reason, $checked->comparable, $checked->exclusionReason]);
+    }
+
+    public function testAMatchProvenByAGtinOrAHumanIsNotRechecked(): void
+    {
+        $decision = new MatchDecision();
+        $proven = new MatchVerdict(MatchVerdict::MATCHED, 'GTIN_EQUAL', true, null, false);
+        $review = new MatchVerdict(MatchVerdict::NEEDS_REVIEW, 'VARIANT_UNCLEAR', true, null, true);
+
+        self::assertSame($proven, $decision->withGtinCheck($proven, null, null));
+        self::assertSame($review, $decision->withGtinCheck($review, null, null), 'a doubt already raised keeps its own reason');
+    }
+
     private function noul(float $value): JevAnswer
     {
         $band = $value >= 0.80 ? JevAnswer::YES : ($value <= 0.20 ? JevAnswer::NO : JevAnswer::REVIEW);

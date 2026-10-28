@@ -273,6 +273,16 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, $this->repository->counts(new ComparatorFilters())['gaps']);
     }
 
+    public function testAHumanConfirmationLiftsAGtinMismatch(): void
+    {
+        $offer = $this->offer($this->product('Stormer Gtin'), 'needs_review', comparable: false, deltaPct: '-10.000', exclusion: 'GTIN_MISMATCH');
+
+        (new OfferReview())->confirm($offer, 'emmanuel');
+
+        $offer->reload();
+        self::assertSame(['matched_manual', 1, null], [$offer->getMatchState(), $offer->getLastComparable(), $offer->getExclusionReason()]);
+    }
+
     public function testConfirmingTheProductDoesNotMakeAPromotionComparable(): void
     {
         $offer = $this->offer($this->product('Segura Flex Alpha'), 'matched_judged', comparable: false, deltaPct: '-35.000', exclusion: 'promotional');

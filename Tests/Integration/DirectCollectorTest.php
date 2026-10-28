@@ -171,7 +171,8 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame([PageRepository::CONFIRMED, PageConfirmation::BY], [$page->getStatus(), $page->getConfirmedBy()]);
         self::assertSame(5, $result['run']->getQuotesWritten(), 'read in the same pass');
         $offer = $this->offer($identities['L']);
-        self::assertSame(['matched_judged', PageConfirmation::METHOD, 'SIZE_ON_JEV_CONFIRMED_PAGE', 1], [$offer?->getMatchState(), $offer?->getMatchMethod(), $offer?->getMatchReason(), $offer?->getLastComparable()]);
+        // Jev alone vouches for the page and no GTIN backs it: a human looks, the price still counts.
+        self::assertSame(['needs_review', PageConfirmation::METHOD, 'GTIN_UNVERIFIED', 1], [$offer?->getMatchState(), $offer?->getMatchMethod(), $offer?->getMatchReason(), $offer?->getLastComparable()]);
         $confidence = \PriceWatch\Service\Comparator\MatchConfidence::of($offer->getMatchMethod(), (array) json_decode((string) $offer->getJudgmentJson(), true), $offer->getMatchState());
         self::assertSame([\PriceWatch\Service\Comparator\MatchConfidence::HIGH, 95], [$confidence['level'], $confidence['score']], 'shown as Jev\'s word on the article, never as a proof');
         self::assertSame(1, $result['run']->getJevRequests());

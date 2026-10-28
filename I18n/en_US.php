@@ -54,6 +54,8 @@ return [
     'reason.PRICE_GAP_IMPLAUSIBLE' => 'Implausible price gap, over 70 %',
     'reason.PRODUCT_UNLIKELY' => 'Unlikely product: reliability under 35 %',
     'reason.PRICE_GAP_SUSPECT' => 'Price gap of 25 % or more: same product to check',
+    'reason.GTIN_UNVERIFIED' => 'Same product by the checks, no GTIN to confirm it: to review',
+    'reason.GTIN_MISMATCH' => 'The GTIN of the offer is not ours: to review',
     'reason.CONFIRMED_BY_HUMAN' => 'Confirmed by hand',
     'reason.REJECTED_BY_HUMAN' => 'Excluded by hand',
     'reason.REOPENED' => 'Sent back to review',
@@ -67,6 +69,7 @@ return [
     'exclusion.NOT_JUDGED' => 'Not judged',
     'exclusion.PRICE_GAP_IMPLAUSIBLE' => 'Implausible gap',
     'exclusion.PRICE_GAP_SUSPECT' => 'Suspect gap, to check',
+    'exclusion.GTIN_MISMATCH' => 'GTIN differs, to check',
     'exclusion.unclear' => 'Price unclear',
     'shipping' => 'shipping',
 

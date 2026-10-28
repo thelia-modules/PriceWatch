@@ -277,7 +277,10 @@ final readonly class DirectCollector
 
         if ($byJev && $verdict === null) {
             $gapped = $this->decision->withGap(new MatchVerdict(MatchVerdict::MATCHED, 'SIZE_ON_JEV_CONFIRMED_PAGE', true, null, true), $ourPrice, $variant->price);
-            $verdict = $gapped->state === MatchVerdict::MATCHED ? null : $gapped;
+            // The page is vouched for by Jev alone: the GTIN of the variant, when the page
+            // gives one, is what could confirm it.
+            $checked = $this->decision->withGtinCheck($gapped, (int) $identity->getGtinValid() === 1 && (int) $identity->getGtinShared() === 0 ? $identity->getGtin() : null, $variant->gtin);
+            $verdict = $checked->state === MatchVerdict::MATCHED ? null : $checked;
         }
         $rejectedByHuman = $offer->getMatchState() === 'rejected' && $offer->getReviewedBy() !== null;
         // A doubt on the price alone still counts, tagged to check.
