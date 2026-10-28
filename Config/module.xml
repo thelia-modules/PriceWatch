@@ -23,7 +23,7 @@
         </author>
     </authors>
     <type>classic</type>
-    <thelia>3.0.0</thelia>
+    <thelia>3.3.0</thelia>
     <stability>alpha</stability>
     <mandatory>0</mandatory>
     <hidden>0</hidden>
