@@ -76,9 +76,6 @@ final readonly class SettingsController
             $attempt(fn () => $this->settings->setDataforseoLogin((string) $request->request->get('dataforseo_login', '')));
         }
 
-        $attempt(fn () => $this->settings->setShopDescription((string) $request->request->get('shop_description', '')));
-
-        $this->settings->setDiscoveryEnabled($request->request->get('discovery_enabled') === '1');
         $this->settings->setExcludedFamilies(array_map('intval', array_filter((array) $request->request->all('excluded_families'), 'is_numeric')));
         $attempt(fn () => $this->settings->setMinimumMarginPct((string) $request->request->get('minimum_margin_pct', '')));
 

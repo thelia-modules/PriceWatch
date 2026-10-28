@@ -18,12 +18,9 @@ final readonly class PriceWatchSettings
     private const LOGIN_MAX_LENGTH = 190;
 
     private const JEV_PROVIDER = 'jev_provider';
-    private const DISCOVERY_ENABLED = 'discovery_enabled';
     private const DATAFORSEO_LOGIN = 'dataforseo_login';
     private const DATAFORSEO_LOGIN_ENV = 'DATAFORSEO_USERNAME';
     private const UPDATED_SUFFIX = '_updated_at';
-    private const SHOP_DESCRIPTION = 'shop_description';
-    private const SHOP_DESCRIPTION_MAX_LENGTH = 500;
     private const EXCLUDED_FAMILIES = 'suggestions_excluded_families';
     private const MINIMUM_MARGIN = 'proposals_minimum_margin_pct';
 
@@ -137,46 +134,6 @@ final readonly class PriceWatchSettings
     public function setJevProvider(JevProvider $provider): void
     {
         $this->store->set(self::JEV_PROVIDER, $provider->value);
-    }
-
-    /**
-     * Off by default: the model has no web access, so its suggestions come from
-     * training data (dated, shops that may not exist). Turned on by the merchant
-     * once the gateway of the core has a model for the usage.
-     */
-    public function discoveryEnabled(): bool
-    {
-        return $this->store->get(self::DISCOVERY_ENABLED) === '1';
-    }
-
-    public function setDiscoveryEnabled(bool $enabled): void
-    {
-        $this->store->set(self::DISCOVERY_ENABLED, $enabled ? '1' : '0');
-    }
-
-    /**
-     * A sentence or two the merchant writes about the shop. Given to the
-     * model as context for competitor search; never treated as instructions.
-     */
-    public function shopDescription(): ?string
-    {
-        $description = $this->store->get(self::SHOP_DESCRIPTION);
-
-        return $description === '' ? null : $description;
-    }
-
-    /**
-     * @throws InvalidSettingException
-     */
-    public function setShopDescription(string $description): void
-    {
-        $description = trim($description);
-
-        if (mb_strlen($description) > self::SHOP_DESCRIPTION_MAX_LENGTH) {
-            throw new InvalidSettingException(self::SHOP_DESCRIPTION, \sprintf('The shop description is limited to %d characters.', self::SHOP_DESCRIPTION_MAX_LENGTH));
-        }
-
-        $this->store->set(self::SHOP_DESCRIPTION, $description);
     }
 
     /**

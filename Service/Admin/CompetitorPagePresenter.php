@@ -9,7 +9,6 @@ use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Direct\SitemapIndex;
-use PriceWatch\Service\Settings\PriceWatchSettings;
 
 /**
  * Shapes the competitor lists for the template, so the template only prints.
@@ -18,7 +17,6 @@ final readonly class CompetitorPagePresenter
 {
     public function __construct(
         private CompetitorRepository $competitors,
-        private PriceWatchSettings $settings,
         private SitemapIndex $sitemaps,
     ) {
     }
@@ -39,7 +37,6 @@ final readonly class CompetitorPagePresenter
             'proposed' => $proposed,
             'whitelist' => $whitelist,
             'blacklist' => $blacklist,
-            'discoveryEnabled' => $this->settings->discoveryEnabled(),
         ];
     }
 

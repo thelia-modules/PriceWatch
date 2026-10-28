@@ -130,35 +130,6 @@ final class PriceWatchSettingsTest extends TestCase
         self::assertSame('https://openrouter.ai/api/v1/systemone', $settings->jevProvider()->endpoint());
     }
 
-    public function testCompetitorDiscoveryIsOffUntilTheMerchantTurnsItOn(): void
-    {
-        $settings = $this->settings();
-
-        self::assertFalse($settings->discoveryEnabled(), 'the model has no web access: off by default');
-
-        $settings->setDiscoveryEnabled(true);
-        self::assertTrue($settings->discoveryEnabled());
-
-        $settings->setDiscoveryEnabled(false);
-        self::assertFalse($settings->discoveryEnabled());
-    }
-
-    public function testShopDescriptionIsTrimmedAndCapped(): void
-    {
-        $settings = $this->settings();
-        $settings->setShopDescription('  Équipement moto néo-rétro.  ');
-
-        self::assertSame('Équipement moto néo-rétro.', $settings->shopDescription());
-
-        $settings->setShopDescription('');
-        self::assertNull($settings->shopDescription());
-
-        $settings->setShopDescription(str_repeat('é', 500));
-        self::assertSame(500, mb_strlen((string) $settings->shopDescription()), 'the cap counts characters, not bytes');
-
-        $this->expectException(InvalidSettingException::class);
-        $settings->setShopDescription(str_repeat('a', 501));
-    }
 
     public function testDataforseoLoginFromEnvironmentWins(): void
     {

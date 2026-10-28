@@ -227,8 +227,6 @@ class PriceWatchAdminHook extends BaseHook
             'jevProvider' => $this->settings->jevProvider()->value,
             'jevProviders' => array_map(static fn (JevProvider $provider): string => $provider->value, JevProvider::cases()),
             'jevReady' => $this->settings->isJevReady(),
-            'discoveryEnabled' => $this->settings->discoveryEnabled(),
-            'shopDescription' => $this->settings->shopDescription(),
             'dataforseoLogin' => $this->settings->dataforseoLoginFromEnvironment() ? null : $this->settings->dataforseoLogin(),
             'dataforseoLoginFromEnvironment' => $this->settings->dataforseoLoginFromEnvironment(),
             'families' => $this->suggestions->familyTitles($this->requestStack->getCurrentRequest()?->getLocale() ?? 'fr_FR'),

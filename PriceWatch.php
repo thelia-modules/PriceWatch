@@ -58,7 +58,6 @@ class PriceWatch extends BaseModule
         // ends up wired by accident.
         $servicesConfigurator->alias(Service\Settings\ConfigStore::class, Service\Settings\ModuleConfigStore::class);
         $servicesConfigurator->alias(Service\Settings\ServerEnvironment::class, Service\Settings\ProcessServerEnvironment::class);
-        $servicesConfigurator->alias(Service\Competitor\CatalogSampleSource::class, Service\Competitor\CatalogSampleRepository::class);
         $servicesConfigurator->alias(Service\Competitor\DomainResolver::class, Service\Competitor\DnsDomainResolver::class);
         $servicesConfigurator->alias(Service\Run\StepRunner::class, Service\Run\CommandStepRunner::class);
         $servicesConfigurator->alias(Service\Run\BackgroundRunner::class, Service\Run\MessengerBackgroundRunner::class);

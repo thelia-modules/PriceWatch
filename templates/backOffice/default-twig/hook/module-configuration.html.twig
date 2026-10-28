@@ -93,25 +93,6 @@
 
             <div class="col-12">
                 <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span class="fw-semibold">{{ 'Competitor discovery'|trans({}, 'pricewatch') }}</span>
-                        <span class="badge {{ discoveryEnabled ? 'text-bg-success' : 'text-bg-secondary' }}" data-testid="pw-discovery-state">{{ discoveryEnabled ? 'On'|trans({}, 'pricewatch') : 'Off'|trans({}, 'pricewatch') }}</span>
-                    </div>
-                    <div class="card-body">
-                        <p class="text-muted small">{{ 'The model is the one the shop assigns to this use in the AI settings. It cannot browse the web: its suggestions come from what it learned in training, so they may be dated and some shops may not exist. Every suggestion waits for your decision. Off by default.'|trans({}, 'pricewatch') }}</p>
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" type="checkbox" value="1" id="pw-discovery-enabled" name="discovery_enabled" {% if discoveryEnabled %}checked{% endif %}>
-                            <label class="form-check-label" for="pw-discovery-enabled">{{ 'Suggest competitors with the model'|trans({}, 'pricewatch') }}</label>
-                        </div>
-                        <label class="form-label fw-semibold" for="pw-shop-description">{{ 'About the shop'|trans({}, 'pricewatch') }}</label>
-                        <textarea class="form-control" id="pw-shop-description" name="shop_description" rows="2" maxlength="500">{{ shopDescription }}</textarea>
-                        <div class="form-text">{{ 'Optional. One or two sentences on what you sell and to whom, to help the model find direct competitors.'|trans({}, 'pricewatch') }}</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12">
-                <div class="card">
                     <div class="card-header fw-semibold">{{ 'Suggestions'|trans({}, 'pricewatch') }}</div>
                     <div class="card-body">
                         <p class="text-muted small">{{ 'Each family gets lines in proportion to its revenue. Tick the families that have no equivalent at competitors: they are never suggested.'|trans({}, 'pricewatch') }}</p>

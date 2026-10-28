@@ -7,12 +7,9 @@ namespace PriceWatch\Controller\Admin;
 use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Admin\CompetitorPagePresenter;
-use PriceWatch\Service\Competitor\CompetitorDiscovery;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
-use PriceWatch\Service\Competitor\DiscoveryException;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
-use PriceWatch\Service\Settings\PriceWatchSettings;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -34,9 +31,7 @@ final readonly class CompetitorController
         private AdminRequestGuard $guard,
         private CompetitorRepository $competitors,
         private CompetitorPagePresenter $presenter,
-        private CompetitorDiscovery $discovery,
         private DomainNormalizer $domainNormalizer,
-        private PriceWatchSettings $settings,
         private UrlGeneratorInterface $urlGenerator,
         private TranslatorInterface $translator,
         private Environment $twig,
@@ -137,34 +132,6 @@ final readonly class CompetitorController
         $this->competitors->delete($competitor);
 
         return $this->back($request, 'success', '%domain% deleted. It may be suggested again later.', ['%domain%' => $domain]);
-    }
-
-    #[Route('/admin/module/pricewatch/competitors/suggest', name: 'pricewatch_competitors_suggest', methods: ['POST'])]
-    public function suggest(Request $request): Response
-    {
-        if ($denied = $this->guard->denyChange($request)) {
-            return $denied;
-        }
-
-        if (!$this->settings->discoveryEnabled()) {
-            return $this->back($request, 'warning', 'Competitor discovery is switched off: turn it on in the module settings first.');
-        }
-
-        // A reasoning model can take a couple of minutes.
-        set_time_limit(300);
-
-        try {
-            $report = $this->discovery->suggest($request->getLocale());
-        } catch (DiscoveryException $error) {
-            return $this->back($request, 'danger', $error->getMessage());
-        }
-
-        return $this->back($request, $report->proposed === [] ? 'info' : 'success', '%proposed% new proposal(s). %known% already listed, %blacklisted% blacklisted, %dropped% dropped by the checks.', [
-            '%proposed%' => \count($report->proposed),
-            '%known%' => \count($report->alreadyKnown),
-            '%blacklisted%' => \count($report->blacklisted),
-            '%dropped%' => \count($report->unresolved) + \count($report->invalid),
-        ]);
     }
 
     private function selectable(string $value): ?CompetitorStatus
