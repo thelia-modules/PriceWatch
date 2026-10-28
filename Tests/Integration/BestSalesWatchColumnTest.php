@@ -28,6 +28,7 @@ final class BestSalesWatchColumnTest extends PriceWatchIntegrationTestCase
 {
     public function testEachProductOfTheTableShowsItsWatchState(): void
     {
+        $this->requireStatistic();
         $watched = $this->productWatched([1, 0]);
         $paused = $this->productWatched([0, 0]);
         $none = $this->product();
@@ -51,6 +52,7 @@ final class BestSalesWatchColumnTest extends PriceWatchIntegrationTestCase
 
     public function testTheCellHoldsNothingTheTableSearchWouldMatch(): void
     {
+        $this->requireStatistic();
         $event = $this->table([['product_ref' => 'W', 'product_id' => $this->productWatched([1])->getId()]]);
 
         $this->column(granted: true)->onBestSalesTable($event);
@@ -62,6 +64,7 @@ final class BestSalesWatchColumnTest extends PriceWatchIntegrationTestCase
 
     public function testWithoutTheRightToSeeThePriceWatchTheTableIsLeftAsIs(): void
     {
+        $this->requireStatistic();
         $rows = [['product_ref' => 'W', 'product_id' => (int) $this->productWatched([1])->getId()]];
         $event = $this->table($rows);
 
@@ -69,6 +72,13 @@ final class BestSalesWatchColumnTest extends PriceWatchIntegrationTestCase
 
         self::assertSame([], $event->getColumns());
         self::assertSame($rows, $event->getRows());
+    }
+
+    public function testTheListenerSubscribesByEventNameSoWithoutStatisticNothingIsLoaded(): void
+    {
+        // A class name here would load the Statistic module's class when the
+        // listener is built, in a shop that does not have it.
+        self::assertSame(['statistic.best_sales.table' => 'onBestSalesTable'], BestSalesWatchColumn::getSubscribedEvents());
     }
 
     public function testStatesAreReadInOneQueryLikeOneByOne(): void
@@ -87,6 +97,13 @@ final class BestSalesWatchColumnTest extends PriceWatchIntegrationTestCase
     }
 
     // ------------------------------------------------------------------
+
+    private function requireStatistic(): void
+    {
+        if (!class_exists(BestSalesTableEvent::class)) {
+            self::markTestSkipped('The Statistic module is not installed: its BestSalesTableEvent is absent.');
+        }
+    }
 
     /**
      * @param list<array<string, mixed>> $rows

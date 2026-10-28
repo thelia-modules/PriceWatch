@@ -21,10 +21,17 @@ use Propel\Runtime\Propel;
 final readonly class PriceProposalRepository
 {
     /**
-     * Created by the ClassicRide module (purchase tab). The first row of a
+     * Created by a module outside this one (purchase tab). The first row of a
      * variant, lowest id, is the one the tab reads and writes.
      */
     public const PURCHASE_TABLE = 'product_sale_elements_purchase';
+
+    /**
+     * @param string $purchaseTable the table of the purchase prices; a shop without it has no floor and no margin
+     */
+    public function __construct(private string $purchaseTable = self::PURCHASE_TABLE)
+    {
+    }
 
     /**
      * Offline products left out: no customer sees their price (asked 2026-10-20).
@@ -40,7 +47,7 @@ final readonly class PriceProposalRepository
         }
 
         $purchase = $this->hasPurchaseTable()
-            ? '(SELECT psep.purchase FROM '.self::PURCHASE_TABLE.' psep WHERE psep.product_sale_elements_id = i.product_sale_elements_id ORDER BY psep.id LIMIT 1)'
+            ? '(SELECT psep.purchase FROM '.$this->purchaseTable.' psep WHERE psep.product_sale_elements_id = i.product_sale_elements_id ORDER BY psep.id LIMIT 1)'
             : 'NULL';
 
         $rows = $this->rows(
@@ -207,7 +214,7 @@ final readonly class PriceProposalRepository
     {
         $rows = $this->rows(
             'SELECT COUNT(*) AS found FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :name',
-            ['name' => self::PURCHASE_TABLE],
+            ['name' => $this->purchaseTable],
         );
 
         return (int) ($rows[0]['found'] ?? 0) > 0;
