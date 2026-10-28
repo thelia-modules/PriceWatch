@@ -92,6 +92,18 @@ final class DataForSeoClientTest extends TestCase
         self::assertSame([], $this->sent, 'nothing was posted, nothing is billed');
     }
 
+    public function testAPostThatFailsIsSettledAtZero(): void
+    {
+        try {
+            $this->client([new MockResponse('{"status_code": 40100, "status_message": "Authentication failed"}', ['http_code' => 401])])->postProductSearches(['capture' => '1'], 1);
+            self::fail('expected a failure');
+        } catch (DataForSeoException) {
+        }
+
+        self::assertSame(['authorize:dataforseo', 'record:dataforseo'], $this->costs->events);
+        self::assertSame('0.00000000', $this->costs->recorded[0]->cost);
+    }
+
     public function testTheFreeSandboxIsNeitherAuthorizedNorBilled(): void
     {
         $this->client([$this->fixture('products-task_post')])->postProductSearches(['capture' => '1'], 1, true);

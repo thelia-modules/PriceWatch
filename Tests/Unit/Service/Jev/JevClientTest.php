@@ -17,6 +17,7 @@ use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use Thelia\Domain\Ai\AiJurisdiction;
+use Thelia\Domain\Ai\AiUsageLogStatus;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -98,7 +99,7 @@ final class JevClientTest extends TestCase
         self::assertSame([], $this->costs->recorded);
     }
 
-    public function testACallThatFailsCostsNothingInTheJournal(): void
+    public function testACallThatFailsIsSettledAtZero(): void
     {
         try {
             $this->client([new MockResponse('{"error":"boom"}', ['http_code' => 400])])->ask([], ['same' => $this->noul('same')]);
@@ -106,7 +107,22 @@ final class JevClientTest extends TestCase
         } catch (JevException) {
         }
 
-        self::assertSame(['authorize:openrouter'], $this->costs->events);
+        self::assertSame(['authorize:openrouter', 'record:openrouter'], $this->costs->events, 'the amount reserved for the call is settled, not left held');
+        self::assertSame('0.00000000', $this->costs->recorded[0]->cost);
+        self::assertSame(AiUsageLogStatus::Failed, $this->costs->recorded[0]->status);
+    }
+
+    public function testAnAnswerWeCannotUseIsStillBilled(): void
+    {
+        try {
+            $this->client([$this->answers(['same' => ['noul' => 1.4]])])->ask([], ['same' => $this->noul('same')]);
+            self::fail('expected a failure');
+        } catch (JevException) {
+        }
+
+        self::assertSame(['authorize:openrouter', 'record:openrouter'], $this->costs->events);
+        self::assertSame('0.00005040', $this->costs->recorded[0]->cost, 'Jev answered and billed its tokens');
+        self::assertSame(AiUsageLogStatus::Succeeded, $this->costs->recorded[0]->status);
     }
 
     public function testNoulBands(): void

@@ -252,7 +252,18 @@ final readonly class DataForSeoClient
             }
 
             $started = hrtime(true);
-            $payload = $this->request('POST', $path, $chunk, $sandbox);
+
+            try {
+                $payload = $this->request('POST', $path, $chunk, $sandbox);
+            } catch (DataForSeoException $failure) {
+                // Nothing is billed, but the budget reserved for the post is settled.
+                if (!$sandbox) {
+                    $this->spend->fail(self::USAGE, ExternalSpend::DATAFORSEO, ltrim($path, '/'));
+                }
+
+                throw $failure;
+            }
+
             $billed = (float) ($payload['cost'] ?? 0);
             $cost += $billed;
 

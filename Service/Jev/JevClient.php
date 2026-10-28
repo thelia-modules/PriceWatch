@@ -101,39 +101,52 @@ final readonly class JevClient
             throw new JevSpendRefusedException($refusal->getMessage(), 0, $refusal);
         }
 
-        $started = hrtime(true);
-        $payload = $this->send($provider->endpoint(), $key, $body);
-        $elapsed = intdiv(hrtime(true) - $started, 1_000_000);
-        $answers = \is_array($payload['answers'] ?? null) ? $payload['answers'] : [];
-        $missing = array_diff(array_keys($questions), array_keys($answers));
+        $settled = false;
 
-        if ($missing !== []) {
-            throw new JevException('Jev left questions unanswered: '.implode(', ', $missing).'.');
+        try {
+            $started = hrtime(true);
+            $payload = $this->send($provider->endpoint(), $key, $body);
+            $elapsed = intdiv(hrtime(true) - $started, 1_000_000);
+            $inputTokens = (int) ($payload['usage']['input_tokens'] ?? 0);
+
+            if ($inputTokens === 0) {
+                // Keep the cost ledger honest when usage is missing, as jev-seo
+                // does: a conservative estimate rather than zero.
+                $inputTokens = (int) ceil(\strlen((string) json_encode($body)) / 3);
+            }
+
+            // Billed as soon as answered, whatever the answer turns out to be worth.
+            $costUsd = self::costOf($inputTokens);
+            $this->spend->record(self::USAGE, $spendProvider, self::MODEL, $costUsd, new AiTokenUsage($inputTokens, 0), $elapsed);
+            $settled = true;
+
+            $answers = \is_array($payload['answers'] ?? null) ? $payload['answers'] : [];
+            $missing = array_diff(array_keys($questions), array_keys($answers));
+
+            if ($missing !== []) {
+                throw new JevException('Jev left questions unanswered: '.implode(', ', $missing).'.');
+            }
+
+            $validated = [];
+
+            foreach ($questions as $id => $question) {
+                $validated[$id] = $this->validate($question, $answers[$id]);
+            }
+
+            return [
+                'answers' => $validated,
+                'inputTokens' => $inputTokens,
+                'costUsd' => $costUsd,
+                'model' => \is_string($payload['model'] ?? null) ? $payload['model'] : null,
+            ];
+        } catch (JevException $failure) {
+            // Nothing was billed (the request failed): the budget reserved for the call is settled.
+            if (!$settled) {
+                $this->spend->fail(self::USAGE, $spendProvider, self::MODEL);
+            }
+
+            throw $failure;
         }
-
-        $validated = [];
-
-        foreach ($questions as $id => $question) {
-            $validated[$id] = $this->validate($question, $answers[$id]);
-        }
-
-        $inputTokens = (int) ($payload['usage']['input_tokens'] ?? 0);
-
-        if ($inputTokens === 0) {
-            // Keep the cost ledger honest when usage is missing, as jev-seo
-            // does: a conservative estimate rather than zero.
-            $inputTokens = (int) ceil(\strlen((string) json_encode($body)) / 3);
-        }
-
-        $costUsd = self::costOf($inputTokens);
-        $this->spend->record(self::USAGE, $spendProvider, self::MODEL, $costUsd, new AiTokenUsage($inputTokens, 0), $elapsed);
-
-        return [
-            'answers' => $validated,
-            'inputTokens' => $inputTokens,
-            'costUsd' => $costUsd,
-            'model' => \is_string($payload['model'] ?? null) ? $payload['model'] : null,
-        ];
     }
 
     private static function costOf(int $inputTokens): float

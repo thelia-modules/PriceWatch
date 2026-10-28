@@ -9,6 +9,7 @@ use Thelia\Domain\Ai\AiCostRecorderInterface;
 use Thelia\Domain\Ai\AiExternalCost;
 use Thelia\Domain\Ai\AiJurisdiction;
 use Thelia\Domain\Ai\AiTokenUsage;
+use Thelia\Domain\Ai\AiUsageLogStatus;
 use Thelia\Domain\Ai\Exception\AiExceptionInterface;
 
 /**
@@ -56,6 +57,22 @@ final readonly class ExternalSpend
             cost: self::amount($costUsd),
             tokenUsage: $tokens,
             latencyMilliseconds: $latencyMilliseconds,
+            actor: AiActor::system(self::PROCESS),
+        ));
+    }
+
+    /**
+     * The call failed after it was authorized: nothing is billed, and writing the
+     * row settles the amount reserved for the call.
+     */
+    public function fail(string $usageId, string $provider, string $operation): void
+    {
+        $this->costs->record(new AiExternalCost(
+            usageId: $usageId,
+            provider: $provider,
+            operation: $operation,
+            cost: self::amount(0.0),
+            status: AiUsageLogStatus::Failed,
             actor: AiActor::system(self::PROCESS),
         ));
     }
