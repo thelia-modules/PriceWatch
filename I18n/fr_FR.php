@@ -400,7 +400,6 @@ return [
     'gauge.short.same_variant' => 'T',
     'gauge.short.price_comparability' => '€',
     'Reliability' => 'Fiabilité',
-    'Why' => 'Pourquoi',
     'Their price / ours' => 'Prix concurrent / nôtre',
     'Sort: we are cheapest first' => 'Trier : nous les moins chers d\'abord',
     'Sort: competitor cheapest first' => 'Trier : concurrent le moins cher d\'abord',

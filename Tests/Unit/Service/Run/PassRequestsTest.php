@@ -67,7 +67,7 @@ final class PassRequestsTest extends TestCase
 
         $requests->finish($requests->current()['id'] ?? '');
         self::assertSame(PassRequests::DONE, $requests->current()['state'] ?? null);
-        self::assertNotNull($requests->request(5, [], true), 'done: a new request is allowed');
+        self::assertNotSame('', $requests->request(5, [], true), 'done: a new request is allowed');
     }
 
     public function testAGivenBackRequestWaitsForTheNextCall(): void

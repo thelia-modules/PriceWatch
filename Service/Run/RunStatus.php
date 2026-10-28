@@ -25,7 +25,7 @@ final readonly class RunStatus
     }
 
     /**
-     * @return array{running: bool, progress: array<string, mixed>, collect: ?array<string, mixed>, judge: ?array<string, mixed>}
+     * @return array{running: bool, progress: array<string, mixed>, collect: ?array<string, mixed>, judge: ?array<string, mixed>, schedule: array{inline: bool, request: ?array{state: string, at: string, variants: int}, taskMissing: bool, cronLine: string}}
      */
     public function present(): array
     {
