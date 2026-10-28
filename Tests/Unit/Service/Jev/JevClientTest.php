@@ -9,19 +9,19 @@ use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\JevClient;
 use PriceWatch\Service\Jev\JevException;
-use PriceWatch\Service\Jev\JevSpendRefusedException;
 use PriceWatch\Service\Jev\JevQuestion;
+use PriceWatch\Service\Jev\JevSpendRefusedException;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
-use Thelia\Domain\Ai\AiJurisdiction;
-use Thelia\Domain\Ai\AiUsageLogStatus;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use Thelia\Domain\Ai\AiJurisdiction;
+use Thelia\Domain\Ai\AiUsageLogStatus;
 
 final class JevClientTest extends TestCase
 {

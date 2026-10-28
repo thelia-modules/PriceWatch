@@ -4,18 +4,18 @@ declare(strict_types=1);
 
 namespace PriceWatch\Hook\Admin;
 
+use PriceWatch\Controller\Admin\RunController;
 use PriceWatch\Service\Admin\AdminRequestGuard;
 use PriceWatch\Service\Comparator\DashboardPresenter;
-use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Comparator\ProductCardPresenter;
+use PriceWatch\Service\Referential\CatalogVariantRepository;
+use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Schedule\SchedulePresenter;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Suggestion\SuggestionRepository;
-use PriceWatch\Controller\Admin\RunController;
-use PriceWatch\Service\Run\ManualRun;
-use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Usage\UsagePresenter;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\RequestStack;

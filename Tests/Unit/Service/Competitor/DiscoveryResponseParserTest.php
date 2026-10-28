@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace PriceWatch\Tests\Unit\Service\Competitor;
 
 use PHPUnit\Framework\TestCase;
+use PriceWatch\Service\Competitor\CatalogSample;
 use PriceWatch\Service\Competitor\DiscoveryPrompt;
 use PriceWatch\Service\Competitor\DiscoveryResponseParser;
-use PriceWatch\Service\Competitor\CatalogSample;
 
 final class DiscoveryResponseParserTest extends TestCase
 {

@@ -26,7 +26,7 @@ final class RunPassHandlerTest extends TestCase
     {
         $this->claims = new PassClaims(new InMemoryConfigStore(), new LockFactory(new InMemoryStore()));
         $this->directory = sys_get_temp_dir().'/pw-handler-'.bin2hex(random_bytes(4));
-        mkdir($this->directory.'/var/log', 0777, true);
+        mkdir($this->directory.'/var/log', 0o777, true);
     }
 
     protected function tearDown(): void

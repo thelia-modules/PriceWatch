@@ -211,7 +211,6 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
     /**
      * @param list<array<string, string>> $competitors
      * @param list<string>                $unresolvable
-     * @param list<array<string, mixed>>  $sent
      */
     private function discovery(
         array $competitors = [],

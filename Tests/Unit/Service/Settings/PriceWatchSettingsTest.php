@@ -42,7 +42,7 @@ final class PriceWatchSettingsTest extends TestCase
     public function testSurroundingWhitespaceFromAPasteIsTrimmed(): void
     {
         $settings = $this->settings();
-        $settings->storeSecret(SecretName::TypesafeApiKey, "  ".self::KEY."\n");
+        $settings->storeSecret(SecretName::TypesafeApiKey, '  '.self::KEY."\n");
 
         self::assertSame(self::KEY, $settings->secret(SecretName::TypesafeApiKey));
     }
@@ -146,7 +146,7 @@ final class PriceWatchSettingsTest extends TestCase
     public function testShopDescriptionIsTrimmedAndCapped(): void
     {
         $settings = $this->settings();
-        $settings->setShopDescription("  Équipement moto néo-rétro.  ");
+        $settings->setShopDescription('  Équipement moto néo-rétro.  ');
 
         self::assertSame('Équipement moto néo-rétro.', $settings->shopDescription());
 

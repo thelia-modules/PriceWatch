@@ -7,13 +7,13 @@ namespace PriceWatch\Tests\Integration;
 use PriceWatch\Model\PwCollectRun;
 use PriceWatch\Service\Matching\OfferJudge;
 use PriceWatch\Service\Run\AbandonedRuns;
-use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Run\RunProgress;
 use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Service\Usage\UsageRepository;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
 

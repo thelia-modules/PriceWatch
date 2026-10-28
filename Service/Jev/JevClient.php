@@ -8,12 +8,12 @@ use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Ai\SpendRefusedException;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
+use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Thelia\Domain\Ai\AiAudience;
 use Thelia\Domain\Ai\AiTier;
 use Thelia\Domain\Ai\AiTokenUsage;
 use Thelia\Domain\Ai\AsAiUsage;
-use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * Jev's typed judgment endpoint, reached directly or through OpenRouter.
@@ -69,8 +69,8 @@ final readonly class JevClient
     }
 
     /**
-     * @param array<string, mixed>        $state     facts only; collected text is data, never instructions
-     * @param array<string, JevQuestion>  $questions keyed by question id
+     * @param array<string, mixed>       $state     facts only; collected text is data, never instructions
+     * @param array<string, JevQuestion> $questions keyed by question id
      *
      * @return array{answers: array<string, JevAnswer>, inputTokens: int, costUsd: float, model: ?string}
      *
@@ -193,9 +193,7 @@ final readonly class JevClient
                 $message = \is_array($payload) ? (string) ($payload['error']['message'] ?? $payload['error'] ?? '') : '';
 
                 throw new JevException(match ($status) {
-                    401, 403 => 'Jev refused the API key.',
-                    402 => 'No credit left for Jev.',
-                    default => \sprintf('Jev answered HTTP %d%s', $status, $message === '' ? '.' : ': '.mb_substr($message, 0, 200)),
+                    401, 403 => 'Jev refused the API key.', 402 => 'No credit left for Jev.', default => \sprintf('Jev answered HTTP %d%s', $status, $message === '' ? '.' : ': '.mb_substr($message, 0, 200)),
                 });
             }
 

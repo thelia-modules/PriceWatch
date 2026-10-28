@@ -40,7 +40,7 @@ final readonly class SettingsController
         }
 
         $errors = [];
-        $attempt = function (callable $change) use (&$errors): void {
+        $attempt = static function (callable $change) use (&$errors): void {
             try {
                 $change();
             } catch (InvalidSettingException $error) {

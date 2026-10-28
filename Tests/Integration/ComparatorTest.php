@@ -21,9 +21,9 @@ use PriceWatch\Service\Comparator\OfferReview;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
+use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\RunPass;
 use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
-use PriceWatch\Service\Run\ManualRun;
 use Propel\Runtime\Propel;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
@@ -86,7 +86,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame(['gaps' => 3, 'review' => 1, 'pending' => 1, 'excluded' => 2], $this->repository->counts($filters));
         $gaps = $this->repository->page($filters);
         self::assertSame($cheapest->getId(), $gaps[0]->getId(), 'the most worrying gap first: competitor cheapest');
-        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2));
+        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], \array_slice($this->repository->gapSummary($filters), 0, 2));
     }
 
     /**
@@ -107,7 +107,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $filters = new ComparatorFilters(search: $this->tag);
 
         self::assertSame(['gaps' => 2, 'review' => 1, 'pending' => 0, 'excluded' => 0], $this->repository->counts($filters));
-        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2), 'counted like any other offer');
+        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], \array_slice($this->repository->gapSummary($filters), 0, 2), 'counted like any other offer');
         $lines = $this->presenter()->present($filters, 'fr_FR')['products'][0]['lines'];
         self::assertSame([true, true], array_column($lines, 'toCheck'), 'tagged: no human decided');
         self::assertSame([(int) $article->getId()], $this->ids(new ComparatorFilters(view: ComparatorView::Review, search: $this->tag)), 'another article maybe: still a human\'s call');
@@ -480,7 +480,8 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame([(int) $helmet->getId()], array_column($review['products'], 'id'), 'one line for the product');
         self::assertCount(2, $review['products'][0]['competitors'], 'both competitors on it');
         self::assertCount(2, $review['products'][0]['lines'], 'each offer in the detail, decided on its own');
-        self::assertSame([(int) $jacket->getId()], array_column($excluded['products'], 'id'));        self::assertSame(1, $review['counts']['review'], 'the tabs count products, not offers: two offers, one product');
+        self::assertSame([(int) $jacket->getId()], array_column($excluded['products'], 'id'));
+        self::assertSame(1, $review['counts']['review'], 'the tabs count products, not offers: two offers, one product');
         self::assertSame(1, array_column($review['tabs'], 'count', 'view')['review']);
         self::assertSame(2, $this->repository->counts(new ComparatorFilters(search: $this->tag))['review'], 'offers are still counted where figures need them');
     }
