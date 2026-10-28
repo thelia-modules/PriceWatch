@@ -29,7 +29,34 @@ its last competitor page read with a price. Beyond 14 days (`LastWatch`) the
 product card, the watched products list ("Stale reading" tab) and the admin
 home say so.
 
-Requires Thelia 3.0.0 and PHP 8.3.
+Requires Thelia 3.3.0 and PHP 8.3.
+
+A match only Jev vouches for is never taken on its word: it counts once our
+GTIN and the competitor's agree. Without a GTIN on either side the offer waits
+for a human (`GTIN_UNVERIFIED`, its price still shows in the gap, tagged to
+check); two different GTINs make it `GTIN_MISMATCH`, out of the gap until a
+human decides. Google Shopping gives no GTIN, so offers read there and judged
+by Jev go to review.
+
+## AI usage and costs
+
+The module declares three AI usages, listed with their costs in the AI usage
+log of the back-office:
+
+- `pricewatch.offer_judgement`: the Jev judgments (typed questions, one request
+  per offer);
+- `pricewatch.shopping_collection`: the DataForSEO Google Shopping tasks;
+- `pricewatch.competitor_discovery`: the competitor suggestions.
+
+Jev and DataForSEO are external services outside the European Union. Neither
+call carries personal data. Before each paid call the module asks the core for
+the budget of its usage, and after it writes what the call cost. A pass stops
+when the budget of the usage is reached; the offers left stay candidates for
+the next pass. Set the budgets and the monthly cap in the core's AI settings.
+
+Competitor discovery goes through the core's AI gateway and is off by default
+(settings page, "Competitor discovery"). It has no web access, so it can only
+suggest what the model already knows; read its proposals as leads to check.
 
 ## Install
 
@@ -45,8 +72,26 @@ ddev exec php Thelia module:post-activate-all                   # Model classes 
 ddev exec php Thelia thelia:cache:clear
 ```
 
-Secrets go in `.env.local`, never in the repository and never in the database:
-`DATAFORSEO_USERNAME`, `DATAFORSEO_PASSWORD`, `TYPESAFE_API_KEY`.
+Secrets go in `.env.local`, never in the repository:
+`DATAFORSEO_USERNAME`, `DATAFORSEO_PASSWORD`, `TYPESAFE_API_KEY`. Keys typed on
+the settings page are stored encrypted by the module itself; an environment
+variable always wins over them.
+
+### Background passes
+
+A pass started from the back-office is a message on the core's `async_heavy`
+Messenger transport. It needs a worker:
+
+```bash
+ddev exec php bin/console messenger:consume async_heavy
+```
+
+with `MESSENGER_TRANSPORT_DSN` set to a real transport (for example
+`doctrine://default`). Without one the transports are synchronous and the
+back-office button is refused, since a pass would block the web request; the
+cron and console commands (`pricewatch:*`) still run in the foreground. A pass
+that fails stays in the failed messages and can be replayed; a message
+delivered twice runs once.
 
 ## Tests
 
@@ -151,7 +196,7 @@ change is made on the product page. Four tabs, most urgent first:
 
 The proposed price is the cheapest matched competitor rounded down to the
 euro. The floor is the purchase price (first `product_sale_elements_purchase`
-row of the variant, the ClassicRide purchase tab, excluding tax, decimal comma
+row of the variant, excluding tax, decimal comma
 or dot) divided by `1 - minimum margin`, with our tax ratio, rounded up to the
 cent. The minimum margin is set on the settings page, 20 % of the selling
 price excluding tax by default. Without that table or a purchase price, no
