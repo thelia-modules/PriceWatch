@@ -11,6 +11,7 @@ use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\PassRequests;
 use PriceWatch\Service\Schedule\ScheduledProduct;
 use PriceWatch\Service\Schedule\ScheduledRun;
 use PriceWatch\Service\Schedule\ScheduleRepository;
@@ -176,6 +177,80 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
         self::assertSame([], $this->runner->passes);
     }
 
+    public function testATickRunsThePassAskedForInTheBackOfficeWhateverTheSchedule(): void
+    {
+        $this->runner->inline = true;
+        $requests = $this->requests();
+        $manual = $this->manualRun($requests);
+        $manual->start(40, ['REF-A']);
+        self::assertSame([], $this->runner->passes, 'nothing runs in the web request');
+
+        $outcome = $this->scheduledRun($this->settings(enabled: false), $requests)->tick(new \DateTimeImmutable('2026-10-28 14:00:00'));
+
+        self::assertSame('requested', $outcome['status'], 'scheduling off and outside its hours: someone is waiting');
+        self::assertCount(1, $this->runner->passes);
+        $pass = $this->runner->passes[0];
+        self::assertSame([40, ['REF-A'], true], [$pass->variants, $pass->productRefs, $pass->priority], 'the pass the button announced');
+        self::assertSame(PassRequests::DONE, $requests->current()['state'] ?? null);
+        self::assertSame($requests->current()['id'] ?? null, $pass->passId, 'the request is the pass: a replay of its message runs nothing');
+    }
+
+    public function testARequestRunsOnce(): void
+    {
+        $this->runner->inline = true;
+        $requests = $this->requests();
+        $this->manualRun($requests)->start(40);
+        $settings = $this->settings(enabled: false);
+
+        $this->scheduledRun($settings, $requests)->tick(new \DateTimeImmutable('2026-10-28 14:00:00'));
+        $second = $this->scheduledRun($settings, $requests)->tick(new \DateTimeImmutable('2026-10-28 15:00:00'));
+
+        self::assertSame('disabled', $second['status']);
+        self::assertCount(1, $this->runner->passes, 'the next hour runs nothing more');
+    }
+
+    public function testARequestWaitsWhileAnotherPassRuns(): void
+    {
+        $this->runner->inline = true;
+        $requests = $this->requests();
+        $this->manualRun($requests)->start(40);
+        Propel::getConnection('TheliaMain')->exec("INSERT INTO pw_collect_run (pass_name, status, started_at, created_at, updated_at) VALUES ('direct', 'started', NOW() - INTERVAL 10 MINUTE, NOW(), NOW())");
+
+        $this->scheduledRun($this->settings(), $requests)->tick(new \DateTimeImmutable(), ignoreHours: true);
+
+        self::assertSame([], $this->runner->passes);
+        self::assertSame(PassRequests::PENDING, $requests->current()['state'] ?? null, 'taken by the next call');
+    }
+
+    public function testEveryCallOfTheTaskIsRecorded(): void
+    {
+        $settings = $this->settings(enabled: false);
+        self::assertTrue($settings->taskIsMissing(new \DateTimeImmutable()));
+
+        $this->scheduledRun($settings)->tick(new \DateTimeImmutable());
+
+        self::assertFalse($settings->taskIsMissing(new \DateTimeImmutable()), 'even when it does nothing, the task has run');
+    }
+
+    private function requests(): PassRequests
+    {
+        return new PassRequests(new InMemoryConfigStore(), new LockFactory(new InMemoryStore()));
+    }
+
+    private function manualRun(PassRequests $requests): ManualRun
+    {
+        return new ManualRun($this->runner, new LockFactory(new InMemoryStore()), '/var/www/html', $this->marker(), $requests);
+    }
+
+    private function marker(): string
+    {
+        // A marker of its own each time: the one just touched would read as a pass starting.
+        $marker = sys_get_temp_dir().'/pricewatch-schedule-test-'.bin2hex(random_bytes(4)).'.started';
+        $this->markers[] = $marker;
+
+        return $marker;
+    }
+
     private function settings(bool $enabled = true): ScheduleSettings
     {
         $settings = new ScheduleSettings(new InMemoryConfigStore());
@@ -184,13 +259,9 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
         return $settings;
     }
 
-    private function scheduledRun(ScheduleSettings $settings): ScheduledRun
+    private function scheduledRun(ScheduleSettings $settings, ?PassRequests $requests = null): ScheduledRun
     {
-        // A marker of its own each time: the one just touched would read as a pass starting.
-        $marker = sys_get_temp_dir().'/pricewatch-schedule-test-'.bin2hex(random_bytes(4)).'.started';
-        $this->markers[] = $marker;
-
-        return new ScheduledRun($settings, $this->repository(), new ManualRun($this->runner, new LockFactory(new InMemoryStore()), '/var/www/html', $marker), new ComparatorRepository());
+        return new ScheduledRun($settings, $this->repository(), new ManualRun($this->runner, new LockFactory(new InMemoryStore()), '/var/www/html', $this->marker(), $requests), new ComparatorRepository(), $requests);
     }
 
     private function repository(): ScheduleRepository

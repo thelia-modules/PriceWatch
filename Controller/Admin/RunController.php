@@ -9,6 +9,7 @@ use PriceWatch\Service\Admin\ReturnTo;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\PassAlreadyRequested;
 use PriceWatch\Service\Run\PassAlreadyRunning;
 use PriceWatch\Service\Run\RunProgress;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -111,14 +112,16 @@ final readonly class RunController
             return $this->redirect($request, $back, 'warning', 'No competitor is whitelisted: there would be nothing to compare.');
         }
 
-        if ($this->manualRun->runsInline()) {
-            return $this->redirect($request, $back, 'warning', 'No worker takes the queue of the background jobs: a pass started here would hold this page for minutes. Configure MESSENGER_TRANSPORT_DSN and run messenger:consume async_heavy, or start the pass from the console.');
-        }
-
         try {
             $this->manualRun->start($variants, $productRefs);
+        } catch (PassAlreadyRequested) {
+            return $this->redirect($request, $back, 'info', 'A pass is already waiting for the scheduled task: it starts at its next run, within the hour at most.');
         } catch (PassAlreadyRunning) {
             return $this->redirect($request, $back, 'warning', 'A pass is already running: wait until it ends, then reload the page.');
+        }
+
+        if ($this->manualRun->runsInline()) {
+            return $this->redirect($request, $back, 'success', 'The pass will start at the next run of the scheduled task, within the hour at most.');
         }
 
         return $this->redirect($request, $back, 'success', 'Price watch started on %count% variant(s), at most %cost%. Its progress shows on the page.', [

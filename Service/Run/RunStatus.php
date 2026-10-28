@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace PriceWatch\Service\Run;
 
 use PriceWatch\Model\PwCollectRun;
+use PriceWatch\Service\Schedule\SchedulePresenter;
+use PriceWatch\Service\Schedule\ScheduleSettings;
 use PriceWatch\Service\Usage\UsageRepository;
 
 /**
@@ -16,6 +18,9 @@ final readonly class RunStatus
     public function __construct(
         private RunProgress $progress,
         private UsageRepository $ledger,
+        private ?ManualRun $manualRun = null,
+        private ?PassRequests $requests = null,
+        private ?ScheduleSettings $schedule = null,
     ) {
     }
 
@@ -31,6 +36,25 @@ final readonly class RunStatus
             'progress' => $progress,
             'collect' => $this->row($this->ledger->latestRun('collect')),
             'judge' => $this->row($this->ledger->latestRun('judge')),
+            'schedule' => $this->waitingForTheSchedule(),
+        ];
+    }
+
+    /**
+     * Without a worker, a pass asked for here waits for the scheduled task:
+     * what the screen says about that, and how to get the task if it does not run.
+     *
+     * @return array{inline: bool, request: ?array{state: string, at: string, variants: int}, taskMissing: bool, cronLine: string}
+     */
+    private function waitingForTheSchedule(): array
+    {
+        $request = $this->requests?->current();
+
+        return [
+            'inline' => $this->manualRun?->runsInline() ?? false,
+            'request' => $request === null ? null : ['state' => $request['state'], 'at' => (new \DateTimeImmutable('@'.$request['at']))->setTimezone(new \DateTimeZone(date_default_timezone_get()))->format('d/m/Y H:i'), 'variants' => $request['variants']],
+            'taskMissing' => $this->schedule?->taskIsMissing(new \DateTimeImmutable()) ?? false,
+            'cronLine' => SchedulePresenter::CRON_LINE,
         ];
     }
 

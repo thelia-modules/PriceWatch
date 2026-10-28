@@ -6,7 +6,10 @@ namespace PriceWatch\Tests\Unit\Service\Run;
 
 use PHPUnit\Framework\TestCase;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\PassAlreadyRequested;
 use PriceWatch\Service\Run\PassAlreadyRunning;
+use PriceWatch\Service\Run\PassRequests;
+use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
@@ -15,11 +18,13 @@ final class ManualRunTest extends TestCase
 {
     private RecordingBackgroundRunner $runner;
     private LockFactory $locks;
+    private PassRequests $requests;
     private string $marker;
 
     protected function setUp(): void
     {
         $this->runner = new RecordingBackgroundRunner();
+        $this->requests = new PassRequests(new InMemoryConfigStore(), new LockFactory(new InMemoryStore()));
         $this->locks = new LockFactory(new InMemoryStore());
         $this->marker = sys_get_temp_dir().'/pricewatch-test-'.bin2hex(random_bytes(4)).'.started';
     }
@@ -118,8 +123,46 @@ final class ManualRunTest extends TestCase
         $this->manualRun()->start(10);
     }
 
+    public function testWithoutAWorkerTheClickIsWrittenDownAndNotRun(): void
+    {
+        $this->runner->inline = true;
+
+        $this->manualRun()->start(10, ['1SAA340']);
+
+        self::assertSame([], $this->runner->passes, 'a pass run here would hold the web request for minutes');
+        $request = $this->requests->current();
+        self::assertSame([PassRequests::PENDING, 10, ['1SAA340'], true], [$request['state'] ?? null, $request['variants'] ?? null, $request['productRefs'] ?? null, $request['priority'] ?? null]);
+    }
+
+    public function testWithAWorkerTheClickGoesToTheQueueAtOnce(): void
+    {
+        $this->manualRun()->start(10);
+
+        self::assertCount(1, $this->runner->passes);
+        self::assertNull($this->requests->current());
+    }
+
+    public function testAnotherClickWhileARequestWaitsIsRefused(): void
+    {
+        $this->runner->inline = true;
+        $this->manualRun()->start(10);
+
+        $this->expectException(PassAlreadyRequested::class);
+        $this->manualRun()->start(20);
+    }
+
+    public function testTheScheduledTaskRunsAtOnceWhateverTheQueue(): void
+    {
+        $this->runner->inline = true;
+
+        $this->manualRun()->startNow(10, [], false, 'the-request');
+
+        self::assertSame(['the-request'], array_map(static fn ($pass): string => $pass->passId, $this->runner->passes));
+        self::assertNull($this->requests->current());
+    }
+
     private function manualRun(): ManualRun
     {
-        return new ManualRun($this->runner, $this->locks, '/var/www/html', $this->marker);
+        return new ManualRun($this->runner, $this->locks, '/var/www/html', $this->marker, $this->requests);
     }
 }

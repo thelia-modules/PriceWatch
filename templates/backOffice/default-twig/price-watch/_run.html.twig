@@ -34,6 +34,21 @@
                 </button>
             </form>
         </div>
+        {% if run.schedule.inline %}
+            {# No worker takes the queue: a pass asked for here waits for the scheduled task. #}
+            <div class="small mt-2" data-testid="pw-run-waits">
+                <span class="text-muted">{{ 'The pass will start at the next run of the scheduled task, within the hour at most.'|trans({}, 'pricewatch') }}</span>
+                {% if run.schedule.request %}
+                    <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle ms-1" data-testid="pw-run-request" data-state="{{ run.schedule.request.state }}">{{ ('pass_request.' ~ run.schedule.request.state)|trans({'%at%': run.schedule.request.at, '%count%': run.schedule.request.variants}, 'pricewatch') }}</span>
+                {% endif %}
+            </div>
+            {% if run.schedule.taskMissing %}
+                <div class="alert alert-warning py-2 px-3 small mt-2 mb-0" data-testid="pw-run-cron-missing">
+                    {{ 'The scheduled task has not run for more than 2 hours, so a pass asked for here would not start. Ask your host to run this line every hour, or to run a worker with the command messenger:consume async_heavy.'|trans({}, 'pricewatch') }}
+                    <div><code>{{ run.schedule.cronLine }}</code></div>
+                </div>
+            {% endif %}
+        {% endif %}
         {% if run.running %}
             {% include '@PriceWatchModule/backOffice/default-twig/price-watch/_progress.html.twig' with {progress: run.progress, class: 'mt-2', withItems: true} only %}
         {% elseif failed is not empty %}

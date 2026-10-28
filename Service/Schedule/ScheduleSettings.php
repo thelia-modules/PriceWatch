@@ -19,6 +19,10 @@ final readonly class ScheduleSettings
     private const END_HOUR = 'schedule_end_hour';
     private const MAX_VARIANTS = 'schedule_max_variants';
     private const LAST_PASS = 'schedule_last_pass';
+    private const LAST_TICK = 'schedule_last_tick';
+
+    /** Beyond this without a call of the scheduled task, the cron line is missing or broken. */
+    public const TICK_EXPECTED_HOURS = 2;
 
     public const MAX_DAYS = 90;
 
@@ -162,6 +166,28 @@ final readonly class ScheduleSettings
         }
 
         return ['at' => (string) $decoded['at'], 'products' => (int) $decoded['products'], 'variants' => (int) $decoded['variants'], 'costUsd' => (float) $decoded['costUsd']];
+    }
+
+    /**
+     * Written at every call of the scheduled task, whatever it then does.
+     */
+    public function recordTick(\DateTimeInterface $at): void
+    {
+        $this->store->set(self::LAST_TICK, (string) $at->getTimestamp());
+    }
+
+    public function lastTick(): ?int
+    {
+        $stored = $this->store->get(self::LAST_TICK);
+
+        return ctype_digit($stored) ? (int) $stored : null;
+    }
+
+    public function taskIsMissing(\DateTimeInterface $now): bool
+    {
+        $last = $this->lastTick();
+
+        return $last === null || $now->getTimestamp() - $last > self::TICK_EXPECTED_HOURS * 3600;
     }
 
     public function recordPass(\DateTimeInterface $at, int $products, int $variants, float $costUsd): void

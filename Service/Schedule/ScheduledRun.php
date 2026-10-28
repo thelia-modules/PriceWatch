@@ -7,9 +7,11 @@ namespace PriceWatch\Service\Schedule;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\PassAlreadyRunning;
+use PriceWatch\Service\Run\PassRequests;
 
 /**
- * What one call of the cron line does (pricewatch:scheduled): nothing when
+ * What one call of the cron line does (pricewatch:scheduled): first the pass
+ * asked for in the back office when no worker takes the queue; then nothing when
  * scheduling is off, outside its hours, while a pass runs or when nothing is
  * due; otherwise the same chain as the back-office buttons on the due
  * products, in DataForSEO's standard queue.
@@ -24,6 +26,7 @@ final readonly class ScheduledRun
         private ScheduleRepository $repository,
         private ManualRun $manualRun,
         private ComparatorRepository $comparator,
+        private ?PassRequests $requests = null,
     ) {
     }
 
@@ -38,6 +41,14 @@ final readonly class ScheduledRun
     public function tick(\DateTimeImmutable $now, bool $ignoreHours = false, bool $dryRun = false): array
     {
         $nothing = static fn (string $status): array => ['status' => $status, 'products' => [], 'variants' => 0, 'costUsd' => 0.0];
+
+        $this->settings->recordTick($now);
+
+        // A pass asked for in the back office comes first, scheduling on or
+        // off: someone is waiting for it.
+        if (!$dryRun && ($requested = $this->runRequested($now)) !== null) {
+            return $requested;
+        }
 
         if (!$this->settings->enabled()) {
             return $nothing('disabled');
@@ -82,6 +93,38 @@ final readonly class ScheduledRun
         $this->settings->recordPass($now, \count($batch), $variants, $costUsd);
 
         return $planned;
+    }
+
+    /**
+     * @return array{status: string, products: list<ScheduledProduct>, variants: int, costUsd: float}|null
+     */
+    private function runRequested(\DateTimeImmutable $now): ?array
+    {
+        if ($this->requests === null || $this->isRunning($now)) {
+            return null;
+        }
+
+        $request = $this->requests->take();
+
+        if ($request === null) {
+            return null;
+        }
+
+        try {
+            $this->manualRun->startNow($request['variants'], $request['productRefs'], $request['priority'], $request['id']);
+        } catch (PassAlreadyRunning) {
+            $this->requests->release($request['id']);
+
+            return null;
+        } catch (\Throwable $error) {
+            $this->requests->fail($request['id']);
+
+            throw $error;
+        }
+
+        $this->requests->finish($request['id']);
+
+        return ['status' => 'requested', 'products' => [], 'variants' => $request['variants'], 'costUsd' => ManualRun::worstCaseUsd($request['variants'], $request['priority'])];
     }
 
     private function isRunning(\DateTimeImmutable $now): bool

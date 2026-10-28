@@ -50,6 +50,7 @@ final readonly class ManualRun
         #[Autowire('%kernel.project_dir%')]
         private string $projectDir,
         string $startMarker = '',
+        private ?PassRequests $requests = null,
     ) {
         $this->startMarker = $startMarker !== '' ? $startMarker : $projectDir.'/var/pricewatch-manual.started';
     }
@@ -97,6 +98,11 @@ final readonly class ManualRun
     }
 
     /**
+     * What the back office calls. With a worker the pass goes to the queue at
+     * once. Without one it would run inside the web request, for minutes:
+     * the request is written down instead, and the next call of the scheduled
+     * task runs it ({@see PassRequests}).
+     *
      * @param list<string> $productRefs only these products' variants;
      *                                  otherwise the ones collected longest ago
      * @param bool         $priority    false for the scheduled passes: the
@@ -106,12 +112,35 @@ final readonly class ManualRun
      */
     public function start(int $variants, array $productRefs = [], bool $priority = true): void
     {
+        if ($this->requests !== null && $this->runner->runsInline()) {
+            if ($this->isRunning()) {
+                throw new PassAlreadyRunning();
+            }
+
+            $this->requests->request($variants, $productRefs, $priority);
+
+            return;
+        }
+
+        $this->startNow($variants, $productRefs, $priority);
+    }
+
+    /**
+     * What a console process calls (the scheduled task): the pass runs now,
+     * on the queue with a worker, or inside this process without.
+     *
+     * @param list<string> $productRefs
+     *
+     * @throws PassAlreadyRunning
+     */
+    public function startNow(int $variants, array $productRefs = [], bool $priority = true, ?string $passId = null): void
+    {
         if ($this->isRunning()) {
             throw new PassAlreadyRunning();
         }
 
         $this->runner->start(new RunPass(
-            bin2hex(random_bytes(8)),
+            $passId ?? bin2hex(random_bytes(8)),
             $variants,
             $productRefs,
             $priority,

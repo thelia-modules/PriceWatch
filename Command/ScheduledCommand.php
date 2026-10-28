@@ -28,6 +28,7 @@ final class ScheduledCommand extends Command
         'outside_hours' => 'Outside the hours of the scheduled passes. Nothing done.',
         'no_competitor' => 'No competitor is whitelisted. Nothing done.',
         'running' => 'A pass is running. Nothing done.',
+        'requested' => 'Ran the pass requested from the back office.',
         'nothing_due' => 'No product is due. Nothing done.',
     ];
 

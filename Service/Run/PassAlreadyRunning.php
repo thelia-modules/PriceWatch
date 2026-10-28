@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Run;
 
-final class PassAlreadyRunning extends \RuntimeException
+class PassAlreadyRunning extends \RuntimeException
 {
-    public function __construct()
+    public function __construct(string $message = 'A price watch pass is already running.')
     {
-        parent::__construct('A price watch pass is already running.');
+        parent::__construct($message);
     }
 }
