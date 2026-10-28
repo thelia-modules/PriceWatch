@@ -9,6 +9,7 @@ use PriceWatch\Service\Admin\ReturnTo;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\PassAlreadyRunning;
 use PriceWatch\Service\Run\RunProgress;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -110,9 +111,13 @@ final readonly class RunController
             return $this->redirect($request, $back, 'warning', 'No competitor is whitelisted: there would be nothing to compare.');
         }
 
+        if ($this->manualRun->runsInline()) {
+            return $this->redirect($request, $back, 'warning', 'No worker takes the queue of the background jobs: a pass started here would hold this page for minutes. Configure MESSENGER_TRANSPORT_DSN and run messenger:consume async_heavy, or start the pass from the console.');
+        }
+
         try {
             $this->manualRun->start($variants, $productRefs);
-        } catch (\RuntimeException) {
+        } catch (PassAlreadyRunning) {
             return $this->redirect($request, $back, 'warning', 'A pass is already running: wait until it ends, then reload the page.');
         }
 

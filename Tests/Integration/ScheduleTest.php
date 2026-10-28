@@ -10,7 +10,7 @@ use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
-use PriceWatch\Service\Run\BackgroundRunner;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Schedule\ScheduledProduct;
 use PriceWatch\Service\Schedule\ScheduledRun;
@@ -34,8 +34,7 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
     private string $tag;
     private PwCompetitor $watched;
 
-    /** @var list<array{commands: list<list<string>>, log: string}> */
-    private array $started = [];
+    private RecordingBackgroundRunner $runner;
 
     /** @var list<string> */
     private array $markers = [];
@@ -44,6 +43,7 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
     {
         parent::setUp();
 
+        $this->runner = new RecordingBackgroundRunner();
         $this->tag = 'PWS'.bin2hex(random_bytes(4));
         $this->watched = (new CompetitorRepository())->create('s-'.strtolower($this->tag).'.example', CompetitorStatus::Watched, 'manual');
         Propel::getConnection('TheliaMain')->exec('UPDATE pw_product_identity SET monitored = 0 WHERE monitored = 1');
@@ -118,18 +118,18 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
         self::assertSame('started', $outcome['status']);
         self::assertSame([$flagship->getId(), $never->getId()], array_map(static fn (ScheduledProduct $product): int => $product->productId, $outcome['products']), 'the flagship first; the weekly one read yesterday waits');
         self::assertSame(3, $outcome['variants']);
-        self::assertCount(1, $this->started);
-        $collect = $this->started[0]['commands'][1];
-        self::assertNotContains('--priority', $collect);
-        self::assertContains('--product='.$flagship->getRef(), $collect);
-        self::assertContains('--product='.$never->getRef(), $collect);
-        self::assertNotContains('--product='.$weekly->getRef(), $collect);
+        self::assertCount(1, $this->runner->passes);
+        $pass = $this->runner->passes[0];
+        self::assertFalse($pass->priority);
+        self::assertContains($flagship->getRef(), $pass->productRefs);
+        self::assertContains($never->getRef(), $pass->productRefs);
+        self::assertNotContains($weekly->getRef(), $pass->productRefs);
         self::assertSame(3, $settings->lastPass()['variants'] ?? null);
 
         $again = $this->scheduledRun($settings)->tick(new \DateTimeImmutable(), ignoreHours: true);
 
         self::assertSame('nothing_due', $again['status'], 'taken an instant ago: not again at the next hour, found or not');
-        self::assertCount(1, $this->started);
+        self::assertCount(1, $this->runner->passes);
     }
 
     /**
@@ -162,7 +162,7 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
         $dryRun = $this->scheduledRun($settings)->tick(new \DateTimeImmutable(), ignoreHours: true, dryRun: true);
         self::assertSame('dry_run', $dryRun['status']);
         self::assertSame([$product->getId()], array_map(static fn (ScheduledProduct $scheduled): int => $scheduled->productId, $dryRun['products']));
-        self::assertSame([], $this->started);
+        self::assertSame([], $this->runner->passes);
         self::assertNull($this->repository()->watched()[0]->lastRead, 'a dry run marks nothing');
     }
 
@@ -173,7 +173,7 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
         Propel::getConnection('TheliaMain')->exec("INSERT INTO pw_collect_run (pass_name, status, started_at, created_at, updated_at) VALUES ('direct', 'started', NOW() - INTERVAL 10 MINUTE, NOW(), NOW())");
 
         self::assertSame('running', $this->scheduledRun($this->settings())->tick(new \DateTimeImmutable(), ignoreHours: true)['status'], 'between two commands of a chain no lock is held');
-        self::assertSame([], $this->started);
+        self::assertSame([], $this->runner->passes);
     }
 
     private function settings(bool $enabled = true): ScheduleSettings
@@ -186,22 +186,11 @@ final class ScheduleTest extends PriceWatchIntegrationTestCase
 
     private function scheduledRun(ScheduleSettings $settings): ScheduledRun
     {
-        $runner = new class($this->started) implements BackgroundRunner {
-            /** @param list<array{commands: list<list<string>>, log: string}> $started */
-            public function __construct(private array &$started)
-            {
-            }
-
-            public function start(array $commands, string $logFile): void
-            {
-                $this->started[] = ['commands' => $commands, 'log' => $logFile];
-            }
-        };
         // A marker of its own each time: the one just touched would read as a pass starting.
         $marker = sys_get_temp_dir().'/pricewatch-schedule-test-'.bin2hex(random_bytes(4)).'.started';
         $this->markers[] = $marker;
 
-        return new ScheduledRun($settings, $this->repository(), new ManualRun($runner, new LockFactory(new InMemoryStore()), '/var/www/html', $marker), new ComparatorRepository());
+        return new ScheduledRun($settings, $this->repository(), new ManualRun($this->runner, new LockFactory(new InMemoryStore()), '/var/www/html', $marker), new ComparatorRepository());
     }
 
     private function repository(): ScheduleRepository

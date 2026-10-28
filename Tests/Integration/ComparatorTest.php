@@ -21,7 +21,8 @@ use PriceWatch\Service\Comparator\OfferReview;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
-use PriceWatch\Service\Run\BackgroundRunner;
+use PriceWatch\Service\Run\RunPass;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
 use Propel\Runtime\Propel;
 use Symfony\Component\Lock\LockFactory;
@@ -226,11 +227,10 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame([(int) $oldest->getId(), (int) $recent->getId()], $reading->batch(new ComparatorFilters(search: $this->tag, cheaperOnly: true))['products'], 'the screen filters hold');
 
         self::assertSame(['products' => 2, 'variants' => 2], $reading->start(new ComparatorFilters(search: $this->tag, cheaperOnly: true)));
-        $collect = $started[0][1];
-        self::assertContains('--limit=2', $collect);
-        self::assertContains('--product='.$oldest->getRef(), $collect);
-        self::assertContains('--product='.$recent->getRef(), $collect);
-        self::assertNotContains('--product='.$cheaper->getRef(), $collect);
+        self::assertSame(2, $started[0]->variants);
+        self::assertContains($oldest->getRef(), $started[0]->productRefs);
+        self::assertContains($recent->getRef(), $started[0]->productRefs);
+        self::assertNotContains($cheaper->getRef(), $started[0]->productRefs);
     }
 
     public function testOffersOfCompetitorsOffTheWhitelistAreNeverShown(): void
@@ -541,21 +541,12 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     }
 
     /**
-     * @param list<list<list<string>>> $started the commands of each pass started
+     * @param list<RunPass> $started each pass started
      */
     private function gapsReading(array &$started): GapsReading
     {
-        $runner = new class($started) implements BackgroundRunner {
-            /** @param list<list<list<string>>> $started */
-            public function __construct(private array &$started)
-            {
-            }
-
-            public function start(array $commands, string $logFile): void
-            {
-                $this->started[] = $commands;
-            }
-        };
+        $runner = new RecordingBackgroundRunner();
+        $runner->passes = &$started;
 
         return new GapsReading($this->repository, new CatalogVariantRepository(), new ManualRun($runner, new LockFactory(new InMemoryStore()), '/tmp', sys_get_temp_dir().'/pricewatch-test-'.$this->tag.'.started'));
     }

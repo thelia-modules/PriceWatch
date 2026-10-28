@@ -7,7 +7,7 @@ namespace PriceWatch\Tests\Integration;
 use PriceWatch\Model\PwCollectRun;
 use PriceWatch\Service\Matching\OfferJudge;
 use PriceWatch\Service\Run\AbandonedRuns;
-use PriceWatch\Service\Run\BackgroundRunner;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Run\RunProgress;
@@ -205,11 +205,7 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
     private function progress(): RunProgress
     {
-        $runner = new class implements BackgroundRunner {
-            public function start(array $commands, string $logFile): void
-            {
-            }
-        };
+        $runner = new RecordingBackgroundRunner();
 
         return new RunProgress(new ManualRun($runner, $this->locks, '/tmp', $this->marker));
     }

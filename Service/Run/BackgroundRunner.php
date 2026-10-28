@@ -5,12 +5,20 @@ declare(strict_types=1);
 namespace PriceWatch\Service\Run;
 
 /**
- * Starts console commands that outlive the web request which asked for them.
+ * Hands a pass to whatever runs it after the web request has returned.
  */
 interface BackgroundRunner
 {
+    public function start(RunPass $pass): void;
+
     /**
-     * @param list<list<string>> $commands run one after the other, each as an argument list
+     * True while a pass asked for waits on the queue for a worker.
      */
-    public function start(array $commands, string $logFile): void;
+    public function hasPending(): bool;
+
+    /**
+     * True when no worker takes the queue: the pass would run at once, inside
+     * the call that asks for it. Fine for a command, never for a web request.
+     */
+    public function runsInline(): bool;
 }

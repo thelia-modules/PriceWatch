@@ -6,6 +6,7 @@ namespace PriceWatch\Service\Schedule;
 
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\PassAlreadyRunning;
 
 /**
  * What one call of the cron line does (pricewatch:scheduled): nothing when
@@ -70,7 +71,7 @@ final readonly class ScheduledRun
 
         try {
             $this->manualRun->start($variants, array_map(static fn (ScheduledProduct $product): string => $product->ref, $batch), false);
-        } catch (\RuntimeException) {
+        } catch (PassAlreadyRunning) {
             return $nothing('running');
         }
 
