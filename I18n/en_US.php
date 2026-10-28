@@ -6,13 +6,6 @@ declare(strict_types=1);
 // an entry here.
 return [
     'Veille tarifaire' => 'Price watch',
-    'effort.none' => 'No reasoning',
-    'effort.minimal' => 'Minimal',
-    'effort.low' => 'Low',
-    'effort.medium' => 'Medium',
-    'effort.high' => 'High',
-    'effort.xhigh' => 'Very high',
-    'effort.max' => 'Maximum',
 
     // Comparator
     'view.gaps' => 'Gaps',

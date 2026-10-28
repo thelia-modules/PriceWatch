@@ -11,24 +11,22 @@ use PriceWatch\Service\Competitor\CatalogSampleSource;
 use PriceWatch\Service\Competitor\CompetitorDiscovery;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Competitor\DiscoveryException;
 use PriceWatch\Service\Competitor\DiscoveryPrompt;
 use PriceWatch\Service\Competitor\DiscoveryResponseParser;
 use PriceWatch\Service\Competitor\DomainResolver;
-use PriceWatch\Service\Llm\LlmException;
-use PriceWatch\Service\Llm\OpenRouterClient;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
-use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Usage\UsageLedger;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
+use PriceWatch\Tests\Doubles\FakeAiGateway;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
-use Symfony\Component\HttpClient\MockHttpClient;
-use Symfony\Component\HttpClient\Response\MockResponse;
+use Thelia\Domain\Ai\Exception\AiBudgetExceededException;
 
 /**
  * The model suggests, the code decides, a human arbitrates. No network: the
- * OpenRouter answer is canned and DNS is faked.
+ * gateway answer is canned and DNS is faked.
  */
 final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
 {
@@ -58,7 +56,8 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
 
         $evidence = json_decode((string) $competitor->getDiscoveryEvidenceJson(), true);
         self::assertSame('Vend Ixon et Bell.', $evidence['reason']);
-        self::assertSame([['url' => 'https://source.example/page', 'title' => 'Source']], $evidence['sources']);
+        self::assertSame('vendor/model', $evidence['model']);
+        self::assertArrayNotHasKey('sources', $evidence, 'the model has no web access: nothing to cite');
     }
 
     public function testBlacklistedDomainIsNeverProposedAgain(): void
@@ -125,12 +124,53 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
     public function testExcludedDomainsAreToldToTheModel(): void
     {
         (new CompetitorRepository())->create($this->domain('banned'), CompetitorStatus::Rejected, 'manual');
-        $sent = [];
+        $gateway = new FakeAiGateway('{"competitors":[]}');
 
-        $this->discovery([], sent: $sent)->suggest('fr_FR');
+        $this->discovery(gateway: $gateway)->suggest('fr_FR');
 
-        $body = json_decode((string) $sent[0]['body'], true);
-        self::assertStringContainsString($this->domain('banned'), $body['messages'][1]['content']);
+        self::assertStringContainsString($this->domain('banned'), $gateway->requests[0]->messages[0]->content);
+    }
+
+    public function testTheRequestNamesItsUsageAndAsksForTheSchemaAndNothingElse(): void
+    {
+        $gateway = new FakeAiGateway('{"competitors":[]}');
+
+        $this->discovery(gateway: $gateway)->suggest('fr_FR');
+
+        $request = $gateway->requests[0];
+        self::assertSame('pricewatch.competitor_discovery', $request->usageId);
+        self::assertSame('competitors', $request->outputSchema?->name);
+        self::assertSame([], $request->tools, 'no tool, and no provider-side web search');
+        self::assertSame([], $request->providerOptions, 'no way out of the governed path');
+    }
+
+    public function testTheFunctionIsOffUntilTheMerchantTurnsItOn(): void
+    {
+        $gateway = new FakeAiGateway('{"competitors":[]}');
+
+        try {
+            $this->discovery(gateway: $gateway, enabled: false)->suggest('fr_FR');
+            self::fail('expected a refusal');
+        } catch (DiscoveryException $off) {
+            self::assertStringContainsString('switched off', $off->getMessage());
+        }
+
+        self::assertSame([], $gateway->requests, 'no call, no cost');
+    }
+
+    public function testARefusalOfTheAiLayerIsReportedInItsOwnWords(): void
+    {
+        $gateway = new FakeAiGateway('{}', new AiBudgetExceededException('pricewatch.competitor_discovery'));
+        $before = $this->ledgerRows();
+
+        try {
+            $this->discovery(gateway: $gateway)->suggest('fr_FR');
+            self::fail('expected a refusal');
+        } catch (DiscoveryException $refused) {
+            self::assertStringContainsString('monthly budget', $refused->getMessage());
+        }
+
+        self::assertSame($before, $this->ledgerRows(), 'refused before the call: nothing was paid');
     }
 
     public function testUnparseableAnswerIsAnErrorNotAnEmptyList(): void
@@ -140,7 +180,7 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
         try {
             $this->discovery(rawContent: 'Je ne peux pas répondre.')->suggest('fr_FR');
             self::fail('expected an error');
-        } catch (LlmException) {
+        } catch (DiscoveryException) {
         }
 
         self::assertSame($before + 1, $this->ledgerRows(), 'a useless answer is still paid for, and counted');
@@ -155,7 +195,7 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
         self::assertSame('vendor/model', $run->getLlmModel());
         self::assertSame(1234, $run->getLlmPromptTokens());
         self::assertSame(567, $run->getLlmCompletionTokens());
-        self::assertEqualsWithDelta(0.00421, (float) $run->getLlmCostUsd(), 1e-9, 'the cost OpenRouter billed, not an estimate');
+        self::assertEqualsWithDelta(0.00421, (float) $run->getLlmCostUsd(), 1e-9, 'the cost the log of the core holds, not an estimate');
     }
 
     private function ledgerRows(): int
@@ -178,25 +218,13 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
         ?string $shopUrl = null,
         array $unresolvable = [],
         ?string $rawContent = null,
-        array &$sent = [],
+        ?FakeAiGateway $gateway = null,
+        bool $enabled = true,
     ): CompetitorDiscovery {
         $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
-        $settings->storeSecret(SecretName::OpenrouterApiKey, 'sk-or-test');
-        $settings->setLlmModel('vendor/model');
+        $settings->setDiscoveryEnabled($enabled);
 
-        $content = $rawContent ?? (string) json_encode(['competitors' => $competitors]);
-        $http = new MockHttpClient(static function (string $method, string $url, array $options) use ($content, &$sent): MockResponse {
-            $sent[] = $options;
-
-            return new MockResponse((string) json_encode([
-                'model' => 'vendor/model',
-                'usage' => ['prompt_tokens' => 1234, 'completion_tokens' => 567, 'total_tokens' => 1801, 'cost' => 0.00421],
-                'choices' => [['message' => [
-                    'content' => $content,
-                    'annotations' => [['type' => 'url_citation', 'url_citation' => ['url' => 'https://source.example/page', 'title' => 'Source']]],
-                ]]],
-            ]));
-        });
+        $gateway ??= new FakeAiGateway($rawContent ?? (string) json_encode(['competitors' => $competitors]));
 
         $catalog = new class($shopUrl) implements CatalogSampleSource {
             public function __construct(private readonly ?string $shopUrl)
@@ -222,7 +250,7 @@ final class CompetitorDiscoveryTest extends PriceWatchIntegrationTestCase
         };
 
         return new CompetitorDiscovery(
-            new OpenRouterClient($http, $settings),
+            $gateway,
             $settings,
             $catalog,
             new CompetitorRepository(),

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Command;
 
 use PriceWatch\Service\Competitor\CompetitorDiscovery;
-use PriceWatch\Service\Llm\LlmException;
+use PriceWatch\Service\Competitor\DiscoveryException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -15,7 +15,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand(
     name: 'pricewatch:competitors:suggest',
-    description: 'Asks the configured reasoning model for competitor candidates. They land as proposals, never on the whitelist.',
+    description: 'Asks the model of the AI layer for competitor candidates (needs the function turned on in the settings). They land as proposals, never on the whitelist.',
 )]
 final class SuggestCompetitorsCommand extends Command
 {
@@ -38,7 +38,7 @@ final class SuggestCompetitorsCommand extends Command
 
         try {
             $report = $this->discovery->suggest((string) $input->getOption('locale'), $maximum);
-        } catch (LlmException $error) {
+        } catch (DiscoveryException $error) {
             $io->error($error->getMessage());
 
             return self::FAILURE;
@@ -50,7 +50,6 @@ final class SuggestCompetitorsCommand extends Command
             ['Blacklisted, ignored', \count($report->blacklisted)],
             ['No DNS record, dropped', \count($report->unresolved)],
             ['Unusable or own domain', \count($report->invalid)],
-            ['Web sources consulted', $report->citations],
             ['Model', (string) $report->model],
         ]);
 

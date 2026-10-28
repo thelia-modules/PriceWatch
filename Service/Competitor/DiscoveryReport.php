@@ -24,5 +24,4 @@ final class DiscoveryReport
     public ?string $model = null;
     public int $promptTokens = 0;
     public int $completionTokens = 0;
-    public int $citations = 0;
 }

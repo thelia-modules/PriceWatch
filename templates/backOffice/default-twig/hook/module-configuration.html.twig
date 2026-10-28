@@ -79,62 +79,33 @@
                 <div class="card h-100">
                     <div class="card-header fw-semibold">OpenRouter</div>
                     <div class="card-body">
-                        <p class="text-muted small">{{ 'Used by the reasoning model, and by the checks when they go through OpenRouter.'|trans({}, 'pricewatch') }}</p>
+                        <p class="text-muted small">{{ 'Used only by the match checks, when they go through OpenRouter.'|trans({}, 'pricewatch') }}</p>
                         {{ _self.secret_field(secrets.openrouter_api_key, 'OpenRouter API key'|trans({}, 'pricewatch'), null, 'pw-test-openrouter') }}
                     </div>
                 </div>
             </div>
 
             <div class="col-12">
+                <div class="alert alert-info mb-0" data-testid="pw-services-notice">
+                    {{ 'The match checks (TypeSafe or OpenRouter) and the Google Shopping searches (DataForSEO) are external services, run outside the European Union or where the processing is not established. They receive product titles, sizes, prices and seller names: no personal data. Their cost counts in the AI consumption of the shop, and the monthly budget set there for each use applies to them.'|trans({}, 'pricewatch') }}
+                </div>
+            </div>
+
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span class="fw-semibold">{{ 'Reasoning model for competitor search'|trans({}, 'pricewatch') }}</span>
-                        <span class="badge {{ llmReady ? 'text-bg-success' : 'text-bg-warning' }}">{{ llmReady ? 'Ready'|trans({}, 'pricewatch') : 'Not ready'|trans({}, 'pricewatch') }}</span>
+                        <span class="fw-semibold">{{ 'Competitor discovery'|trans({}, 'pricewatch') }}</span>
+                        <span class="badge {{ discoveryEnabled ? 'text-bg-success' : 'text-bg-secondary' }}" data-testid="pw-discovery-state">{{ discoveryEnabled ? 'On'|trans({}, 'pricewatch') : 'Off'|trans({}, 'pricewatch') }}</span>
                     </div>
                     <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-12 col-lg-6">
-                                <label class="form-label fw-semibold" for="pw-llm-model">{{ 'Model'|trans({}, 'pricewatch') }}</label>
-                                <div class="input-group">
-                                    <input type="text" class="form-control font-monospace" id="pw-llm-model" name="llm_model" list="pw-model-list"
-                                           value="{{ llmModel }}" placeholder="vendor/model" spellcheck="false" autocomplete="off">
-                                    <button type="submit" class="btn btn-outline-secondary" form="pw-refresh-models"
-                                            {% if secrets.openrouter_api_key.source not in ['admin', 'environment'] %}disabled{% endif %}>{{ 'Load the model list'|trans({}, 'pricewatch') }}</button>
-                                </div>
-                                <datalist id="pw-model-list">
-                                    {% for model in modelList %}
-                                        <option value="{{ model.id }}">{{ model.name }}{% if model.reasoning %} ({{ 'reasoning'|trans({}, 'pricewatch') }}){% endif %}</option>
-                                    {% endfor %}
-                                </datalist>
-                                <div class="form-text">
-                                    {% if modelList is empty %}
-                                        {{ 'Save the OpenRouter key, then load the list of available models.'|trans({}, 'pricewatch') }}
-                                    {% else %}
-                                        {{ '%count% models available. Models that support reasoning are listed first.'|trans({'%count%': modelList|length}, 'pricewatch') }}
-                                    {% endif %}
-                                </div>
-                            </div>
-                            <div class="col-12 col-sm-6 col-lg-3">
-                                <label class="form-label fw-semibold" for="pw-llm-effort">{{ 'Reasoning effort'|trans({}, 'pricewatch') }}</label>
-                                <select class="form-select" id="pw-llm-effort" name="llm_reasoning_effort">
-                                    {% for effort in reasoningEfforts %}
-                                        <option value="{{ effort }}" {% if effort == reasoningEffort %}selected{% endif %}>{{ ('effort.' ~ effort)|trans({}, 'pricewatch') }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="col-12 col-sm-6 col-lg-3 d-flex align-items-end">
-                                <div class="form-check mb-2">
-                                    <input class="form-check-input" type="checkbox" value="1" id="pw-llm-web" name="llm_web_search" {% if webSearch %}checked{% endif %}>
-                                    <label class="form-check-label" for="pw-llm-web">{{ 'Search the web'|trans({}, 'pricewatch') }}</label>
-                                </div>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label fw-semibold" for="pw-shop-description">{{ 'About the shop'|trans({}, 'pricewatch') }}</label>
-                                <textarea class="form-control" id="pw-shop-description" name="shop_description" rows="2" maxlength="500">{{ shopDescription }}</textarea>
-                                <div class="form-text">{{ 'Optional. One or two sentences on what you sell and to whom, to help the model find direct competitors.'|trans({}, 'pricewatch') }}</div>
-                            </div>
+                        <p class="text-muted small">{{ 'The model is the one the shop assigns to this use in the AI settings. It cannot browse the web: its suggestions come from what it learned in training, so they may be dated and some shops may not exist. Every suggestion waits for your decision. Off by default.'|trans({}, 'pricewatch') }}</p>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" value="1" id="pw-discovery-enabled" name="discovery_enabled" {% if discoveryEnabled %}checked{% endif %}>
+                            <label class="form-check-label" for="pw-discovery-enabled">{{ 'Suggest competitors with the model'|trans({}, 'pricewatch') }}</label>
                         </div>
-                        <p class="text-muted small mt-3 mb-0">{{ 'Without web search, suggestions rely on what the model learned in training: they may be dated, and some shops may not exist.'|trans({}, 'pricewatch') }}</p>
+                        <label class="form-label fw-semibold" for="pw-shop-description">{{ 'About the shop'|trans({}, 'pricewatch') }}</label>
+                        <textarea class="form-control" id="pw-shop-description" name="shop_description" rows="2" maxlength="500">{{ shopDescription }}</textarea>
+                        <div class="form-text">{{ 'Optional. One or two sentences on what you sell and to whom, to help the model find direct competitors.'|trans({}, 'pricewatch') }}</div>
                     </div>
                 </div>
             </div>
@@ -267,7 +238,4 @@
             <input type="hidden" name="_token" value="{{ csrfToken }}">
         </form>
     {% endfor %}
-    <form id="pw-refresh-models" method="post" action="{{ path('pricewatch_settings_models') }}" class="d-none">
-        <input type="hidden" name="_token" value="{{ csrfToken }}">
-    </form>
 </div>

@@ -39,9 +39,7 @@ final readonly class CompetitorPagePresenter
             'proposed' => $proposed,
             'whitelist' => $whitelist,
             'blacklist' => $blacklist,
-            'llmReady' => $this->settings->isLlmReady(),
-            'llmModel' => $this->settings->llmModel(),
-            'webSearch' => $this->settings->webSearchEnabled(),
+            'discoveryEnabled' => $this->settings->discoveryEnabled(),
         ];
     }
 

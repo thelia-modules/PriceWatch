@@ -9,7 +9,6 @@ use PHPUnit\Framework\TestCase;
 use PriceWatch\Service\Settings\InvalidSettingException;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
-use PriceWatch\Service\Settings\ReasoningEffort;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Settings\SecretSource;
@@ -131,52 +130,17 @@ final class PriceWatchSettingsTest extends TestCase
         self::assertSame('https://openrouter.ai/api/v1/systemone', $settings->jevProvider()->endpoint());
     }
 
-    public function testNoModelIsAssumed(): void
-    {
-        $settings = $this->settings();
-        $settings->storeSecret(SecretName::OpenrouterApiKey, self::KEY);
-
-        self::assertNull($settings->llmModel());
-        self::assertFalse($settings->isLlmReady(), 'a key without a chosen model is not ready');
-
-        $settings->setLlmModel('vendor/some-model:online');
-        self::assertTrue($settings->isLlmReady());
-
-        $settings->setLlmModel('');
-        self::assertNull($settings->llmModel());
-    }
-
-    public function testMalformedModelIdIsRefused(): void
-    {
-        $this->expectException(InvalidSettingException::class);
-
-        $this->settings()->setLlmModel('vendor/model; DROP TABLE');
-    }
-
-    public function testReasoningIsOnAndWebSearchIsOnByDefault(): void
+    public function testCompetitorDiscoveryIsOffUntilTheMerchantTurnsItOn(): void
     {
         $settings = $this->settings();
 
-        self::assertSame(ReasoningEffort::High, $settings->reasoningEffort());
-        self::assertTrue($settings->webSearchEnabled());
+        self::assertFalse($settings->discoveryEnabled(), 'the model has no web access: off by default');
 
-        $settings->setReasoningEffort(ReasoningEffort::None);
-        $settings->setWebSearchEnabled(false);
+        $settings->setDiscoveryEnabled(true);
+        self::assertTrue($settings->discoveryEnabled());
 
-        self::assertSame(ReasoningEffort::None, $settings->reasoningEffort());
-        self::assertFalse($settings->webSearchEnabled());
-    }
-
-    public function testModelListSurvivesARoundTripAndIgnoresGarbage(): void
-    {
-        $settings = $this->settings();
-        $models = [['id' => 'vendor/a', 'name' => 'A', 'reasoning' => true]];
-        $settings->storeModelList($models);
-
-        self::assertSame($models, $settings->modelList());
-
-        $this->store->set('llm_model_list', '{not json');
-        self::assertSame([], $settings->modelList());
+        $settings->setDiscoveryEnabled(false);
+        self::assertFalse($settings->discoveryEnabled());
     }
 
     public function testShopDescriptionIsTrimmedAndCapped(): void

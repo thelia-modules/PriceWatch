@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Competitor;
 
-use PriceWatch\Service\Llm\LlmException;
-use PriceWatch\Service\Llm\OpenRouterClient;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Usage\UsageLedger;
+use Thelia\Domain\Ai\AiAudience;
+use Thelia\Domain\Ai\AiCapability;
+use Thelia\Domain\Ai\AiGatewayInterface;
+use Thelia\Domain\Ai\AiTier;
+use Thelia\Domain\Ai\AsAiUsage;
+use Thelia\Domain\Ai\Exception\AiExceptionInterface;
 
 /**
  * Asks the reasoning model for competitor candidates, then lets the code
@@ -19,7 +23,20 @@ use PriceWatch\Service\Usage\UsageLedger;
  * malformed domain, our own shop, a domain already on either list, and a
  * domain that does not resolve. A blacklisted domain is never proposed again,
  * whatever the model says.
+ *
+ * The model is reached through the gateway of the core, which holds the
+ * connection, the key, the budget and the log. It has no web access: the
+ * suggestions come from what it learned in training, which is dated and can
+ * invent shops, hence the DNS check and the human decision. The merchant turns
+ * the function on in the module settings (off by default).
  */
+#[AsAiUsage(
+    id: DiscoveryPrompt::USAGE,
+    purpose: 'Suggests direct competitor shops from a sample of the catalogue, for an administrator to accept or refuse.',
+    audience: AiAudience::Admin,
+    tier: AiTier::Standard,
+    capabilities: [AiCapability::StructuredOutput],
+)]
 final readonly class CompetitorDiscovery
 {
     public const SOURCE = 'llm';
@@ -27,7 +44,7 @@ final readonly class CompetitorDiscovery
     public const DEFAULT_MAXIMUM = 15;
 
     public function __construct(
-        private OpenRouterClient $client,
+        private AiGatewayInterface $gateway,
         private PriceWatchSettings $settings,
         private CatalogSampleSource $catalog,
         private CompetitorRepository $competitors,
@@ -40,34 +57,38 @@ final readonly class CompetitorDiscovery
     }
 
     /**
-     * @throws LlmException
+     * @throws DiscoveryException
      */
     public function suggest(string $locale, int $maximum = self::DEFAULT_MAXIMUM): DiscoveryReport
     {
+        if (!$this->settings->discoveryEnabled()) {
+            throw DiscoveryException::disabled();
+        }
+
         $sample = $this->catalog->sample($locale);
         $known = $this->competitors->knownDomains();
         $ownDomain = $this->domainNormalizer->registrableDomain($sample->shopUrl);
 
-        $answer = $this->client->complete(
-            $this->prompt->messages(
+        try {
+            $answer = $this->gateway->complete($this->prompt->request(
                 $sample,
                 $this->settings->shopDescription(),
                 array_values(array_filter([...array_keys($known), $ownDomain])),
                 $maximum,
-            ),
-            DiscoveryPrompt::WEB_SEARCH_PROMPT,
-        );
+            ));
+        } catch (AiExceptionInterface $refusal) {
+            throw DiscoveryException::refused($refusal);
+        }
 
         // Paid as soon as answered, whatever the answer turns out to be worth.
         $this->ledger->recordModelCall(self::PASS, $answer);
 
-        $candidates = $this->parser->parse($answer->content) ?? throw LlmException::malformed('no competitor list in the answer');
+        $candidates = $this->parser->parse($answer->text) ?? throw DiscoveryException::malformed('no competitor list in the answer');
 
         $report = new DiscoveryReport();
         $report->model = $answer->model;
-        $report->promptTokens = $answer->promptTokens;
-        $report->completionTokens = $answer->completionTokens;
-        $report->citations = \count($answer->citations);
+        $report->promptTokens = $answer->tokenUsage->inputTokens;
+        $report->completionTokens = $answer->tokenUsage->outputTokens;
 
         $seenThisRun = [];
 
@@ -112,8 +133,6 @@ final readonly class CompetitorDiscovery
                 evidence: [
                     'reason' => $candidate['reason'],
                     'model' => $answer->model,
-                    'web_search' => $this->settings->webSearchEnabled(),
-                    'sources' => \array_slice($answer->citations, 0, 10),
                     'suggested_at' => (new \DateTimeImmutable())->format(\DATE_ATOM),
                 ],
             );

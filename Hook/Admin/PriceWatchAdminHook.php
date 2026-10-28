@@ -11,7 +11,6 @@ use PriceWatch\Service\Comparator\ProductCardPresenter;
 use PriceWatch\Service\Schedule\SchedulePresenter;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
-use PriceWatch\Service\Settings\ReasoningEffort;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Suggestion\SuggestionRepository;
 use PriceWatch\Controller\Admin\RunController;
@@ -228,12 +227,7 @@ class PriceWatchAdminHook extends BaseHook
             'jevProvider' => $this->settings->jevProvider()->value,
             'jevProviders' => array_map(static fn (JevProvider $provider): string => $provider->value, JevProvider::cases()),
             'jevReady' => $this->settings->isJevReady(),
-            'llmReady' => $this->settings->isLlmReady(),
-            'llmModel' => $this->settings->llmModel(),
-            'modelList' => $this->settings->modelList(),
-            'reasoningEffort' => $this->settings->reasoningEffort()->value,
-            'reasoningEfforts' => array_map(static fn (ReasoningEffort $effort): string => $effort->value, ReasoningEffort::cases()),
-            'webSearch' => $this->settings->webSearchEnabled(),
+            'discoveryEnabled' => $this->settings->discoveryEnabled(),
             'shopDescription' => $this->settings->shopDescription(),
             'dataforseoLogin' => $this->settings->dataforseoLoginFromEnvironment() ? null : $this->settings->dataforseoLogin(),
             'dataforseoLoginFromEnvironment' => $this->settings->dataforseoLoginFromEnvironment(),

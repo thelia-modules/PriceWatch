@@ -10,7 +10,7 @@ use PriceWatch\Service\Admin\CompetitorPagePresenter;
 use PriceWatch\Service\Competitor\CompetitorDiscovery;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
-use PriceWatch\Service\Llm\LlmException;
+use PriceWatch\Service\Competitor\DiscoveryException;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -146,16 +146,16 @@ final readonly class CompetitorController
             return $denied;
         }
 
-        if (!$this->settings->isLlmReady()) {
-            return $this->back($request, 'warning', 'Set an OpenRouter key and choose a model in the module settings first.');
+        if (!$this->settings->discoveryEnabled()) {
+            return $this->back($request, 'warning', 'Competitor discovery is switched off: turn it on in the module settings first.');
         }
 
-        // Reasoning plus web search can take a couple of minutes.
+        // A reasoning model can take a couple of minutes.
         set_time_limit(300);
 
         try {
             $report = $this->discovery->suggest($request->getLocale());
-        } catch (LlmException $error) {
+        } catch (DiscoveryException $error) {
             return $this->back($request, 'danger', $error->getMessage());
         }
 

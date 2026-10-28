@@ -61,7 +61,7 @@
         <div class="d-flex gap-2">
             <form method="post" action="{{ path('pricewatch_competitors_suggest') }}">
                 <input type="hidden" name="_token" value="{{ csrfToken }}">
-                <button type="submit" class="btn btn-primary" data-testid="pw-suggest" {% if not llmReady %}disabled{% endif %}>
+                <button type="submit" class="btn btn-primary" data-testid="pw-suggest" {% if not discoveryEnabled %}disabled{% endif %}>
                     <i class="bi bi-stars me-1" aria-hidden="true"></i>{{ 'Suggest competitors'|trans({}, 'pricewatch') }}
                 </button>
             </form>
@@ -69,16 +69,12 @@
         </div>
     </div>
 
-    {% if not llmReady %}
-        <div class="alert alert-info" data-testid="pw-llm-not-ready">
-            {{ 'To get suggestions, set an OpenRouter key and choose a model in the settings. You can add competitors by hand meanwhile.'|trans({}, 'pricewatch') }}
+    {% if not discoveryEnabled %}
+        <div class="alert alert-info" data-testid="pw-discovery-off">
+            {{ 'Competitor suggestions are off. Turn them on in the settings to get a list from the model, or add competitors by hand.'|trans({}, 'pricewatch') }}
         </div>
     {% else %}
-        <p class="small text-muted">
-            {{ 'Model:'|trans({}, 'pricewatch') }} <span class="font-monospace">{{ llmModel }}</span>,
-            {{ webSearch ? 'with web search'|trans({}, 'pricewatch') : 'without web search'|trans({}, 'pricewatch') }}.
-            {{ 'A suggestion can take a minute or two.'|trans({}, 'pricewatch') }}
-        </p>
+        <p class="small text-muted">{{ 'The model cannot browse the web: check each suggestion before accepting it. A suggestion can take a minute or two.'|trans({}, 'pricewatch') }}</p>
     {% endif %}
 
     <div class="card mb-4">

@@ -5,15 +5,12 @@ declare(strict_types=1);
 namespace PriceWatch\Controller\Admin;
 
 use PriceWatch\Service\Admin\AdminRequestGuard;
-use PriceWatch\Service\Llm\LlmException;
-use PriceWatch\Service\Llm\OpenRouterClient;
 use PriceWatch\Service\Schedule\ScheduleSettings;
 use PriceWatch\Service\Schedule\WatchTier;
 use PriceWatch\Service\Settings\ConnectionCheck;
 use PriceWatch\Service\Settings\InvalidSettingException;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
-use PriceWatch\Service\Settings\ReasoningEffort;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Settings\SecretSource;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -30,7 +27,6 @@ final readonly class SettingsController
         private PriceWatchSettings $settings,
         private ScheduleSettings $schedule,
         private ConnectionCheck $connectionCheck,
-        private OpenRouterClient $openRouter,
         private UrlGeneratorInterface $urlGenerator,
         private TranslatorInterface $translator,
     ) {
@@ -80,15 +76,9 @@ final readonly class SettingsController
             $attempt(fn () => $this->settings->setDataforseoLogin((string) $request->request->get('dataforseo_login', '')));
         }
 
-        $attempt(fn () => $this->settings->setLlmModel((string) $request->request->get('llm_model', '')));
         $attempt(fn () => $this->settings->setShopDescription((string) $request->request->get('shop_description', '')));
 
-        $effort = ReasoningEffort::tryFrom((string) $request->request->get('llm_reasoning_effort'));
-        if ($effort !== null) {
-            $this->settings->setReasoningEffort($effort);
-        }
-
-        $this->settings->setWebSearchEnabled($request->request->get('llm_web_search') === '1');
+        $this->settings->setDiscoveryEnabled($request->request->get('discovery_enabled') === '1');
         $this->settings->setExcludedFamilies(array_map('intval', array_filter((array) $request->request->all('excluded_families'), 'is_numeric')));
         $attempt(fn () => $this->settings->setMinimumMarginPct((string) $request->request->get('minimum_margin_pct', '')));
 
@@ -131,32 +121,6 @@ final readonly class SettingsController
         // ConnectionCheck never puts a key in its messages; fixed ones are
         // translated, those carrying a status code stay as they are.
         $this->flash($request, $result['ok'] ? 'success' : 'danger', $result['message']);
-
-        return $this->backToSettings();
-    }
-
-    #[Route('/admin/module/pricewatch/settings/models', name: 'pricewatch_settings_models', methods: ['POST'])]
-    public function refreshModels(Request $request): Response
-    {
-        if ($denied = $this->guard->denyChange($request)) {
-            return $denied;
-        }
-
-        try {
-            $models = $this->openRouter->listModels();
-        } catch (LlmException $error) {
-            $this->flash($request, 'danger', $error->getMessage());
-
-            return $this->backToSettings();
-        }
-
-        $this->settings->storeModelList($models);
-        $reasoning = \count(array_filter($models, static fn (array $model): bool => $model['reasoning']));
-
-        $this->flash($request, 'success', '%count% models loaded, %reasoning% of them support reasoning.', [
-            '%count%' => \count($models),
-            '%reasoning%' => $reasoning,
-        ]);
 
         return $this->backToSettings();
     }
