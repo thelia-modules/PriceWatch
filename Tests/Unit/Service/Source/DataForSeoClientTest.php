@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PriceWatch\Tests\Unit\Service\Source;
 
 use PHPUnit\Framework\TestCase;
+use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
@@ -12,6 +13,7 @@ use PriceWatch\Service\Source\DataForSeoClient;
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 
@@ -25,6 +27,13 @@ final class DataForSeoClientTest extends TestCase
 
     /** @var list<array{method: string, url: string, options: array<string, mixed>}> */
     private array $sent = [];
+
+    private RecordingCostRecorder $costs;
+
+    protected function setUp(): void
+    {
+        $this->costs = new RecordingCostRecorder();
+    }
 
     public function testProductSearchRequestShape(): void
     {
@@ -46,6 +55,48 @@ final class DataForSeoClientTest extends TestCase
         self::assertContains('Authorization: Basic '.base64_encode('login@example.com:api-password'), $this->sent[0]['options']['headers']);
         self::assertCount(1, $posted['tasks'], 'the recorded answer created one task');
         self::assertArrayHasKey('capture', $posted['tasks'], 'task ids are found again through their tag');
+    }
+
+    public function testEachPostIsAuthorizedAtItsWorstCaseThenBilledAtItsRealCost(): void
+    {
+        $answer = static fn (float $cost): MockResponse => new MockResponse('{"status_code": 20000, "cost": '.$cost.', "tasks": []}');
+        $client = $this->client([$answer(0.12), $answer(0.0000001)]);
+        $keywords = [];
+
+        for ($i = 0; $i < 101; ++$i) {
+            $keywords['t'.$i] = (string) $i;
+        }
+
+        $client->postProductSearches($keywords, 2);
+
+        self::assertSame(['authorize:dataforseo', 'record:dataforseo', 'authorize:dataforseo', 'record:dataforseo'], $this->costs->events);
+        self::assertSame('pricewatch.shopping_collection', $this->costs->authorized[0]['usage']);
+        self::assertEqualsWithDelta(0.2, (float) $this->costs->authorized[0]['maximum'], 1e-9, '100 priority tasks at 0.002');
+        self::assertEqualsWithDelta(0.002, (float) $this->costs->authorized[1]['maximum'], 1e-9, 'the chunk of one');
+        self::assertSame('0.12000000', $this->costs->recorded[0]->cost);
+        self::assertSame('0.00000010', $this->costs->recorded[1]->cost, 'a float that prints as 1.0E-7 is written as a plain decimal');
+        self::assertSame('merchant/google/products/task_post', $this->costs->recorded[0]->operation);
+    }
+
+    public function testAReachedBudgetRefusesThePostBeforeAnyRequest(): void
+    {
+        $this->costs->budgetReached = true;
+
+        try {
+            $this->client([$this->fixture('products-task_post')])->postProductSearches(['capture' => '1'], 1);
+            self::fail('expected a refusal');
+        } catch (DataForSeoException $refusal) {
+            self::assertStringContainsString('budget', $refusal->getMessage());
+        }
+
+        self::assertSame([], $this->sent, 'nothing was posted, nothing is billed');
+    }
+
+    public function testTheFreeSandboxIsNeitherAuthorizedNorBilled(): void
+    {
+        $this->client([$this->fixture('products-task_post')])->postProductSearches(['capture' => '1'], 1, true);
+
+        self::assertSame([], $this->costs->events);
     }
 
     public function testSandboxIsOnlyUsedWhenAsked(): void
@@ -202,6 +253,6 @@ final class DataForSeoClientTest extends TestCase
             return array_shift($responses) ?? new MockResponse('{}', ['http_code' => 500]);
         });
 
-        return new DataForSeoClient($http, $settings);
+        return new DataForSeoClient($http, $settings, new ExternalSpend($this->costs));
     }
 }

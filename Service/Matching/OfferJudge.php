@@ -15,6 +15,7 @@ use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Jev\CachedJev;
 use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\JevException;
+use PriceWatch\Service\Jev\JevSpendRefusedException;
 use PriceWatch\Service\Jev\OfferQuestions;
 use PriceWatch\Service\Jev\OfferState;
 use PriceWatch\Service\Run\PassStep;
@@ -124,6 +125,10 @@ final readonly class OfferJudge
                 } else {
                     try {
                         $asked = $this->jev->ask($this->state($offer, $quote), $this->questions->all());
+                    } catch (JevSpendRefusedException $refusal) {
+                        // The budget or the switch of the usage: every next offer would be refused the same way.
+                        $errors[] = 'Stopped: '.$refusal->getMessage().' Remaining offers left for the next pass.';
+                        break;
                     } catch (JevException $error) {
                         if (\count($errors) < 20) {
                             $errors[] = 'offer '.$offer->getId().': '.$error->getMessage();

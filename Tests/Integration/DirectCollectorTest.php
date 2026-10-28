@@ -34,12 +34,14 @@ use PriceWatch\Service\Normalizer\GtinNormalizer;
 use PriceWatch\Service\Normalizer\SizeNormalizer;
 use PriceWatch\Service\Normalizer\TextNormalizer;
 use PriceWatch\Service\Settings\JevProvider;
+use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Source\OurPrice;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Thelia\Domain\Taxation\TaxEngine\TaxCalculatorFactory;
@@ -524,7 +526,7 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
             $this->pages,
             new OurPrice(new TaxCalculatorFactory()),
             new MatchDecision(),
-            new PageConfirmation(new CachedJev(new JevClient($jevHttp, $settings, static function (int $seconds): void {}), $offerState), $offerState, new OfferQuestions()),
+            new PageConfirmation(new CachedJev(new JevClient($jevHttp, $settings, new ExternalSpend(new RecordingCostRecorder()), static function (int $seconds): void {}), $offerState), $offerState, new OfferQuestions()),
             new SitemapDiscovery(new SitemapIndex($this->sitemapDirectory, new DomainNormalizer()), new SitemapMatcher(new TextNormalizer()), $this->pages),
             null,
             static function (int $seconds): void {},

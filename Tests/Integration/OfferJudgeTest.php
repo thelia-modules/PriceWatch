@@ -21,11 +21,13 @@ use PriceWatch\Service\Matching\MatchDecision;
 use PriceWatch\Service\Matching\OfferJudge;
 use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Settings\JevProvider;
+use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Propel\Runtime\ActiveQuery\Criteria;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
@@ -34,11 +36,13 @@ use Thelia\Model\ProductSaleElementsQuery;
 final class OfferJudgeTest extends PriceWatchIntegrationTestCase
 {
     private int $calls = 0;
+    private RecordingCostRecorder $costs;
     private ?\Throwable $failWith = null;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->costs = new RecordingCostRecorder();
 
         // Isolation from the real offers in this database: candidates a live
         // collect pass left unjudged were judged first and took the test's
@@ -209,6 +213,24 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         $offer->reload();
         self::assertSame('candidate', $offer->getMatchState(), 'not judged is never judged good');
         self::assertSame('partial', $run->getStatus());
+    }
+
+    public function testAPassStopsWhereTheBudgetOfTheUsageIsReached(): void
+    {
+        $first = $this->offer(CompetitorStatus::Watched, '22.00', '21.90');
+        $second = $this->offer(CompetitorStatus::Watched, '30.00', '29.90');
+        $this->costs->budgetReached = true;
+
+        $run = $this->judge([$this->jev(0.94, 0.96, 'comparable', 0.90), $this->jev(0.94, 0.96, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        $first->reload();
+        $second->reload();
+        self::assertSame('candidate', $first->getMatchState());
+        self::assertSame('candidate', $second->getMatchState(), 'left for the next pass');
+        self::assertSame(0, $this->calls, 'no request');
+        self::assertSame(['authorize:openrouter'], $this->costs->events, 'asked once: the pass stops instead of asking for each offer');
+        self::assertSame('partial', $run->getStatus());
+        self::assertStringContainsString('Stopped', (string) $run->getErrorsJson());
     }
 
     public function testZeroBudgetJudgesNothing(): void
@@ -390,7 +412,7 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         $offerState = new OfferState();
 
         return new OfferJudge(
-            new CachedJev(new JevClient($http, $settings, static function (int $seconds): void {}), $offerState),
+            new CachedJev(new JevClient($http, $settings, new ExternalSpend($this->costs), static function (int $seconds): void {}), $offerState),
             new OfferQuestions(),
             $offerState,
             new MatchDecision(),

@@ -5,16 +5,20 @@ declare(strict_types=1);
 namespace PriceWatch\Tests\Unit\Service\Jev;
 
 use PHPUnit\Framework\TestCase;
+use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\JevClient;
 use PriceWatch\Service\Jev\JevException;
+use PriceWatch\Service\Jev\JevSpendRefusedException;
 use PriceWatch\Service\Jev\JevQuestion;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
+use Thelia\Domain\Ai\AiJurisdiction;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 
@@ -27,6 +31,13 @@ final class JevClientTest extends TestCase
 
     /** @var list<int> */
     private array $slept = [];
+
+    private RecordingCostRecorder $costs;
+
+    protected function setUp(): void
+    {
+        $this->costs = new RecordingCostRecorder();
+    }
 
     public function testRequestShapeAndEndpointFollowTheProvider(): void
     {
@@ -41,6 +52,61 @@ final class JevClientTest extends TestCase
         self::assertSame('noul', $body['questions']['same']['type']);
         self::assertSame(['true' => 'yes', 'false' => 'no'], $body['questions']['same']['criteria']);
         self::assertContains('Authorization: Bearer '.self::KEY, $this->sent[0]['options']['headers']);
+    }
+
+    public function testTheCostIsAskedBeforeTheCallAndWrittenAfterIt(): void
+    {
+        $client = $this->client([$this->answers(['same' => ['noul' => 0.93]])]);
+
+        $client->ask(['ours' => ['title' => 'Blouson']], ['same' => $this->noul('same')]);
+
+        self::assertSame(['authorize:openrouter', 'record:openrouter'], $this->costs->events);
+        self::assertSame('pricewatch.offer_judgement', $this->costs->authorized[0]['usage']);
+        self::assertSame(AiJurisdiction::OutsideEuropeanUnion, $this->costs->authorized[0]['jurisdiction']);
+        self::assertGreaterThanOrEqual(1200 / 1_000_000 * 0.042, (float) $this->costs->authorized[0]['maximum'], 'the ceiling covers the call');
+        $cost = $this->costs->recorded[0];
+        self::assertSame('0.00005040', $cost->cost, '1 200 tokens at 0.042 USD per million, never a float written as 5.04E-5');
+        self::assertSame('jev-latest', $cost->operation);
+        self::assertSame(1200, $cost->tokenUsage?->inputTokens);
+        self::assertNotNull($cost->latencyMilliseconds);
+    }
+
+    public function testTheTypesafeRouteIsDeclaredAsTypesafe(): void
+    {
+        $client = $this->client([$this->answers(['same' => ['noul' => 0.93]])], static function (PriceWatchSettings $settings): void {
+            $settings->setJevProvider(JevProvider::Typesafe);
+            $settings->storeSecret(SecretName::TypesafeApiKey, 'ts-key');
+        });
+
+        $client->ask([], ['same' => $this->noul('same')]);
+
+        self::assertSame('typesafe', $this->costs->recorded[0]->provider);
+    }
+
+    public function testAReachedBudgetStopsTheCallBeforeAnyRequest(): void
+    {
+        $this->costs->budgetReached = true;
+
+        try {
+            $this->client([$this->answers(['same' => ['noul' => 0.93]])])->ask([], ['same' => $this->noul('same')]);
+            self::fail('expected a refusal');
+        } catch (JevSpendRefusedException $refusal) {
+            self::assertStringContainsString('budget', $refusal->getMessage());
+        }
+
+        self::assertSame([], $this->sent, 'nothing was sent, nothing was spent');
+        self::assertSame([], $this->costs->recorded);
+    }
+
+    public function testACallThatFailsCostsNothingInTheJournal(): void
+    {
+        try {
+            $this->client([new MockResponse('{"error":"boom"}', ['http_code' => 400])])->ask([], ['same' => $this->noul('same')]);
+            self::fail('expected a failure');
+        } catch (JevException) {
+        }
+
+        self::assertSame(['authorize:openrouter'], $this->costs->events);
     }
 
     public function testNoulBands(): void
@@ -204,7 +270,7 @@ final class JevClientTest extends TestCase
             return array_shift($responses) ?? new MockResponse('{}', ['http_code' => 500]);
         });
 
-        return new JevClient($http, $settings, function (int $seconds): void {
+        return new JevClient($http, $settings, new ExternalSpend($this->costs), function (int $seconds): void {
             $this->slept[] = $seconds;
         });
     }

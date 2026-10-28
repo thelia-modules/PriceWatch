@@ -20,6 +20,7 @@ use PriceWatch\Service\Normalizer\SizeNormalizer;
 use PriceWatch\Service\Normalizer\TextNormalizer;
 use PriceWatch\Service\Run\PassItems;
 use PriceWatch\Service\Run\PassStep;
+use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
@@ -32,6 +33,7 @@ use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Service\Source\ShownSize;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Propel\Runtime\ActiveQuery\Criteria;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
@@ -930,7 +932,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $text = new TextNormalizer();
 
         return new ShoppingCollector(
-            new DataForSeoClient($http, $settings),
+            new DataForSeoClient($http, $settings, new ExternalSpend(new RecordingCostRecorder())),
             new DomainNormalizer(),
             $text,
             new IdentityFingerprint($text, new BrandNormalizer($text), new GtinNormalizer()),

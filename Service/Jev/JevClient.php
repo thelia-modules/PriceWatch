@@ -4,7 +4,14 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Jev;
 
+use PriceWatch\Service\Ai\ExternalSpend;
+use PriceWatch\Service\Ai\SpendRefusedException;
+use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
+use Thelia\Domain\Ai\AiAudience;
+use Thelia\Domain\Ai\AiTier;
+use Thelia\Domain\Ai\AiTokenUsage;
+use Thelia\Domain\Ai\AsAiUsage;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
@@ -17,14 +24,29 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * a probability per option (jevseo/jev.py:355-436, and a recorded
  * audit.json). Independent questions on one state share one request: that is
  * the main cost lever.
+ *
+ * Jev is a typed endpoint of its own, not a chat: it stays a client of the
+ * module and is not routed through the gateway of the core. Its cost goes to
+ * the usage log all the same ({@see ExternalSpend}), and the budget of the
+ * usage applies before each call. What it receives is facts about a product
+ * and an offer (titles, sizes, prices, seller names), no personal data.
  */
+#[AsAiUsage(
+    id: self::USAGE,
+    purpose: 'Judges whether a competitor offer sells the same product and variant as ours, and whether its price is comparable.',
+    audience: AiAudience::System,
+    tier: AiTier::Fast,
+)]
 final readonly class JevClient
 {
+    public const USAGE = 'pricewatch.offer_judgement';
+
     public const MODEL = 'jev-latest';
 
     /** USD per million input tokens; output is free (jevseo/jev.py:25, 2026-09-20). */
     public const USD_PER_MILLION_INPUT_TOKENS = 0.042;
 
+    private const CEILING_FLOOR_TOKENS = 8000;
     private const RETRYABLE = [429, 502, 503, 529];
     private const ATTEMPTS = 5;
     private const MAX_RETRY_WAIT = 30;
@@ -38,6 +60,7 @@ final readonly class JevClient
     public function __construct(
         private HttpClientInterface $httpClient,
         private PriceWatchSettings $settings,
+        private ExternalSpend $spend,
         ?\Closure $sleep = null,
     ) {
         $this->sleep = $sleep ?? static function (int $seconds): void {
@@ -68,7 +91,19 @@ final readonly class JevClient
             'questions' => array_map(static fn (JevQuestion $question): array => $question->toRequest(), $questions),
         ];
 
+        $spendProvider = $provider === JevProvider::Openrouter ? ExternalSpend::OPENROUTER : ExternalSpend::TYPESAFE;
+
+        try {
+            // Output is free. Jev adds its own instructions to the body (967 to 2 350 tokens
+            // measured on bodies of about 1.5 kB), so the ceiling never falls under a floor.
+            $this->spend->authorize(self::USAGE, $spendProvider, self::costOf(max(self::CEILING_FLOOR_TOKENS, (int) ceil(\strlen((string) json_encode($body)) / 2))));
+        } catch (SpendRefusedException $refusal) {
+            throw new JevSpendRefusedException($refusal->getMessage(), 0, $refusal);
+        }
+
+        $started = hrtime(true);
         $payload = $this->send($provider->endpoint(), $key, $body);
+        $elapsed = intdiv(hrtime(true) - $started, 1_000_000);
         $answers = \is_array($payload['answers'] ?? null) ? $payload['answers'] : [];
         $missing = array_diff(array_keys($questions), array_keys($answers));
 
@@ -90,12 +125,20 @@ final readonly class JevClient
             $inputTokens = (int) ceil(\strlen((string) json_encode($body)) / 3);
         }
 
+        $costUsd = self::costOf($inputTokens);
+        $this->spend->record(self::USAGE, $spendProvider, self::MODEL, $costUsd, new AiTokenUsage($inputTokens, 0), $elapsed);
+
         return [
             'answers' => $validated,
             'inputTokens' => $inputTokens,
-            'costUsd' => $inputTokens / 1_000_000 * self::USD_PER_MILLION_INPUT_TOKENS,
+            'costUsd' => $costUsd,
             'model' => \is_string($payload['model'] ?? null) ? $payload['model'] : null,
         ];
+    }
+
+    private static function costOf(int $inputTokens): float
+    {
+        return $inputTokens / 1_000_000 * self::USD_PER_MILLION_INPUT_TOKENS;
     }
 
     /**
