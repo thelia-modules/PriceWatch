@@ -25,7 +25,7 @@ final class CardRelevanceTest extends TestCase
         yield 'unknown GTIN: a console controller' => ['Casque Bell Custom 500 Gloss Black', 'Manette PS5 DualSense Sony', false];
         yield 'shared trade word only' => ['Casque Bell Custom 500 Gloss Black', 'Casque Sony WH-CH520', false];
         yield 'shared English colour only' => ['Casque Bell Custom 500 Gloss Black', 'Apple iPhone 16 128GB Black', false];
-        yield 'shared colour and material only' =>['Blouson Helstons Indy cuir noir', 'Veste cuir noir femme', false];
+        yield 'shared colour and material only' => ['Blouson Helstons Indy cuir noir', 'Veste cuir noir femme', false];
         yield 'no title on our side' => ['', 'Blouson Cuir Moto Rag Helstons Indy', false];
     }
 

@@ -68,7 +68,7 @@ final readonly class PassRequests
     {
         $taken = null;
 
-        $this->update(function (?array $current) use (&$taken, $now): ?array {
+        $this->update(static function (?array $current) use (&$taken, $now): ?array {
             if ($current === null || $current['state'] !== self::PENDING) {
                 return $current;
             }

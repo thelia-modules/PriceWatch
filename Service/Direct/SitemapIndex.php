@@ -70,7 +70,7 @@ final readonly class SitemapIndex
         [$urls, $problem, $detail] = $this->download($domain, $fetcher);
 
         if (!is_dir(\dirname($file))) {
-            mkdir(\dirname($file), 0775, true);
+            mkdir(\dirname($file), 0o775, true);
         }
 
         file_put_contents($file.'.tmp', implode("\n", $urls));

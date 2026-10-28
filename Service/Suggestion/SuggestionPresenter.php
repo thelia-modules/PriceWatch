@@ -143,9 +143,9 @@ final readonly class SuggestionPresenter
     }
 
     /**
-     * @param list<int>        $ranked   product ids, the highest score first
-     * @param array<int, int>  $familyOf product id => family id
-     * @param array<int, float> $revenue family id => revenue
+     * @param list<int>         $ranked   product ids, the highest score first
+     * @param array<int, int>   $familyOf product id => family id
+     * @param array<int, float> $revenue  family id => revenue
      *
      * @return array<int, int> family id => lines, the best selling family first
      */
@@ -255,10 +255,10 @@ final readonly class SuggestionPresenter
      * measured period by period, the best share counts: the best seller of
      * the year that did not sell this season still takes the full weight.
      *
-     * @param array<int, array{quantity: int, revenue: float}>                              $sales over 90 days
+     * @param array<int, array{quantity: int, revenue: float}>                           $sales   over 90 days
      * @param array<int, array{discountPct: float|null, isNew: bool, stockValue: float}> $signals
-     * @param array<int, array{quantity: int, revenue: float}>                              $month
-     * @param array<int, array{quantity: int, revenue: float}>                              $year
+     * @param array<int, array{quantity: int, revenue: float}>                           $month
+     * @param array<int, array{quantity: int, revenue: float}>                           $year
      *
      * @return array<int, SuggestionScore> product id => score, for the products in $signals only
      */
@@ -292,7 +292,7 @@ final readonly class SuggestionPresenter
     /**
      * The highest score first; on a tie, what sells most.
      *
-     * @param array<int, SuggestionScore>                        $scores
+     * @param array<int, SuggestionScore>                      $scores
      * @param array<int, array{quantity: int, revenue: float}> $sales
      *
      * @return list<int>

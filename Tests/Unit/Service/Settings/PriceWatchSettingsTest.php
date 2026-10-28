@@ -130,7 +130,6 @@ final class PriceWatchSettingsTest extends TestCase
         self::assertSame('https://openrouter.ai/api/v1/systemone', $settings->jevProvider()->endpoint());
     }
 
-
     public function testDataforseoLoginFromEnvironmentWins(): void
     {
         $settings = $this->settings(['DATAFORSEO_USERNAME' => 'ops@example.com']);

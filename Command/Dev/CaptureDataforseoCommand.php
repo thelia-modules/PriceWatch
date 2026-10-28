@@ -74,7 +74,7 @@ final class CaptureDataforseoCommand extends Command
         $prefix = $directory.'/dataforseo-'.($live ? 'live' : 'sandbox').'-';
         $auth = ['auth_basic' => [$login, $password], 'timeout' => 60];
 
-        if (!is_dir($directory) && !mkdir($directory, 0775, true)) {
+        if (!is_dir($directory) && !mkdir($directory, 0o775, true)) {
             $io->error('Cannot create '.$directory);
 
             return self::FAILURE;
@@ -90,7 +90,7 @@ final class CaptureDataforseoCommand extends Command
             return \is_array($decoded) ? $decoded : [];
         };
 
-        $wait = function (string $endpoint, string $taskId) use ($call, $live, $input): void {
+        $wait = static function (string $endpoint, string $taskId) use ($call, $live, $input): void {
             if (!$live) {
                 return;
             }

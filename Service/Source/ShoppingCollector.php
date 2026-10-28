@@ -15,8 +15,8 @@ use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Comparator\ComparatorView;
 use PriceWatch\Service\Comparator\PriceChange;
 use PriceWatch\Service\Competitor\CompetitorStatus;
-use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Competitor\SellerProposals;
+use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
 use PriceWatch\Service\Normalizer\TextNormalizer;
@@ -398,8 +398,8 @@ final readonly class ShoppingCollector
      * Posts the searches, waits, and keeps for each the first card whose
      * title is plausible against ours.
      *
-     * @param array<array-key, string> $keywordsByTag PHP turns numeric tags into int keys
-     * @param array<array-key, string> $ourTitleByTag
+     * @param array<array-key, string>  $keywordsByTag PHP turns numeric tags into int keys
+     * @param array<array-key, string>  $ourTitleByTag
      * @param array<array-key, ?string> $brandByTag    our brand: alone, it makes no card ours
      *
      * @return array{cards: array<array-key, ShoppingCard>, missed: array<array-key, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>, created: list<string>} errors keyed by tag; failed: tags whose search was refused or ended in error; created: tags DataForSEO took, and billed
@@ -799,7 +799,7 @@ final readonly class ShoppingCollector
             ->setComparable($comparable ? 1 : 0)
             ->setExclusionReason($comparable ? null : $model->getExclusionReason())
             ->setExtractionMethod('dataforseo_sellers')
-            ->setRawPayloadJson(json_encode(['searched_by' => $searchedBy, 'google_url' => $links['google'], 'card' => (array) $card, 'offer' => (array) $offer],\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
+            ->setRawPayloadJson(json_encode(['searched_by' => $searchedBy, 'google_url' => $links['google'], 'card' => (array) $card, 'offer' => (array) $offer], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
             ->setCollectRunId($runId)
             ->save();
 
