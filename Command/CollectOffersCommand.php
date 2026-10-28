@@ -139,6 +139,11 @@ final class CollectOffersCommand extends Command
             ));
         }
 
+        if ($result['proposed'] !== []) {
+            $io->section('New competitor proposals (decide in Catalogue > Price watch > Competitors)');
+            $io->listing($result['proposed']);
+        }
+
         $errors = json_decode((string) $run->getErrorsJson(), true);
 
         if (\is_array($errors) && $errors !== []) {
