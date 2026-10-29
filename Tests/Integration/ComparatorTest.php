@@ -658,7 +658,11 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     private function pictureOnDisk(): string
     {
         $file = 'pw-test-'.$this->tag.'.jpg';
-        $path = (new ProductImage())->getUploadDir().\DIRECTORY_SEPARATOR.$file;
+        $folder = (new ProductImage())->getUploadDir();
+        if (!is_dir($folder)) {
+            self::assertTrue(mkdir($folder, 0777, true), 'a shop installed without the demo has no image folder yet');
+        }
+        $path = $folder.\DIRECTORY_SEPARATOR.$file;
         $image = imagecreatetruecolor(4, 4);
         self::assertNotFalse($image);
         self::assertTrue(imagejpeg($image, $path));
