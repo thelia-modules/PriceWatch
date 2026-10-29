@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.1
+
+### Fixed
+
+- A shop that installs the module with Composer gets its back-office screens again. The model classes of the
+  `pw_product_schedule` table were missing from the package: Propel generated them under `local/modules/PriceWatch/`,
+  which then shadowed the installed module and its templates (500 "no registered paths for namespace
+  PriceWatchModule").
+
 ## 0.16.0
 
 ### Upgrading from `classicride/price-watch`
