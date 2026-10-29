@@ -81,6 +81,8 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
         self::assertSame([2, 5], [$progress['position'], $progress['steps']]);
         self::assertSame([1, 3], [$progress['done'], $progress['total']]);
         self::assertSame(26, $progress['percent']);
+        // As stored: MySQL rounds the microseconds the object still holds.
+        $run->reload();
         self::assertSame($run->getStartedAt()?->getTimestamp(), $progress['startedAt']);
     }
 
