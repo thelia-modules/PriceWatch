@@ -97,8 +97,8 @@ final class SuggestionQuota
     }
 
     /**
-     * @param list<int>               $families
-     * @param \Closure(int): float    $revenue
+     * @param list<int>            $families
+     * @param \Closure(int): float $revenue
      *
      * @return array<int, float> family id => lines in proportion to its revenue; equal shares when none sold
      */

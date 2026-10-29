@@ -5,20 +5,26 @@ declare(strict_types=1);
 namespace PriceWatch\Tests\Unit\Service\Run;
 
 use PHPUnit\Framework\TestCase;
-use PriceWatch\Service\Run\BackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\PassAlreadyRequested;
+use PriceWatch\Service\Run\PassAlreadyRunning;
+use PriceWatch\Service\Run\PassRequests;
+use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
 
 final class ManualRunTest extends TestCase
 {
-    /** @var list<array{commands: list<list<string>>, log: string}> */
-    private array $started = [];
+    private RecordingBackgroundRunner $runner;
     private LockFactory $locks;
+    private PassRequests $requests;
     private string $marker;
 
     protected function setUp(): void
     {
+        $this->runner = new RecordingBackgroundRunner();
+        $this->requests = new PassRequests(new InMemoryConfigStore(), new LockFactory(new InMemoryStore()));
         $this->locks = new LockFactory(new InMemoryStore());
         $this->marker = sys_get_temp_dir().'/pricewatch-test-'.bin2hex(random_bytes(4)).'.started';
     }
@@ -36,49 +42,32 @@ final class ManualRunTest extends TestCase
 
         $this->manualRun()->start(10);
 
-        self::assertEqualsWithDelta(time(), $this->manualRun()->startedAt(), 2, 'the page after the click is drawn before the process takes its lock');
+        self::assertEqualsWithDelta(time(), $this->manualRun()->startedAt(), 2, 'the page after the click is drawn before the worker takes its lock');
 
         touch($this->marker, time() - 31);
         self::assertNull($this->manualRun()->startedAt(), 'long enough ago, only the lock tells');
     }
 
-    public function testAProductPassSearchesTheSitemapsThenGoogleThenReadsAndJudges(): void
+    public function testAProductPassIsAskedForWithItsProductsAndItsPriority(): void
     {
         $this->manualRun()->start(4, ['1520190076NN']);
 
-        self::assertCount(1, $this->started);
-        [$sitemaps, $collect, $direct, $judge] = $this->started[0]['commands'];
-        self::assertSame(['pricewatch:direct', '--discover'], [$sitemaps[2], $sitemaps[3]], 'free first: the sitemaps and the known pages');
-        self::assertContains('--product=1520190076NN', $sitemaps);
-        self::assertSame('/var/www/html/Thelia', $collect[1]);
-        self::assertSame('pricewatch:collect', $collect[2]);
-        self::assertContains('--limit=4', $collect);
-        self::assertContains('--priority', $collect, 'whoever clicked waits for an answer in minutes');
-        self::assertContains('--product=1520190076NN', $collect);
-        self::assertContains('--budget-usd=0.016', $collect, 'the cap is the worst case announced on the button');
-        self::assertSame(['pricewatch:direct', '--candidates'], [$direct[2], $direct[3]], 'the pages Google led to, read straight before the checks');
-        self::assertContains('--product=1520190076NN', $direct);
-        self::assertSame('pricewatch:judge', $judge[2], 'judged right after, so the comparator fills up');
-        self::assertSame('/var/www/html/var/log/pricewatch-manual.log', $this->started[0]['log']);
+        self::assertCount(1, $this->runner->passes);
+        $pass = $this->runner->passes[0];
+        self::assertSame(4, $pass->variants);
+        self::assertSame(['1520190076NN'], $pass->productRefs);
+        self::assertTrue($pass->priority, 'whoever clicked waits for an answer in minutes');
+        self::assertSame('var/log/pricewatch-manual.log', $pass->logFile);
+        self::assertMatchesRegularExpression('/^[0-9a-f]{16}$/', $pass->passId);
     }
 
-    public function testAPassCanTargetSeveralProducts(): void
+    public function testTwoRequestsAreTwoDistinctPasses(): void
     {
-        $this->manualRun()->start(6, ['1520190076NN', '1SAA340']);
+        $this->manualRun()->start(4);
+        touch($this->marker, time() - 31);
+        $this->manualRun()->start(4);
 
-        $collect = $this->started[0]['commands'][1];
-        self::assertContains('--product=1520190076NN', $collect);
-        self::assertContains('--product=1SAA340', $collect, 'one option per product, each passed as its own argument');
-        self::assertContains('--limit=6', $collect);
-    }
-
-    public function testAPassWithoutProductTakesTheVariantsCollectedLongestAgo(): void
-    {
-        $this->manualRun()->start(50);
-
-        $collect = $this->started[0]['commands'][1];
-        self::assertContains('--limit=50', $collect);
-        self::assertEmpty(array_filter($collect, static fn (string $argument): bool => str_starts_with($argument, '--product')));
+        self::assertNotSame($this->runner->passes[0]->passId, $this->runner->passes[1]->passId);
     }
 
     public function testTheWorstCaseIsTwoPriorityTasksPerVariant(): void
@@ -92,11 +81,8 @@ final class ManualRunTest extends TestCase
     {
         $this->manualRun()->start(10, ['1SAA340'], false);
 
-        $collect = $this->started[0]['commands'][1];
-        self::assertNotContains('--priority', $collect, 'nobody waits for a scheduled pass');
-        self::assertContains('--max-wait=3000', $collect, 'the standard queue takes up to 45 minutes');
-        self::assertContains('--budget-usd=0.020', $collect, 'the cap follows the queue price');
-        self::assertSame('/var/www/html/var/log/pricewatch-scheduled.log', $this->started[0]['log']);
+        self::assertFalse($this->runner->passes[0]->priority, 'nobody waits for a scheduled pass');
+        self::assertSame('var/log/pricewatch-scheduled.log', $this->runner->passes[0]->logFile);
     }
 
     public function testNoSecondPassWhileOneIsRunning(): void
@@ -109,10 +95,10 @@ final class ManualRunTest extends TestCase
         try {
             $this->manualRun()->start(10);
             self::fail('expected a refusal');
-        } catch (\RuntimeException) {
+        } catch (PassAlreadyRunning) {
         }
 
-        self::assertSame([], $this->started);
+        self::assertSame([], $this->runner->passes);
 
         $collectLock->release();
         $judgeLock = $this->locks->createLock('pricewatch.judge');
@@ -127,20 +113,56 @@ final class ManualRunTest extends TestCase
         self::assertFalse($this->manualRun()->isRunning());
     }
 
+    public function testAPassWaitingForAWorkerCountsAsRunning(): void
+    {
+        $this->runner->pending = true;
+
+        self::assertTrue($this->manualRun()->isRunning(), 'a second click while the first still waits would pay twice');
+
+        $this->expectException(PassAlreadyRunning::class);
+        $this->manualRun()->start(10);
+    }
+
+    public function testWithoutAWorkerTheClickIsWrittenDownAndNotRun(): void
+    {
+        $this->runner->inline = true;
+
+        $this->manualRun()->start(10, ['1SAA340']);
+
+        self::assertSame([], $this->runner->passes, 'a pass run here would hold the web request for minutes');
+        $request = $this->requests->current();
+        self::assertSame([PassRequests::PENDING, 10, ['1SAA340'], true], [$request['state'] ?? null, $request['variants'] ?? null, $request['productRefs'] ?? null, $request['priority'] ?? null]);
+    }
+
+    public function testWithAWorkerTheClickGoesToTheQueueAtOnce(): void
+    {
+        $this->manualRun()->start(10);
+
+        self::assertCount(1, $this->runner->passes);
+        self::assertNull($this->requests->current());
+    }
+
+    public function testAnotherClickWhileARequestWaitsIsRefused(): void
+    {
+        $this->runner->inline = true;
+        $this->manualRun()->start(10);
+
+        $this->expectException(PassAlreadyRequested::class);
+        $this->manualRun()->start(20);
+    }
+
+    public function testTheScheduledTaskRunsAtOnceWhateverTheQueue(): void
+    {
+        $this->runner->inline = true;
+
+        $this->manualRun()->startNow(10, [], false, 'the-request');
+
+        self::assertSame(['the-request'], array_map(static fn ($pass): string => $pass->passId, $this->runner->passes));
+        self::assertNull($this->requests->current());
+    }
+
     private function manualRun(): ManualRun
     {
-        $runner = new class($this->started) implements BackgroundRunner {
-            /** @param list<array{commands: list<list<string>>, log: string}> $started */
-            public function __construct(private array &$started)
-            {
-            }
-
-            public function start(array $commands, string $logFile): void
-            {
-                $this->started[] = ['commands' => $commands, 'log' => $logFile];
-            }
-        };
-
-        return new ManualRun($runner, $this->locks, '/var/www/html', $this->marker);
+        return new ManualRun($this->runner, $this->locks, '/var/www/html', $this->marker, $this->requests);
     }
 }

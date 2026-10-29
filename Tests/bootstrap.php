@@ -16,9 +16,10 @@ declare(strict_types=1);
  * on this install is the development database.
  */
 
-$projectRoot = \dirname(__DIR__, 4);
+$projectRoot = dirname(__DIR__, 4);
 
-require_once $projectRoot.'/bootstrap.php';
+// thelia-project keeps bootstrap.php at the root, the thelia/thelia repository under core/.
+require_once is_file($projectRoot.'/bootstrap.php') ? $projectRoot.'/bootstrap.php' : $projectRoot.'/core/bootstrap.php';
 require_once $projectRoot.'/vendor/autoload.php';
 
 (new Symfony\Component\Dotenv\Dotenv())->bootEnv($projectRoot.'/.env');

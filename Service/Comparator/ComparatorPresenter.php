@@ -212,7 +212,7 @@ final readonly class ComparatorPresenter
 
     /**
      * @param array{productId: int, size: ?string, pseRef: ?string} $identity
-     * @param array{title: string, ref: string}|null                 $product
+     * @param array{title: string, ref: string}|null                $product
      *
      * @return array<string, mixed>
      */
@@ -336,7 +336,7 @@ final readonly class ComparatorPresenter
      * arrive in the order of the gap sort, so the first line of a product,
      * or of a competitor within it, is the one its gap is shown by.
      *
-     * @param list<array<string, mixed>> $lines     from lines()
+     * @param list<array<string, mixed>> $lines      from lines()
      * @param list<int>                  $productIds the page's products, in order
      *
      * @return list<array<string, mixed>>

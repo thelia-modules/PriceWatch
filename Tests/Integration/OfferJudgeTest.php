@@ -6,11 +6,11 @@ namespace PriceWatch\Tests\Integration;
 
 use PriceWatch\Model\PwCollectRunQuery;
 use PriceWatch\Model\PwCompetitorOffer;
-use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Model\PwJevJudgmentQuery;
 use PriceWatch\Model\PwPriceQuote;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
+use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Jev\CachedJev;
@@ -26,6 +26,7 @@ use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Propel\Runtime\ActiveQuery\Criteria;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
@@ -33,12 +34,16 @@ use Thelia\Model\ProductSaleElementsQuery;
 
 final class OfferJudgeTest extends PriceWatchIntegrationTestCase
 {
+    private const GTIN = '4006381333931';
+
     private int $calls = 0;
+    private RecordingCostRecorder $costs;
     private ?\Throwable $failWith = null;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->costs = new RecordingCostRecorder();
 
         // Isolation from the real offers in this database: candidates a live
         // collect pass left unjudged were judged first and took the test's
@@ -69,6 +74,36 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         self::assertEqualsWithDelta(0.94, $judgment[OfferQuestions::SAME_PRODUCT]['value'], 1e-9, 'the answers stay on the offer as proof');
         self::assertSame('yes', $judgment[OfferQuestions::SAME_VARIANT]['band']);
         self::assertSame('comparable', $judgment[OfferQuestions::PRICE_COMPARABILITY]['value']);
+    }
+
+    public function testAJevMatchWithoutAGtinOnTheirSideWaitsForAHuman(): void
+    {
+        $offer = $this->offer(CompetitorStatus::Watched, '22.00', '21.90', self::GTIN, null);
+
+        $this->judge([$this->jev(0.94, 0.96, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        $offer->reload();
+        self::assertSame(['needs_review', 'GTIN_UNVERIFIED'], [$offer->getMatchState(), $offer->getMatchReason()]);
+    }
+
+    public function testAJevMatchWithoutAGtinOnOurSideWaitsForAHuman(): void
+    {
+        $offer = $this->offer(CompetitorStatus::Watched, '22.00', '21.90', null, self::GTIN);
+
+        $this->judge([$this->jev(0.94, 0.96, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        $offer->reload();
+        self::assertSame(['needs_review', 'GTIN_UNVERIFIED'], [$offer->getMatchState(), $offer->getMatchReason()]);
+    }
+
+    public function testAJevMatchWhoseGtinDiffersFromOursIsNeverComparable(): void
+    {
+        $offer = $this->offer(CompetitorStatus::Watched, '22.00', '21.90', self::GTIN, '5012345678900');
+
+        $this->judge([$this->jev(0.99, 0.99, 'comparable', 0.99)])->judgePending(50, 1.0);
+
+        $offer->reload();
+        self::assertSame(['needs_review', 'GTIN_MISMATCH', 0], [$offer->getMatchState(), $offer->getMatchReason(), $offer->getLastComparable()]);
     }
 
     public function testThePassReportsHowManyOffersItChecked(): void
@@ -183,7 +218,9 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         self::assertSame(1, $this->calls, 'the second pass reads the cache');
         self::assertSame(0, $second->getJevRequests());
         self::assertSame(3, $second->getJevCacheHits());
-        self::assertSame(3, PwJevJudgmentQuery::create()->filterByQuestionVersion(OfferQuestions::VERSION)->filterByStateHash($this->stateHashOf($offer))->count());
+        foreach ((new OfferQuestions())->all() as $question) {
+            self::assertSame(1, PwJevJudgmentQuery::create()->filterByQuestionVersion($question->version)->filterByQuestionId($question->id)->filterByStateHash($this->stateHashOf($offer))->count(), $question->id);
+        }
     }
 
     public function testOffersOfNonWhitelistedCompetitorsAreNotJudged(): void
@@ -209,6 +246,24 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         $offer->reload();
         self::assertSame('candidate', $offer->getMatchState(), 'not judged is never judged good');
         self::assertSame('partial', $run->getStatus());
+    }
+
+    public function testAPassStopsWhereTheBudgetOfTheUsageIsReached(): void
+    {
+        $first = $this->offer(CompetitorStatus::Watched, '22.00', '21.90');
+        $second = $this->offer(CompetitorStatus::Watched, '30.00', '29.90');
+        $this->costs->budgetReached = true;
+
+        $run = $this->judge([$this->jev(0.94, 0.96, 'comparable', 0.90), $this->jev(0.94, 0.96, 'comparable', 0.90)])->judgePending(50, 1.0);
+
+        $first->reload();
+        $second->reload();
+        self::assertSame('candidate', $first->getMatchState());
+        self::assertSame('candidate', $second->getMatchState(), 'left for the next pass');
+        self::assertSame(0, $this->calls, 'no request');
+        self::assertSame(['authorize:openrouter'], $this->costs->events, 'asked once: the pass stops instead of asking for each offer');
+        self::assertSame('partial', $run->getStatus());
+        self::assertStringContainsString('Stopped', (string) $run->getErrorsJson());
     }
 
     public function testZeroBudgetJudgesNothing(): void
@@ -278,7 +333,7 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
             $saleElement = $index === 0 ? ProductSaleElementsQuery::create()->filterByProductId($product->getId())->findOne() : (new \Thelia\Model\ProductSaleElements())->setProductId($product->getId())->setRef('PW-J-'.bin2hex(random_bytes(4)))->setQuantity(1)->setIsDefault(false);
             self::assertNotNull($saleElement);
             $saleElement->save();
-            (new PwProductIdentity())->setProductSaleElementsId($saleElement->getId())->setProductId($product->getId())->setBrandLabel('Bell')->setSizeLabel($size)->save();
+            (new PwProductIdentity())->setProductSaleElementsId($saleElement->getId())->setProductId($product->getId())->setBrandLabel('Bell')->setSizeLabel($size)->setGtin(self::GTIN)->setGtinValid(1)->setGtinShared(0)->save();
 
             $offer = (new PwCompetitorOffer())
                 ->setCompetitorId($competitor->getId())
@@ -286,6 +341,8 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
                 ->setOfferKey('key-'.bin2hex(random_bytes(5)))
                 ->setRemoteTitle('Bell Custom 500')
                 ->setRemoteVariantLabel($remoteVariant)
+                ->setRemoteGtin(self::GTIN)
+                ->setRemoteGtinValid(1)
                 ->setIdentityFingerprint(sha1('remote identity'))
                 ->setMatchState('candidate')
                 ->setActive(1);
@@ -298,7 +355,7 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         return $offers;
     }
 
-    private function offer(CompetitorStatus $status, string $ourPrice, string $theirPrice): PwCompetitorOffer
+    private function offer(CompetitorStatus $status, string $ourPrice, string $theirPrice, ?string $ourGtin = self::GTIN, ?string $theirGtin = self::GTIN): PwCompetitorOffer
     {
         $factory = $this->createFixtureFactory();
         $product = $factory->product($factory->category(), $factory->taxRule(), $factory->currency());
@@ -312,6 +369,9 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
             ->setBrandLabel('DG')
             ->setSizeLabel('XS')
             ->setVariantAxisJson('{"Taille vêtement":"XS"}')
+            ->setGtin($ourGtin)
+            ->setGtinValid($ourGtin === null ? 0 : 1)
+            ->setGtinShared(0)
             ->save();
 
         $competitor = (new CompetitorRepository())->create('judge-'.bin2hex(random_bytes(5)).'.example', $status, 'manual');
@@ -322,6 +382,8 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
             ->setOfferKey('key-'.bin2hex(random_bytes(5)))
             ->setRemoteTitle('Pantalon pluie moto DG ECO 2400 noir')
             ->setRemoteVariantLabel('Taille XS')
+            ->setRemoteGtin($theirGtin)
+            ->setRemoteGtinValid($theirGtin === null ? 0 : 1)
             ->setIdentityFingerprint(sha1('remote identity'))
             ->setMatchState('candidate')
             ->setActive(1);
@@ -390,7 +452,7 @@ final class OfferJudgeTest extends PriceWatchIntegrationTestCase
         $offerState = new OfferState();
 
         return new OfferJudge(
-            new CachedJev(new JevClient($http, $settings, static function (int $seconds): void {}), $offerState),
+            new CachedJev(new JevClient($http, $settings, new ExternalSpend($this->costs), static function (int $seconds): void {}), $offerState),
             new OfferQuestions(),
             $offerState,
             new MatchDecision(),

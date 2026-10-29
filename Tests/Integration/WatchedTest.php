@@ -7,7 +7,6 @@ namespace PriceWatch\Tests\Integration;
 use PriceWatch\Model\PwCompetitor;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwCompetitorPage;
-use PriceWatch\Model\PwCompetitorQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Competitor\CompetitorRepository;

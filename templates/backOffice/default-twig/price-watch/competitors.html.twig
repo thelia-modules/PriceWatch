@@ -45,7 +45,8 @@
 {% endmacro %}
 
 {% macro source_label(source) %}
-    {% if source == 'llm' %}{{ 'Suggested by the model'|trans({}, 'pricewatch') }}
+    {% if source == 'shopping' %}{{ 'Seen on Google Shopping'|trans({}, 'pricewatch') }}
+    {% elseif source == 'llm' %}{{ 'Suggested by the model'|trans({}, 'pricewatch') }}
     {% elseif source == 'import' %}{{ 'Reference file'|trans({}, 'pricewatch') }}
     {% elseif source == 'manual' %}{{ 'Added by hand'|trans({}, 'pricewatch') }}
     {% else %}{{ source }}{% endif %}
@@ -59,27 +60,11 @@
             <p class="text-muted mb-0">{{ 'Only the whitelist is compared. The blacklist is never compared and never suggested again.'|trans({}, 'pricewatch') }}</p>
         </div>
         <div class="d-flex gap-2">
-            <form method="post" action="{{ path('pricewatch_competitors_suggest') }}">
-                <input type="hidden" name="_token" value="{{ csrfToken }}">
-                <button type="submit" class="btn btn-primary" data-testid="pw-suggest" {% if not llmReady %}disabled{% endif %}>
-                    <i class="bi bi-stars me-1" aria-hidden="true"></i>{{ 'Suggest competitors'|trans({}, 'pricewatch') }}
-                </button>
-            </form>
             <a class="btn btn-outline-secondary" href="{{ path('admin.module.configure', {module_code: 'PriceWatch'}) }}">{{ 'Settings'|trans({}, 'pricewatch') }}</a>
         </div>
     </div>
 
-    {% if not llmReady %}
-        <div class="alert alert-info" data-testid="pw-llm-not-ready">
-            {{ 'To get suggestions, set an OpenRouter key and choose a model in the settings. You can add competitors by hand meanwhile.'|trans({}, 'pricewatch') }}
-        </div>
-    {% else %}
-        <p class="small text-muted">
-            {{ 'Model:'|trans({}, 'pricewatch') }} <span class="font-monospace">{{ llmModel }}</span>,
-            {{ webSearch ? 'with web search'|trans({}, 'pricewatch') : 'without web search'|trans({}, 'pricewatch') }}.
-            {{ 'A suggestion can take a minute or two.'|trans({}, 'pricewatch') }}
-        </p>
-    {% endif %}
+    <p class="small text-muted" data-testid="pw-proposals-note">{{ 'Proposals come from the sellers Google Shopping shows for your products: after each collect pass, a seller whose site can be identified and is not listed yet appears here. A seller shown by name only cannot be proposed: add it by hand.'|trans({}, 'pricewatch') }}</p>
 
     <div class="card mb-4">
         <div class="card-body">

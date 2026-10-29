@@ -29,7 +29,43 @@ its last competitor page read with a price. Beyond 14 days (`LastWatch`) the
 product card, the watched products list ("Stale reading" tab) and the admin
 home say so.
 
-Requires Thelia 3.0.0 and PHP 8.3.
+Requires Thelia 3.3.0 and PHP 8.3.
+
+A match only Jev vouches for is never taken on its word: it counts once our
+GTIN and the competitor's agree. Without a GTIN on either side the offer waits
+for a human (`GTIN_UNVERIFIED`, its price still shows in the gap, tagged to
+check); two different GTINs make it `GTIN_MISMATCH`, out of the gap until a
+human decides. Google Shopping gives no GTIN, so offers read there and judged
+by Jev go to review.
+
+## AI usage and costs
+
+The module declares two AI usages, listed with their costs in the AI usage
+log of the back-office:
+
+- `pricewatch.offer_judgement`: the Jev judgments (typed questions, one request
+  per offer);
+- `pricewatch.shopping_collection`: the DataForSEO Google Shopping tasks.
+
+Jev and DataForSEO are external services outside the European Union. Neither
+call carries personal data. Before each paid call the module asks the core for
+the budget of its usage, and after it writes what the call cost. A pass stops
+when the budget of the usage is reached; the offers left stay candidates for
+the next pass. Set the budgets and the monthly cap in the core's AI settings.
+
+No language model is called directly: the module has no model, key or prompt
+of its own. Jev is the only judge, and it is reached with the module's own
+client, its cost written to the AI usage log as above.
+
+### Competitor proposals
+
+Competitors are proposed from the sellers Google Shopping already showed for
+your products, at no extra cost: after each collect pass, a seller whose site
+can be identified (a domain in the answer, or written in the seller's name,
+such as "Fnac.com"), that resolves in the DNS and is on no list yet, lands in
+the competitor screen as a proposal. It waits for your decision. A seller
+shown by name only cannot be proposed, since guessing its site would invent
+shops: add it by hand. A domain on the blacklist is never proposed again.
 
 ## Install
 
@@ -45,8 +81,53 @@ ddev exec php Thelia module:post-activate-all                   # Model classes 
 ddev exec php Thelia thelia:cache:clear
 ```
 
-Secrets go in `.env.local`, never in the repository and never in the database:
-`DATAFORSEO_USERNAME`, `DATAFORSEO_PASSWORD`, `TYPESAFE_API_KEY`.
+Secrets go in `.env.local`, never in the repository:
+`DATAFORSEO_USERNAME`, `DATAFORSEO_PASSWORD`, `TYPESAFE_API_KEY`. Keys typed on
+the settings page are stored encrypted by the module itself; an environment
+variable always wins over them.
+
+### Background passes
+
+A pass started from the back-office takes minutes and cannot run in a web
+request. Two ways to run it, the first one recommended:
+
+- a worker, which starts the pass at once. Set `MESSENGER_TRANSPORT_DSN` to a
+  real transport (for example `doctrine://default`) and keep this running:
+
+  ```bash
+  ddev exec php bin/console messenger:consume async_heavy
+  ```
+
+  A pass that fails stays in the failed messages and can be replayed; a
+  message delivered twice runs once.
+- no worker: the button writes the request in the database and the next call
+  of the scheduled task (`pricewatch:scheduled`, hourly, see "Scheduled
+  passes") runs it, whatever the scheduling settings. The screen says so ("the
+  pass will start at the next run of the scheduled task, within the hour at
+  most"), shows the request as waiting, running or done, and when the task
+  has not run for more than 2 hours it gives the cron line to add. One request
+  waits at a time. The cron line is enough: no worker is needed.
+
+## Upgrading from `classicride/price-watch`
+
+The Composer package is now `thelia/price-watch-module`. The module code
+(`PriceWatch`), its tables and its settings do not change, so nothing is
+lost and no schema command is needed. On a shop that has the old package:
+
+```bash
+ddev composer remove classicride/price-watch
+ddev composer require thelia/price-watch-module
+ddev exec php Thelia module:refresh
+ddev exec php Thelia thelia:cache:clear
+```
+
+If the old package came from a `repositories` entry of your `composer.json`,
+point that entry at the new repository first. A copy in `local/modules/PriceWatch`
+only needs to be replaced by the new files, followed by the last two commands.
+The module now requires Thelia 3.3.0 and needs the cron line (or a worker)
+described above for passes started from the back-office. The settings of the
+language model (model, effort, web search) and of the competitor discovery are
+gone; their rows in `module_config` are ignored and can be deleted.
 
 ## Tests
 
@@ -63,6 +144,9 @@ listed in Composer's `autoload.files`, so it runs the moment
 `bootstrap.php` wins the race and pins the constants to the project root.
 Without it, Propel looks for the schema in `vendor/thelia/vendor/thelia/config`
 and the kernel refuses to boot.
+
+The tests that need the purchase table of another module, or the Statistic
+module, are skipped with their reason when it is absent.
 
 The unit suite needs neither a database nor a network. The integration suite
 boots the development kernel and wraps every test in a transaction rolled back
@@ -151,7 +235,7 @@ change is made on the product page. Four tabs, most urgent first:
 
 The proposed price is the cheapest matched competitor rounded down to the
 euro. The floor is the purchase price (first `product_sale_elements_purchase`
-row of the variant, the ClassicRide purchase tab, excluding tax, decimal comma
+row of the variant, excluding tax, decimal comma
 or dot) divided by `1 - minimum margin`, with our tax ratio, rounded up to the
 cent. The minimum margin is set on the settings page, 20 % of the selling
 price excluding tax by default. Without that table or a purchase price, no

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Settings;
 
-use PriceWatch\Service\Llm\LlmException;
-use PriceWatch\Service\Llm\OpenRouterClient;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
@@ -13,19 +11,20 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * The "Test" buttons of the settings page. Each check makes one free,
  * read-only call and reports in words a merchant can act on.
  *
- * Endpoints: OpenRouter GET /api/v1/key (openrouter.ai/docs, 2026-10-09);
+ * Endpoints: OpenRouter GET /api/v1/key, used by the match checks when they
+ * go through OpenRouter (openrouter.ai/docs, 2026-10-09);
  * TypeSafe GET /v1/models (jev-seo SKILL.md:174); DataForSEO
  * GET /v3/appendix/user_data, documented as free (checked 2026-10-08).
  */
 final readonly class ConnectionCheck
 {
+    private const OPENROUTER_KEY = 'https://openrouter.ai/api/v1/key';
     private const TYPESAFE_MODELS = 'https://api.typesafe.ai/v1/models';
     private const DATAFORSEO_USER_DATA = 'https://api.dataforseo.com/v3/appendix/user_data';
 
     public function __construct(
         private HttpClientInterface $httpClient,
         private PriceWatchSettings $settings,
-        private OpenRouterClient $openRouter,
     ) {
     }
 
@@ -34,23 +33,16 @@ final readonly class ConnectionCheck
      */
     public function openRouter(): array
     {
-        try {
-            $info = $this->openRouter->keyInfo();
-        } catch (LlmException $error) {
-            return ['ok' => false, 'message' => $error->getMessage()];
+        $key = $this->settings->secret(SecretName::OpenrouterApiKey);
+
+        if ($key === null) {
+            return ['ok' => false, 'message' => 'No OpenRouter API key is configured.'];
         }
 
-        $details = [];
-
-        if ($info['label'] !== '') {
-            $details[] = 'key "'.$info['label'].'"';
-        }
-
-        if ($info['limitRemaining'] !== null) {
-            $details[] = \sprintf('%.2f USD left on the key limit', $info['limitRemaining']);
-        }
-
-        return ['ok' => true, 'message' => 'OpenRouter accepted the key'.($details === [] ? '.' : ': '.implode(', ', $details).'.')];
+        return $this->probe('OpenRouter', fn () => $this->httpClient->request('GET', self::OPENROUTER_KEY, [
+            'auth_bearer' => $key,
+            'timeout' => 20,
+        ]));
     }
 
     /**

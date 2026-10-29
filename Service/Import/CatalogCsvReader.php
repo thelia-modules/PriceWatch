@@ -35,13 +35,13 @@ final readonly class CatalogCsvReader
     public function read(string $path): iterable
     {
         if (!is_file($path) || !is_readable($path)) {
-            throw new MalformedReferenceFileException(sprintf('Reference file "%s" cannot be read.', $path));
+            throw new MalformedReferenceFileException(\sprintf('Reference file "%s" cannot be read.', $path));
         }
 
         $handle = fopen($path, 'r');
 
         if ($handle === false) {
-            throw new MalformedReferenceFileException(sprintf('Reference file "%s" cannot be opened.', $path));
+            throw new MalformedReferenceFileException(\sprintf('Reference file "%s" cannot be opened.', $path));
         }
 
         try {
@@ -92,7 +92,7 @@ final readonly class CatalogCsvReader
         $cells = fgetcsv($handle, 0, self::DELIMITER, self::ENCLOSURE, self::ESCAPE);
 
         if ($cells === false || $cells === [null]) {
-            throw new MalformedReferenceFileException(sprintf('Reference file "%s" has no header line.', $path));
+            throw new MalformedReferenceFileException(\sprintf('Reference file "%s" has no header line.', $path));
         }
 
         $header = [];
@@ -108,20 +108,15 @@ final readonly class CatalogCsvReader
         }
 
         if (!\in_array(self::REQUIRED_HEADER, $header, true)) {
-            throw new MalformedReferenceFileException(sprintf(
-                'Reference file "%s" has no "%s" column. Columns found: %s.',
-                $path,
-                self::REQUIRED_HEADER,
-                implode(', ', array_filter($header)) ?: 'none',
-            ));
+            throw new MalformedReferenceFileException(\sprintf('Reference file "%s" has no "%s" column. Columns found: %s.', $path, self::REQUIRED_HEADER, implode(', ', array_filter($header)) ?: 'none'));
         }
 
         return $header;
     }
 
     /**
-     * @param list<string>       $header
-     * @param list<string|null>  $cells
+     * @param list<string>      $header
+     * @param list<string|null> $cells
      *
      * @return array<string, string>
      */

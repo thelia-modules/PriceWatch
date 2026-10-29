@@ -9,7 +9,6 @@ use PHPUnit\Framework\TestCase;
 use PriceWatch\Service\Settings\InvalidSettingException;
 use PriceWatch\Service\Settings\JevProvider;
 use PriceWatch\Service\Settings\PriceWatchSettings;
-use PriceWatch\Service\Settings\ReasoningEffort;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Settings\SecretSource;
@@ -43,7 +42,7 @@ final class PriceWatchSettingsTest extends TestCase
     public function testSurroundingWhitespaceFromAPasteIsTrimmed(): void
     {
         $settings = $this->settings();
-        $settings->storeSecret(SecretName::TypesafeApiKey, "  ".self::KEY."\n");
+        $settings->storeSecret(SecretName::TypesafeApiKey, '  '.self::KEY."\n");
 
         self::assertSame(self::KEY, $settings->secret(SecretName::TypesafeApiKey));
     }
@@ -129,71 +128,6 @@ final class PriceWatchSettingsTest extends TestCase
         $settings->setJevProvider(JevProvider::Openrouter);
         self::assertTrue($settings->isJevReady());
         self::assertSame('https://openrouter.ai/api/v1/systemone', $settings->jevProvider()->endpoint());
-    }
-
-    public function testNoModelIsAssumed(): void
-    {
-        $settings = $this->settings();
-        $settings->storeSecret(SecretName::OpenrouterApiKey, self::KEY);
-
-        self::assertNull($settings->llmModel());
-        self::assertFalse($settings->isLlmReady(), 'a key without a chosen model is not ready');
-
-        $settings->setLlmModel('vendor/some-model:online');
-        self::assertTrue($settings->isLlmReady());
-
-        $settings->setLlmModel('');
-        self::assertNull($settings->llmModel());
-    }
-
-    public function testMalformedModelIdIsRefused(): void
-    {
-        $this->expectException(InvalidSettingException::class);
-
-        $this->settings()->setLlmModel('vendor/model; DROP TABLE');
-    }
-
-    public function testReasoningIsOnAndWebSearchIsOnByDefault(): void
-    {
-        $settings = $this->settings();
-
-        self::assertSame(ReasoningEffort::High, $settings->reasoningEffort());
-        self::assertTrue($settings->webSearchEnabled());
-
-        $settings->setReasoningEffort(ReasoningEffort::None);
-        $settings->setWebSearchEnabled(false);
-
-        self::assertSame(ReasoningEffort::None, $settings->reasoningEffort());
-        self::assertFalse($settings->webSearchEnabled());
-    }
-
-    public function testModelListSurvivesARoundTripAndIgnoresGarbage(): void
-    {
-        $settings = $this->settings();
-        $models = [['id' => 'vendor/a', 'name' => 'A', 'reasoning' => true]];
-        $settings->storeModelList($models);
-
-        self::assertSame($models, $settings->modelList());
-
-        $this->store->set('llm_model_list', '{not json');
-        self::assertSame([], $settings->modelList());
-    }
-
-    public function testShopDescriptionIsTrimmedAndCapped(): void
-    {
-        $settings = $this->settings();
-        $settings->setShopDescription("  Équipement moto néo-rétro.  ");
-
-        self::assertSame('Équipement moto néo-rétro.', $settings->shopDescription());
-
-        $settings->setShopDescription('');
-        self::assertNull($settings->shopDescription());
-
-        $settings->setShopDescription(str_repeat('é', 500));
-        self::assertSame(500, mb_strlen((string) $settings->shopDescription()), 'the cap counts characters, not bytes');
-
-        $this->expectException(InvalidSettingException::class);
-        $settings->setShopDescription(str_repeat('a', 501));
     }
 
     public function testDataforseoLoginFromEnvironmentWins(): void

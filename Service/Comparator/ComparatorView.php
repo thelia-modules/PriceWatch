@@ -31,7 +31,7 @@ enum ComparatorView: string
     /**
      * An offer a human has not decided on, doubted only on its price or its
      * size (PRICE_GAP_SUSPECT, PRICE_GAP_IMPLAUSIBLE, VARIANT_UNCLEAR,
-     * REOPENED), keeps last_comparable = 1: listed and counted with the gaps,
+     * GTIN_UNVERIFIED, REOPENED), keeps last_comparable = 1: listed and counted with the gaps,
      * tagged to check (asked 2026-10-13: a doubtful price seen beats a price
      * hidden in the review tab). A doubt on the article sets it to 0.
      */

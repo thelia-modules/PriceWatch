@@ -16,6 +16,9 @@ final class CollectTally
     /** @var array<string, int> seller => offers seen */
     public array $unknownSellers = [];
 
+    /** @var array<string, array{name: string, offers: int}> unknown sellers whose site is identifiable, by registrable domain */
+    public array $sellersToPropose = [];
+
     /** @var array<string, list<string>> our title => first card titles */
     public array $noCard = [];
 

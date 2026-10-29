@@ -15,6 +15,7 @@ use PriceWatch\Model\PwProductIdentityQuery;
 use PriceWatch\Service\Comparator\ComparatorView;
 use PriceWatch\Service\Comparator\PriceChange;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Competitor\SellerProposals;
 use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
 use PriceWatch\Service\Normalizer\IdentityFingerprint;
@@ -85,6 +86,7 @@ final readonly class ShoppingCollector
         ?\Closure $sleep = null,
         ?PriceWatchLog $log = null,
         ?\Closure $now = null,
+        private ?SellerProposals $proposals = null,
     ) {
         $this->sleep = $sleep ?? static function (int $seconds): void {
             sleep($seconds);
@@ -97,7 +99,7 @@ final readonly class ShoppingCollector
      * @param list<string> $productRefs   restrict to these products
      * @param bool         $onePerProduct one variant per product, to sample a catalogue
      *
-     * @return array{run: PwCollectRun, unknownSellers: array<string, int>, noPlausibleCard: array<string, list<string>>} our title => first card titles
+     * @return array{run: PwCollectRun, unknownSellers: array<string, int>, noPlausibleCard: array<string, list<string>>, proposed: list<string>} our title => first card titles
      *
      * @throws DataForSeoException
      */
@@ -129,7 +131,31 @@ final readonly class ShoppingCollector
         $this->close($run, $tally, $tally->errors === [] ? 'success' : 'partial');
         arsort($tally->unknownSellers);
 
-        return ['run' => $run, 'unknownSellers' => $tally->unknownSellers, 'noPlausibleCard' => $tally->noCard];
+        return ['run' => $run, 'unknownSellers' => $tally->unknownSellers, 'noPlausibleCard' => $tally->noCard, 'proposed' => $this->propose($tally)];
+    }
+
+    /**
+     * @return list<string> domains newly proposed as competitors
+     */
+    private function propose(CollectTally $tally): array
+    {
+        if ($this->proposals === null || $tally->sellersToPropose === []) {
+            return [];
+        }
+
+        // The pass is paid for and recorded: a proposal that fails never
+        // takes it down.
+        try {
+            $report = $this->proposals->propose($tally->sellersToPropose);
+        } catch (\Throwable $error) {
+            $this->log->warning('Collect: competitor proposals not recorded: {error}', ['error' => $error->getMessage()]);
+
+            return [];
+        }
+
+        $this->log->info('Collect: {count} competitor proposal(s) from the sellers seen.', ['count' => \count($report->proposed)]);
+
+        return $report->proposed;
     }
 
     private function close(PwCollectRun $run, CollectTally $tally, string $status): void
@@ -325,6 +351,12 @@ final readonly class ShoppingCollector
                             if ($competitorId === null) {
                                 $label = $this->domains->registrableDomain($offer->domain) ?? $offer->sellerName;
                                 $tally->unknownSellers[$label] = ($tally->unknownSellers[$label] ?? 0) + 1;
+                                $proposable = $this->proposals?->domainOf($offer);
+
+                                if ($proposable !== null) {
+                                    $tally->sellersToPropose[$proposable] = ['name' => $offer->sellerName, 'offers' => ($tally->sellersToPropose[$proposable]['offers'] ?? 0) + 1];
+                                }
+
                                 continue;
                             }
 
@@ -366,8 +398,8 @@ final readonly class ShoppingCollector
      * Posts the searches, waits, and keeps for each the first card whose
      * title is plausible against ours.
      *
-     * @param array<array-key, string> $keywordsByTag PHP turns numeric tags into int keys
-     * @param array<array-key, string> $ourTitleByTag
+     * @param array<array-key, string>  $keywordsByTag PHP turns numeric tags into int keys
+     * @param array<array-key, string>  $ourTitleByTag
      * @param array<array-key, ?string> $brandByTag    our brand: alone, it makes no card ours
      *
      * @return array{cards: array<array-key, ShoppingCard>, missed: array<array-key, list<string>>, costUsd: float, tasks: int, errors: array<string, string>, failed: list<string>, created: list<string>} errors keyed by tag; failed: tags whose search was refused or ended in error; created: tags DataForSEO took, and billed
@@ -767,7 +799,7 @@ final readonly class ShoppingCollector
             ->setComparable($comparable ? 1 : 0)
             ->setExclusionReason($comparable ? null : $model->getExclusionReason())
             ->setExtractionMethod('dataforseo_sellers')
-            ->setRawPayloadJson(json_encode(['searched_by' => $searchedBy, 'google_url' => $links['google'], 'card' => (array) $card, 'offer' => (array) $offer],\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
+            ->setRawPayloadJson(json_encode(['searched_by' => $searchedBy, 'google_url' => $links['google'], 'card' => (array) $card, 'offer' => (array) $offer], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES))
             ->setCollectRunId($runId)
             ->save();
 

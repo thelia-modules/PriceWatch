@@ -56,8 +56,7 @@ final readonly class RowValidator
      */
     public function validate(int $lineNumber, array $row, string $rawLine): ReferenceRow|RowRejection
     {
-        $reject = fn (RejectCode $code, ?string $detail = null): RowRejection
-            => new RowRejection($lineNumber, $code, $rawLine, $detail);
+        $reject = static fn (RejectCode $code, ?string $detail = null): RowRejection => new RowRejection($lineNumber, $code, $rawLine, $detail);
 
         if ($this->isBlank($row)) {
             return $reject(RejectCode::EmptyRow);

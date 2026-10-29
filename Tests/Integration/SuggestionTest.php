@@ -21,8 +21,8 @@ use PriceWatch\Service\Normalizer\SizeNormalizer;
 use PriceWatch\Service\Normalizer\TextNormalizer;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
 use PriceWatch\Service\Referential\ProductEnrolment;
-use PriceWatch\Service\Run\BackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\RunPass;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretBox;
 use PriceWatch\Service\Suggestion\SuggestionPresenter;
@@ -31,6 +31,7 @@ use PriceWatch\Service\Suggestion\SuggestionRun;
 use PriceWatch\Service\Suggestion\SuggestionScore;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
 use Symfony\Component\Routing\Generator\UrlGenerator;
@@ -326,8 +327,8 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
         self::assertSame(['products' => 1, 'variants' => 1], $covered);
         self::assertSame(1, PwProductIdentityQuery::create()->filterByProductId($searchable->getId())->filterByMonitored(1)->count(), 'added to the watch');
         self::assertCount(1, $started, 'one pass for the whole selection');
-        self::assertContains('--product='.$searchable->getRef(), $started[0]);
-        self::assertNotContains('--product='.$withoutEan->getRef(), $started[0], 'nothing to search: left out, not failed');
+        self::assertContains($searchable->getRef(), $started[0]->productRefs);
+        self::assertNotContains($withoutEan->getRef(), $started[0]->productRefs, 'nothing to search: left out, not failed');
     }
 
     public function testNothingStartsWhenNothingCanBeSearched(): void
@@ -360,21 +361,12 @@ final class SuggestionTest extends PriceWatchIntegrationTestCase
     // ------------------------------------------------------------------
 
     /**
-     * @param list<list<string>> $started the collect command of each pass started
+     * @param list<RunPass> $started each pass started
      */
     private function suggestionRun(array &$started, ?LockFactory $locks = null): SuggestionRun
     {
-        $runner = new class($started) implements BackgroundRunner {
-            /** @param list<list<string>> $started */
-            public function __construct(private array &$started)
-            {
-            }
-
-            public function start(array $commands, string $logFile): void
-            {
-                $this->started[] = $commands[0];
-            }
-        };
+        $runner = new RecordingBackgroundRunner();
+        $runner->passes = &$started;
         $text = new TextNormalizer();
         $gtin = new GtinNormalizer();
         $enrolment = new ProductEnrolment(

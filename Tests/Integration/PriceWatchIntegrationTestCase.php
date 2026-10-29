@@ -40,14 +40,22 @@ abstract class PriceWatchIntegrationTestCase extends TestCase
 
     private int $sentinelId = 0;
 
-    protected function setUp(): void
+    /**
+     * Booted before the first test, not inside it: booting installs error and
+     * exception handlers, which PHPUnit reports as a risky test when it sees
+     * them appear during one.
+     */
+    public static function setUpBeforeClass(): void
     {
         if (self::$kernel === null) {
             self::$kernel = new Kernel('dev', true);
             self::$kernel->boot();
-            $this->initialiseSingletons();
+            self::initialiseSingletons();
         }
+    }
 
+    protected function setUp(): void
+    {
         $this->connection = Propel::getConnection('TheliaMain');
         $this->connection->beginTransaction();
         // A row that only this transaction knows: if it is still there after
@@ -104,7 +112,7 @@ abstract class PriceWatchIntegrationTestCase extends TestCase
      * singletons, and some model listeners read the request's session
      * unconditionally. Same preparation as Thelia\Test\IntegrationTestCase.
      */
-    private function initialiseSingletons(): void
+    private static function initialiseSingletons(): void
     {
         $container = self::$kernel?->getContainer();
 

@@ -6,12 +6,12 @@ namespace PriceWatch\Service\Run;
 
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Lock\LockFactory;
-use Symfony\Component\Process\PhpExecutableFinder;
 
 /**
  * A direct pass that first searches the sitemaps, a collect pass for what is
  * left, a direct pass for the pages Google led to, then a judge pass, started
- * from the back office.
+ * from the back office. The passes go to a worker through the queue of the
+ * heavy jobs ({@see MessengerBackgroundRunner}).
  *
  * Manual passes use DataForSEO's priority queue: whoever clicked is waiting
  * for an answer within minutes, not within the 45 minutes of the standard
@@ -25,13 +25,6 @@ final readonly class ManualRun
 
     /** DataForSEO standard queue, per task: the scheduled passes, nobody waiting. */
     public const STANDARD_COST_PER_TASK = 0.001;
-
-    /**
-     * Seconds the collect pass waits on each batch of tasks: minutes in the
-     * priority queue, up to the 45 minutes of the standard one.
-     */
-    private const PRIORITY_MAX_WAIT = 600;
-    private const STANDARD_MAX_WAIT = 3000;
 
     /** A title search, a sellers lookup: Google Shopping is never searched by GTIN. */
     public const TASKS_PER_VARIANT = 2;
@@ -57,6 +50,7 @@ final readonly class ManualRun
         #[Autowire('%kernel.project_dir%')]
         private string $projectDir,
         string $startMarker = '',
+        private ?PassRequests $requests = null,
     ) {
         $this->startMarker = $startMarker !== '' ? $startMarker : $projectDir.'/var/pricewatch-manual.started';
     }
@@ -66,8 +60,20 @@ final readonly class ManualRun
         return $variants * self::TASKS_PER_VARIANT * ($priority ? self::PRIORITY_COST_PER_TASK : self::STANDARD_COST_PER_TASK);
     }
 
+    /**
+     * @see BackgroundRunner::runsInline()
+     */
+    public function runsInline(): bool
+    {
+        return $this->runner->runsInline();
+    }
+
     public function isRunning(): bool
     {
+        if ($this->runner->hasPending()) {
+            return true;
+        }
+
         foreach (self::LOCKS as $name) {
             $lock = $this->lockFactory->createLock($name);
 
@@ -92,51 +98,54 @@ final readonly class ManualRun
     }
 
     /**
+     * What the back office calls. With a worker the pass goes to the queue at
+     * once. Without one it would run inside the web request, for minutes:
+     * the request is written down instead, and the next call of the scheduled
+     * task runs it ({@see PassRequests}).
+     *
      * @param list<string> $productRefs only these products' variants;
      *                                  otherwise the ones collected longest ago
      * @param bool         $priority    false for the scheduled passes: the
      *                                  standard queue, half the price, nobody waiting
      *
-     * @throws \RuntimeException when a pass is already running
+     * @throws PassAlreadyRunning
      */
     public function start(int $variants, array $productRefs = [], bool $priority = true): void
     {
+        if ($this->requests !== null && $this->runner->runsInline()) {
+            if ($this->isRunning()) {
+                throw new PassAlreadyRunning();
+            }
+
+            $this->requests->request($variants, $productRefs, $priority);
+
+            return;
+        }
+
+        $this->startNow($variants, $productRefs, $priority);
+    }
+
+    /**
+     * What a console process calls (the scheduled task): the pass runs now,
+     * on the queue with a worker, or inside this process without.
+     *
+     * @param list<string> $productRefs
+     *
+     * @throws PassAlreadyRunning
+     */
+    public function startNow(int $variants, array $productRefs = [], bool $priority = true, ?string $passId = null): void
+    {
         if ($this->isRunning()) {
-            throw new \RuntimeException('A price watch pass is already running.');
+            throw new PassAlreadyRunning();
         }
 
-        $php = (new PhpExecutableFinder())->find(false) ?: 'php';
-
-        // Asked from PHP-FPM, the finder can return the FPM binary itself.
-        if (str_contains(basename($php), 'fpm')) {
-            $php = 'php';
-        }
-        $console = $this->projectDir.'/Thelia';
-        $collect = [
-            $php, $console, 'pricewatch:collect',
-            '--limit='.max(1, $variants),
-            ...($priority ? ['--priority'] : []),
-            '--max-wait='.($priority ? self::PRIORITY_MAX_WAIT : self::STANDARD_MAX_WAIT),
-            '--budget-usd='.number_format(self::worstCaseUsd(max(1, $variants), $priority), 3, '.', ''),
-            '--no-ansi',
-        ];
-
-        // Free first: the sitemaps and the known pages, so Google is only
-        // asked for the products no page covers; then the pages Google led
-        // to, before the judge pass.
-        $sitemaps = [$php, $console, 'pricewatch:direct', '--discover', '--no-ansi'];
-        $direct = [$php, $console, 'pricewatch:direct', '--candidates', '--no-ansi'];
-
-        foreach ($productRefs as $productRef) {
-            $sitemaps[] = '--product='.$productRef;
-            $collect[] = '--product='.$productRef;
-            $direct[] = '--product='.$productRef;
-        }
-
-        $this->runner->start(
-            [$sitemaps, $collect, $direct, [$php, $console, 'pricewatch:judge', '--no-ansi']],
-            $this->projectDir.'/'.($priority ? self::LOG_FILE : self::SCHEDULED_LOG_FILE),
-        );
+        $this->runner->start(new RunPass(
+            $passId ?? bin2hex(random_bytes(8)),
+            $variants,
+            $productRefs,
+            $priority,
+            $priority ? self::LOG_FILE : self::SCHEDULED_LOG_FILE,
+        ));
         touch($this->startMarker);
     }
 }

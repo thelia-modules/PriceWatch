@@ -12,13 +12,13 @@ use PriceWatch\Service\Comparator\ComparatorRepository;
 use PriceWatch\Service\Comparator\DashboardPresenter;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
-use PriceWatch\Service\Run\BackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\RunProgress;
 use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Usage\UsagePresenter;
 use PriceWatch\Service\Usage\UsageRepository;
 use PriceWatch\Service\Watched\WatchedRepository;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
 use Symfony\Component\Routing\Generator\UrlGenerator;
@@ -147,11 +147,7 @@ final class DashboardTest extends PriceWatchIntegrationTestCase
             $routes->add($name, new Route($path));
         }
 
-        $runner = new class implements BackgroundRunner {
-            public function start(array $commands, string $logFile): void
-            {
-            }
-        };
+        $runner = new RecordingBackgroundRunner();
         $ledger = new UsageRepository();
 
         return new DashboardPresenter(

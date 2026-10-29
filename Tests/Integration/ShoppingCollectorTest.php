@@ -9,8 +9,10 @@ use PriceWatch\Model\PwCollectRunQuery;
 use PriceWatch\Model\PwCompetitorOfferQuery;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
+use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
+use PriceWatch\Service\Competitor\SellerProposals;
 use PriceWatch\Service\Direct\DirectCollector;
 use PriceWatch\Service\Normalizer\BrandNormalizer;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
@@ -28,10 +30,13 @@ use PriceWatch\Service\Source\DataForSeoClient;
 use PriceWatch\Service\Source\DataForSeoException;
 use PriceWatch\Service\Source\OurPrice;
 use PriceWatch\Service\Source\PageCoverage;
+use PriceWatch\Service\Source\SellerOffer;
 use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Service\Source\ShownSize;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
+use PriceWatch\Tests\Doubles\FixedDomainResolver;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Propel\Runtime\ActiveQuery\Criteria;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
@@ -104,6 +109,35 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame(0, PwCompetitorOfferQuery::create()->filterByProductSaleElementsId($identity->getProductSaleElementsId())->count());
         self::assertArrayHasKey($this->proposed, $result['unknownSellers']);
         self::assertArrayHasKey('eBay', $result['unknownSellers'], 'without a domain, the seller name is reported');
+    }
+
+    public function testAnUnknownSellerWithASiteIsProposedAsACompetitor(): void
+    {
+        $this->identity('3660600123454');
+        $newShop = 'newshop-'.bin2hex(random_bytes(3)).'.example';
+        $blacklisted = 'banned-'.bin2hex(random_bytes(3)).'.example';
+        (new CompetitorRepository())->create($blacklisted, CompetitorStatus::Rejected, 'manual');
+        $proposals = new SellerProposals(new CompetitorRepository(), new DomainNormalizer(), new TextNormalizer(), new FixedDomainResolver());
+
+        $result = $this->collector($this->answers([$newShop, $blacklisted, $this->proposed]), null, null, null, $proposals)->collect(10, 1, 60, [], true);
+
+        self::assertSame([$newShop], $result['proposed'], 'a listed domain, whatever its list, is never proposed again');
+        $competitor = (new CompetitorRepository())->findByDomain($newShop);
+        self::assertSame([CompetitorStatus::Proposed->value, 'shopping'], [$competitor?->getStatus(), $competitor?->getDiscoverySource()]);
+        self::assertSame(CompetitorStatus::Rejected->value, (new CompetitorRepository())->findByDomain($blacklisted)?->getStatus());
+        self::assertSame(1, \PriceWatch\Model\PwCompetitorQuery::create()->filterByDomain($this->proposed)->count());
+    }
+
+    public function testSellersShownByNameOnlyOrWithoutDnsAreNotProposed(): void
+    {
+        $proposals = new SellerProposals(new CompetitorRepository(), new DomainNormalizer(), new TextNormalizer(), new FixedDomainResolver(['ghost.example']));
+        $named = new SellerOffer(null, 'Darty', 't', null, null, null, null, null, null, null, null, null, null, 1);
+        $written = new SellerOffer(null, 'Carrefour - Carrefour.fr', 't', 'file:///goto?url=https%3A%2F%2Fgoogle.com', null, null, null, null, null, null, null, null, null, 2);
+
+        self::assertNull($proposals->domainOf($named), 'a name is not a domain: guessing would invent shops');
+        self::assertSame('carrefour.fr', $proposals->domainOf($written));
+        self::assertSame(['ghost.example'], $proposals->propose(['ghost.example' => ['name' => 'Ghost', 'offers' => 1]])->unresolved);
+        self::assertNull((new CompetitorRepository())->findByDomain('ghost.example'));
     }
 
     public function testSecondPassTheSameDayDuplicatesNothing(): void
@@ -895,7 +929,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
      *
      * @param array<string, array<string, mixed>> $answers
      */
-    private function collector(array $answers, ?\Closure $sleep = null, ?\Closure $now = null, ?\Closure $onRequest = null): ShoppingCollector
+    private function collector(array $answers, ?\Closure $sleep = null, ?\Closure $now = null, ?\Closure $onRequest = null, ?SellerProposals $proposals = null): ShoppingCollector
     {
         $settings = new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment());
         $settings->setDataforseoLogin('login@example.com');
@@ -930,7 +964,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
         $text = new TextNormalizer();
 
         return new ShoppingCollector(
-            new DataForSeoClient($http, $settings),
+            new DataForSeoClient($http, $settings, new ExternalSpend(new RecordingCostRecorder())),
             new DomainNormalizer(),
             $text,
             new IdentityFingerprint($text, new BrandNormalizer($text), new GtinNormalizer()),
@@ -941,6 +975,7 @@ final class ShoppingCollectorTest extends PriceWatchIntegrationTestCase
             $sleep ?? static function (int $seconds): void {},
             null,
             $now,
+            $proposals,
         );
     }
 

@@ -80,6 +80,20 @@ final class ScheduleSettingsTest extends TestCase
         $settings->setMaxVariants('501');
     }
 
+    public function testTheScheduledTaskIsMissingWhenItHasNotRunForMoreThanTwoHours(): void
+    {
+        $settings = new ScheduleSettings(new InMemoryConfigStore());
+        $now = new \DateTimeImmutable('2026-10-28 12:00:00');
+
+        self::assertTrue($settings->taskIsMissing($now), 'never run');
+
+        $settings->recordTick($now->modify('-2 hours'));
+        self::assertFalse($settings->taskIsMissing($now), 'two hours exactly: an hourly line may be late');
+
+        $settings->recordTick($now->modify('-2 hours -1 second'));
+        self::assertTrue($settings->taskIsMissing($now));
+    }
+
     public function testTheLastPassIsKept(): void
     {
         $settings = new ScheduleSettings(new InMemoryConfigStore());

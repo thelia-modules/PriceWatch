@@ -19,8 +19,8 @@ final readonly class TierProposal
     public const BASE_SHARE = 0.6;
 
     /**
-     * @param list<int>          $productIds the watched products
-     * @param array<int, float>  $revenues   product id => revenue, for those that sold
+     * @param list<int>         $productIds the watched products
+     * @param array<int, float> $revenues   product id => revenue, for those that sold
      *
      * @return array<int, WatchTier> product id => proposed tier
      */

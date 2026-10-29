@@ -21,8 +21,9 @@ use PriceWatch\Service\Comparator\OfferReview;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Referential\CatalogVariantRepository;
-use PriceWatch\Service\Run\BackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Run\RunPass;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use Propel\Runtime\Propel;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
@@ -85,7 +86,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame(['gaps' => 3, 'review' => 1, 'pending' => 1, 'excluded' => 2], $this->repository->counts($filters));
         $gaps = $this->repository->page($filters);
         self::assertSame($cheapest->getId(), $gaps[0]->getId(), 'the most worrying gap first: competitor cheapest');
-        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2));
+        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], \array_slice($this->repository->gapSummary($filters), 0, 2));
     }
 
     /**
@@ -106,7 +107,7 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         $filters = new ComparatorFilters(search: $this->tag);
 
         self::assertSame(['gaps' => 2, 'review' => 1, 'pending' => 0, 'excluded' => 0], $this->repository->counts($filters));
-        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], array_slice($this->repository->gapSummary($filters), 0, 2), 'counted like any other offer');
+        self::assertSame(['weAreCheaper' => 1, 'weAreDearer' => 1], \array_slice($this->repository->gapSummary($filters), 0, 2), 'counted like any other offer');
         $lines = $this->presenter()->present($filters, 'fr_FR')['products'][0]['lines'];
         self::assertSame([true, true], array_column($lines, 'toCheck'), 'tagged: no human decided');
         self::assertSame([(int) $article->getId()], $this->ids(new ComparatorFilters(view: ComparatorView::Review, search: $this->tag)), 'another article maybe: still a human\'s call');
@@ -226,11 +227,10 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame([(int) $oldest->getId(), (int) $recent->getId()], $reading->batch(new ComparatorFilters(search: $this->tag, cheaperOnly: true))['products'], 'the screen filters hold');
 
         self::assertSame(['products' => 2, 'variants' => 2], $reading->start(new ComparatorFilters(search: $this->tag, cheaperOnly: true)));
-        $collect = $started[0][1];
-        self::assertContains('--limit=2', $collect);
-        self::assertContains('--product='.$oldest->getRef(), $collect);
-        self::assertContains('--product='.$recent->getRef(), $collect);
-        self::assertNotContains('--product='.$cheaper->getRef(), $collect);
+        self::assertSame(2, $started[0]->variants);
+        self::assertContains($oldest->getRef(), $started[0]->productRefs);
+        self::assertContains($recent->getRef(), $started[0]->productRefs);
+        self::assertNotContains($cheaper->getRef(), $started[0]->productRefs);
     }
 
     public function testOffersOfCompetitorsOffTheWhitelistAreNeverShown(): void
@@ -271,6 +271,16 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame($offer->getIdentityFingerprint(), $offer->getJudgedFingerprint(), 'a later change of the remote product shows as drift');
         self::assertSame(1, $this->latestQuote($offer)->getComparable(), 'the history says what the screen says');
         self::assertSame(1, $this->repository->counts(new ComparatorFilters())['gaps']);
+    }
+
+    public function testAHumanConfirmationLiftsAGtinMismatch(): void
+    {
+        $offer = $this->offer($this->product('Stormer Gtin'), 'needs_review', comparable: false, deltaPct: '-10.000', exclusion: 'GTIN_MISMATCH');
+
+        (new OfferReview())->confirm($offer, 'emmanuel');
+
+        $offer->reload();
+        self::assertSame(['matched_manual', 1, null], [$offer->getMatchState(), $offer->getLastComparable(), $offer->getExclusionReason()]);
     }
 
     public function testConfirmingTheProductDoesNotMakeAPromotionComparable(): void
@@ -470,7 +480,8 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
         self::assertSame([(int) $helmet->getId()], array_column($review['products'], 'id'), 'one line for the product');
         self::assertCount(2, $review['products'][0]['competitors'], 'both competitors on it');
         self::assertCount(2, $review['products'][0]['lines'], 'each offer in the detail, decided on its own');
-        self::assertSame([(int) $jacket->getId()], array_column($excluded['products'], 'id'));        self::assertSame(1, $review['counts']['review'], 'the tabs count products, not offers: two offers, one product');
+        self::assertSame([(int) $jacket->getId()], array_column($excluded['products'], 'id'));
+        self::assertSame(1, $review['counts']['review'], 'the tabs count products, not offers: two offers, one product');
         self::assertSame(1, array_column($review['tabs'], 'count', 'view')['review']);
         self::assertSame(2, $this->repository->counts(new ComparatorFilters(search: $this->tag))['review'], 'offers are still counted where figures need them');
     }
@@ -541,21 +552,12 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     }
 
     /**
-     * @param list<list<list<string>>> $started the commands of each pass started
+     * @param list<RunPass> $started each pass started
      */
     private function gapsReading(array &$started): GapsReading
     {
-        $runner = new class($started) implements BackgroundRunner {
-            /** @param list<list<list<string>>> $started */
-            public function __construct(private array &$started)
-            {
-            }
-
-            public function start(array $commands, string $logFile): void
-            {
-                $this->started[] = $commands;
-            }
-        };
+        $runner = new RecordingBackgroundRunner();
+        $runner->passes = &$started;
 
         return new GapsReading($this->repository, new CatalogVariantRepository(), new ManualRun($runner, new LockFactory(new InMemoryStore()), '/tmp', sys_get_temp_dir().'/pricewatch-test-'.$this->tag.'.started'));
     }
@@ -656,7 +658,11 @@ final class ComparatorTest extends PriceWatchIntegrationTestCase
     private function pictureOnDisk(): string
     {
         $file = 'pw-test-'.$this->tag.'.jpg';
-        $path = (new ProductImage())->getUploadDir().\DIRECTORY_SEPARATOR.$file;
+        $folder = (new ProductImage())->getUploadDir();
+        if (!is_dir($folder)) {
+            self::assertTrue(mkdir($folder, 0777, true), 'a shop installed without the demo has no image folder yet');
+        }
+        $path = $folder.\DIRECTORY_SEPARATOR.$file;
         $image = imagecreatetruecolor(4, 4);
         self::assertNotFalse($image);
         self::assertTrue(imagejpeg($image, $path));

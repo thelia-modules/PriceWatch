@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace PriceWatch\Command;
 
-use PriceWatch\Service\Source\DataForSeoException;
-use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Service\Direct\PageRepository;
 use PriceWatch\Service\Run\AbandonedRuns;
 use PriceWatch\Service\Run\ManualRun;
+use PriceWatch\Service\Source\DataForSeoException;
+use PriceWatch\Service\Source\ShoppingCollector;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -137,6 +137,11 @@ final class CollectOffersCommand extends Command
                 array_keys(\array_slice($result['unknownSellers'], 0, 15, true)),
                 \array_slice($result['unknownSellers'], 0, 15, true),
             ));
+        }
+
+        if ($result['proposed'] !== []) {
+            $io->section('New competitor proposals (decide in Catalogue > Price watch > Competitors)');
+            $io->listing($result['proposed']);
         }
 
         $errors = json_decode((string) $run->getErrorsJson(), true);

@@ -1,5 +1,5 @@
 {
-    "name": "classicride/price-watch",
+    "name": "thelia/price-watch-module",
     "description": "Competitor price monitoring for Thelia 3, with typed Jev judgments for product and variant identity checks.",
     "type": "thelia-module",
     "license": "LGPL-3.0-or-later",

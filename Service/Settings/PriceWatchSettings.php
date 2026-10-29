@@ -15,19 +15,12 @@ namespace PriceWatch\Service\Settings;
 final readonly class PriceWatchSettings
 {
     private const MAX_SECRET_LENGTH = 512;
-    private const MODEL_PATTERN = '/^[A-Za-z0-9._\/:-]{1,128}$/';
     private const LOGIN_MAX_LENGTH = 190;
 
     private const JEV_PROVIDER = 'jev_provider';
-    private const LLM_MODEL = 'llm_model';
-    private const REASONING_EFFORT = 'llm_reasoning_effort';
-    private const WEB_SEARCH = 'llm_web_search';
-    private const MODEL_LIST = 'llm_model_list';
     private const DATAFORSEO_LOGIN = 'dataforseo_login';
     private const DATAFORSEO_LOGIN_ENV = 'DATAFORSEO_USERNAME';
     private const UPDATED_SUFFIX = '_updated_at';
-    private const SHOP_DESCRIPTION = 'shop_description';
-    private const SHOP_DESCRIPTION_MAX_LENGTH = 500;
     private const EXCLUDED_FAMILIES = 'suggestions_excluded_families';
     private const MINIMUM_MARGIN = 'proposals_minimum_margin_pct';
 
@@ -144,106 +137,6 @@ final readonly class PriceWatchSettings
     }
 
     /**
-     * No default model on purpose: naming one here would hardcode a model id
-     * nobody checked. The page loads the live list from OpenRouter instead.
-     */
-    public function llmModel(): ?string
-    {
-        $model = $this->store->get(self::LLM_MODEL);
-
-        return $model === '' ? null : $model;
-    }
-
-    /**
-     * @throws InvalidSettingException
-     */
-    public function setLlmModel(string $model): void
-    {
-        $model = trim($model);
-
-        if ($model !== '' && preg_match(self::MODEL_PATTERN, $model) !== 1) {
-            throw new InvalidSettingException(self::LLM_MODEL, 'A model id looks like vendor/model-name.');
-        }
-
-        $this->store->set(self::LLM_MODEL, $model);
-    }
-
-    public function reasoningEffort(): ReasoningEffort
-    {
-        // Reasoning on by default: the reflection mode is the reason this
-        // model is configured at all.
-        return ReasoningEffort::tryFrom($this->store->get(self::REASONING_EFFORT)) ?? ReasoningEffort::High;
-    }
-
-    public function setReasoningEffort(ReasoningEffort $effort): void
-    {
-        $this->store->set(self::REASONING_EFFORT, $effort->value);
-    }
-
-    /**
-     * On by default: without it, suggested competitors come from the model's
-     * training data, which is dated and prone to invented domains.
-     */
-    public function webSearchEnabled(): bool
-    {
-        return $this->store->get(self::WEB_SEARCH) !== '0';
-    }
-
-    public function setWebSearchEnabled(bool $enabled): void
-    {
-        $this->store->set(self::WEB_SEARCH, $enabled ? '1' : '0');
-    }
-
-    /**
-     * @return list<array{id: string, name: string, reasoning: bool}>
-     */
-    public function modelList(): array
-    {
-        $json = $this->store->get(self::MODEL_LIST);
-
-        if ($json === '') {
-            return [];
-        }
-
-        $decoded = json_decode($json, true);
-
-        return \is_array($decoded) ? array_values(array_filter($decoded, \is_array(...))) : [];
-    }
-
-    /**
-     * @param list<array{id: string, name: string, reasoning: bool}> $models
-     */
-    public function storeModelList(array $models): void
-    {
-        $this->store->set(self::MODEL_LIST, json_encode(array_values($models), \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
-    }
-
-    /**
-     * A sentence or two the merchant writes about the shop. Given to the
-     * model as context for competitor search; never treated as instructions.
-     */
-    public function shopDescription(): ?string
-    {
-        $description = $this->store->get(self::SHOP_DESCRIPTION);
-
-        return $description === '' ? null : $description;
-    }
-
-    /**
-     * @throws InvalidSettingException
-     */
-    public function setShopDescription(string $description): void
-    {
-        $description = trim($description);
-
-        if (mb_strlen($description) > self::SHOP_DESCRIPTION_MAX_LENGTH) {
-            throw new InvalidSettingException(self::SHOP_DESCRIPTION, \sprintf('The shop description is limited to %d characters.', self::SHOP_DESCRIPTION_MAX_LENGTH));
-        }
-
-        $this->store->set(self::SHOP_DESCRIPTION, $description);
-    }
-
-    /**
      * Top-level categories the suggestions never draw from: what no
      * competitor sells as such (unavailable items, gift cards).
      *
@@ -298,10 +191,5 @@ final readonly class PriceWatchSettings
     public function isJevReady(): bool
     {
         return $this->secret($this->jevProvider()->secret()) !== null;
-    }
-
-    public function isLlmReady(): bool
-    {
-        return $this->secret(SecretName::OpenrouterApiKey) !== null && $this->llmModel() !== null;
     }
 }

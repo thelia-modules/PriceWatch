@@ -99,9 +99,9 @@ final readonly class ReferenceImporter
     }
 
     /**
-     * @param array<string, string>  $columns
-     * @param array<int, int>        $claimedSaleElements
-     * @param list<int>              $seenSaleElements
+     * @param array<string, string> $columns
+     * @param array<int, int>       $claimedSaleElements
+     * @param list<int>             $seenSaleElements
      */
     private function handleLine(
         int $lineNumber,

@@ -6,13 +6,6 @@ declare(strict_types=1);
 // an entry here.
 return [
     'Veille tarifaire' => 'Price watch',
-    'effort.none' => 'No reasoning',
-    'effort.minimal' => 'Minimal',
-    'effort.low' => 'Low',
-    'effort.medium' => 'Medium',
-    'effort.high' => 'High',
-    'effort.xhigh' => 'Very high',
-    'effort.max' => 'Maximum',
 
     // Comparator
     'view.gaps' => 'Gaps',
@@ -61,6 +54,8 @@ return [
     'reason.PRICE_GAP_IMPLAUSIBLE' => 'Implausible price gap, over 70 %',
     'reason.PRODUCT_UNLIKELY' => 'Unlikely product: reliability under 35 %',
     'reason.PRICE_GAP_SUSPECT' => 'Price gap of 25 % or more: same product to check',
+    'reason.GTIN_UNVERIFIED' => 'Same product by the checks, no GTIN to confirm it: to review',
+    'reason.GTIN_MISMATCH' => 'The GTIN of the offer is not ours: to review',
     'reason.CONFIRMED_BY_HUMAN' => 'Confirmed by hand',
     'reason.REJECTED_BY_HUMAN' => 'Excluded by hand',
     'reason.REOPENED' => 'Sent back to review',
@@ -74,6 +69,7 @@ return [
     'exclusion.NOT_JUDGED' => 'Not judged',
     'exclusion.PRICE_GAP_IMPLAUSIBLE' => 'Implausible gap',
     'exclusion.PRICE_GAP_SUSPECT' => 'Suspect gap, to check',
+    'exclusion.GTIN_MISMATCH' => 'GTIN differs, to check',
     'exclusion.unclear' => 'Price unclear',
     'shipping' => 'shipping',
 
@@ -103,6 +99,10 @@ return [
     'usage.period.month' => 'Last 30 days',
     'usage.period.all' => 'Since the start',
     'usage.source.jev' => 'Checks',
+    'pass_request.pending' => 'Request of %at%: waiting (%count% variants)',
+    'pass_request.running' => 'Request of %at%: running (%count% variants)',
+    'pass_request.done' => 'Request of %at%: done',
+    'pass_request.failed' => 'Request of %at%: failed, see var/log/pricewatch-manual.log',
     'usage.source.llm' => 'Reasoning model (competitor suggestions)',
     'usage.source.dataforseo' => 'DataForSEO (Google Shopping)',
     'usage.billing.estimated' => 'Estimated: input tokens × $0.042 per million, output is free',

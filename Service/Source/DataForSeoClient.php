@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace PriceWatch\Service\Source;
 
+use PriceWatch\Service\Ai\ExternalSpend;
+use PriceWatch\Service\Ai\SpendRefusedException;
 use PriceWatch\Service\Settings\PriceWatchSettings;
 use PriceWatch\Service\Settings\SecretName;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Thelia\Domain\Ai\AiAudience;
+use Thelia\Domain\Ai\AiTier;
+use Thelia\Domain\Ai\AsAiUsage;
 
 /**
  * Google Shopping through the DataForSEO Merchant API.
@@ -22,8 +27,19 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * tag => task id map returned by the post methods is therefore the only link
  * between a task and what it was posted for: keep it.
  */
+#[AsAiUsage(
+    id: self::USAGE,
+    purpose: 'Searches Google Shopping through DataForSEO for the competitor offers on the products we watch.',
+    audience: AiAudience::System,
+    tier: AiTier::Fast,
+)]
 final readonly class DataForSeoClient
 {
+    public const USAGE = 'pricewatch.shopping_collection';
+
+    /** List prices per task, 2026-10-08: standard queue, priority queue. */
+    private const MAX_COST_PER_TASK = [1 => 0.001, 2 => 0.002];
+
     public const BASE_URL = 'https://api.dataforseo.com/v3';
     public const SANDBOX_URL = 'https://sandbox.dataforseo.com/v3';
 
@@ -35,6 +51,7 @@ final readonly class DataForSeoClient
     public function __construct(
         private HttpClientInterface $httpClient,
         private PriceWatchSettings $settings,
+        private ExternalSpend $spend,
     ) {
     }
 
@@ -226,8 +243,34 @@ final readonly class DataForSeoClient
         $cost = 0.0;
 
         foreach (array_chunk($tasks, self::MAX_TASKS_PER_POST) as $chunk) {
-            $payload = $this->request('POST', $path, $chunk, $sandbox);
-            $cost += (float) ($payload['cost'] ?? 0);
+            if (!$sandbox) {
+                try {
+                    $this->spend->authorize(self::USAGE, ExternalSpend::DATAFORSEO, self::worstCase($chunk));
+                } catch (SpendRefusedException $refusal) {
+                    throw new DataForSeoException($refusal->getMessage(), 0, $refusal);
+                }
+            }
+
+            $started = hrtime(true);
+
+            try {
+                $payload = $this->request('POST', $path, $chunk, $sandbox);
+            } catch (DataForSeoException $failure) {
+                // Nothing is billed, but the budget reserved for the post is settled.
+                if (!$sandbox) {
+                    $this->spend->fail(self::USAGE, ExternalSpend::DATAFORSEO, ltrim($path, '/'));
+                }
+
+                throw $failure;
+            }
+
+            $billed = (float) ($payload['cost'] ?? 0);
+            $cost += $billed;
+
+            // Billed as soon as posted, whatever the tasks turn out to be worth.
+            if (!$sandbox && $billed > 0.0) {
+                $this->spend->record(self::USAGE, ExternalSpend::DATAFORSEO, ltrim($path, '/'), $billed, null, intdiv(hrtime(true) - $started, 1_000_000));
+            }
 
             foreach ($payload['tasks'] ?? [] as $task) {
                 $tag = $task['data']['tag'] ?? null;
@@ -245,6 +288,19 @@ final readonly class DataForSeoClient
         }
 
         return ['tasks' => $ids, 'costUsd' => $cost, 'refused' => $refused];
+    }
+
+    /**
+     * The most a chunk can cost: every task at the price of its queue.
+     *
+     * @param list<array<string, mixed>> $tasks
+     */
+    private static function worstCase(array $tasks): float
+    {
+        return array_sum(array_map(
+            static fn (array $task): float => self::MAX_COST_PER_TASK[(int) ($task['priority'] ?? 1)] ?? self::MAX_COST_PER_TASK[2],
+            $tasks,
+        ));
     }
 
     /**

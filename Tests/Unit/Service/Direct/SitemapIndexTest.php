@@ -75,7 +75,7 @@ final class SitemapIndexTest extends TestCase
     public function testAnEmptyListSavedWithoutItsReasonIsDownloadedAgain(): void
     {
         $index = $this->index();
-        mkdir($this->directory.'/var/pricewatch/sitemaps', 0775, true);
+        mkdir($this->directory.'/var/pricewatch/sitemaps', 0o775, true);
         file_put_contents($this->directory.'/var/pricewatch/sitemaps/shop.example.txt', '');
 
         $index->urls('shop.example', $this->fetcher(["User-agent: *\nDisallow:", []]));

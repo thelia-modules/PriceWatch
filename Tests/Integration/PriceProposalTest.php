@@ -182,6 +182,16 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         self::assertNull($line['marginProposedPct']);
     }
 
+    public function testWithoutThePurchaseTableThereIsNoFloorAndNothingFails(): void
+    {
+        $product = $this->product('Gants');
+        $this->offer($this->variant($product, null, null), 'matched_exact', '30.00');
+
+        $line = $this->presenter('', 'pw_table_that_does_not_exist')->lines('fr_FR', new \DateTimeImmutable(self::NOW), [(int) $product->getId()])[0];
+
+        self::assertSame(['lower', 30.0, null, null], [$line['kind'], $line['proposedPrice'], $line['purchase'], $line['marginProposedPct']]);
+    }
+
     public function testAPausedVariantIsLeftOut(): void
     {
         $product = $this->product('En pause');
@@ -265,7 +275,16 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         return $this->presenter($minimumMargin)->lines('fr_FR', new \DateTimeImmutable(self::NOW), array_map(static fn (Product $product): int => (int) $product->getId(), $products));
     }
 
-    private function presenter(string $minimumMargin = ''): PriceProposalPresenter
+    private function purchaseTableExists(): bool
+    {
+        $statement = Propel::getConnection('TheliaMain')->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :name');
+        self::assertNotFalse($statement);
+        $statement->execute(['name' => PriceProposalRepository::PURCHASE_TABLE]);
+
+        return (int) $statement->fetchColumn() > 0;
+    }
+
+    private function presenter(string $minimumMargin = '', string $purchaseTable = PriceProposalRepository::PURCHASE_TABLE): PriceProposalPresenter
     {
         $routes = new RouteCollection();
         $routes->add('admin.products.update', new Route('/p'));
@@ -277,7 +296,7 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
         self::assertInstanceOf(EventDispatcherInterface::class, $dispatcher);
 
         return new PriceProposalPresenter(
-            new PriceProposalRepository(),
+            new PriceProposalRepository($purchaseTable),
             new ComparatorRepository(),
             new OurPrice(new TaxCalculatorFactory()),
             $settings,
@@ -319,6 +338,10 @@ final class PriceProposalTest extends PriceWatchIntegrationTestCase
             ->save();
 
         if ($purchase !== null) {
+            if (!$this->purchaseTableExists()) {
+                self::markTestSkipped('This shop has no '.PriceProposalRepository::PURCHASE_TABLE.' table (the purchase tab of another module): the floor and the margin are not testable here.');
+            }
+
             $statement = Propel::getConnection('TheliaMain')->prepare('INSERT INTO '.PriceProposalRepository::PURCHASE_TABLE.' (product_sale_elements_id, purchase) VALUES (:id, :purchase)');
             self::assertNotFalse($statement);
             $statement->execute(['id' => $saleElement->getId(), 'purchase' => $purchase]);

@@ -7,11 +7,11 @@ namespace PriceWatch\Tests\Integration;
 use PriceWatch\Model\PwCompetitor;
 use PriceWatch\Model\PwCompetitorOffer;
 use PriceWatch\Model\PwCompetitorOfferQuery;
-use PriceWatch\Model\PwCompetitorPage;
 use PriceWatch\Model\PwCompetitorQuery;
 use PriceWatch\Model\PwPriceQuoteQuery;
 use PriceWatch\Model\PwProductIdentity;
 use PriceWatch\Model\PwProductIdentityQuery;
+use PriceWatch\Service\Ai\ExternalSpend;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Direct\DirectCollector;
@@ -20,10 +20,10 @@ use PriceWatch\Service\Direct\JsonLdExtractor;
 use PriceWatch\Service\Direct\NuxtStateExtractor;
 use PriceWatch\Service\Direct\PageConfirmation;
 use PriceWatch\Service\Direct\PageReader;
+use PriceWatch\Service\Direct\PageRepository;
 use PriceWatch\Service\Direct\SitemapDiscovery;
 use PriceWatch\Service\Direct\SitemapIndex;
 use PriceWatch\Service\Direct\SitemapMatcher;
-use PriceWatch\Service\Direct\PageRepository;
 use PriceWatch\Service\Jev\CachedJev;
 use PriceWatch\Service\Jev\JevClient;
 use PriceWatch\Service\Jev\OfferQuestions;
@@ -40,6 +40,7 @@ use PriceWatch\Service\Settings\SecretName;
 use PriceWatch\Service\Source\OurPrice;
 use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
 use PriceWatch\Tests\Doubles\InMemoryConfigStore;
+use PriceWatch\Tests\Doubles\RecordingCostRecorder;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Thelia\Domain\Taxation\TaxEngine\TaxCalculatorFactory;
@@ -169,7 +170,8 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
         self::assertSame([PageRepository::CONFIRMED, PageConfirmation::BY], [$page->getStatus(), $page->getConfirmedBy()]);
         self::assertSame(5, $result['run']->getQuotesWritten(), 'read in the same pass');
         $offer = $this->offer($identities['L']);
-        self::assertSame(['matched_judged', PageConfirmation::METHOD, 'SIZE_ON_JEV_CONFIRMED_PAGE', 1], [$offer?->getMatchState(), $offer?->getMatchMethod(), $offer?->getMatchReason(), $offer?->getLastComparable()]);
+        // Jev alone vouches for the page and no GTIN backs it: a human looks, the price still counts.
+        self::assertSame(['needs_review', PageConfirmation::METHOD, 'GTIN_UNVERIFIED', 1], [$offer?->getMatchState(), $offer?->getMatchMethod(), $offer?->getMatchReason(), $offer?->getLastComparable()]);
         $confidence = \PriceWatch\Service\Comparator\MatchConfidence::of($offer->getMatchMethod(), (array) json_decode((string) $offer->getJudgmentJson(), true), $offer->getMatchState());
         self::assertSame([\PriceWatch\Service\Comparator\MatchConfidence::HIGH, 95], [$confidence['level'], $confidence['score']], 'shown as Jev\'s word on the article, never as a proof');
         self::assertSame(1, $result['run']->getJevRequests());
@@ -524,7 +526,7 @@ final class DirectCollectorTest extends PriceWatchIntegrationTestCase
             $this->pages,
             new OurPrice(new TaxCalculatorFactory()),
             new MatchDecision(),
-            new PageConfirmation(new CachedJev(new JevClient($jevHttp, $settings, static function (int $seconds): void {}), $offerState), $offerState, new OfferQuestions()),
+            new PageConfirmation(new CachedJev(new JevClient($jevHttp, $settings, new ExternalSpend(new RecordingCostRecorder()), static function (int $seconds): void {}), $offerState), $offerState, new OfferQuestions()),
             new SitemapDiscovery(new SitemapIndex($this->sitemapDirectory, new DomainNormalizer()), new SitemapMatcher(new TextNormalizer()), $this->pages),
             null,
             static function (int $seconds): void {},

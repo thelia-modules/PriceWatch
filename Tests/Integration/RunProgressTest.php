@@ -7,13 +7,13 @@ namespace PriceWatch\Tests\Integration;
 use PriceWatch\Model\PwCollectRun;
 use PriceWatch\Service\Matching\OfferJudge;
 use PriceWatch\Service\Run\AbandonedRuns;
-use PriceWatch\Service\Run\BackgroundRunner;
 use PriceWatch\Service\Run\ManualRun;
 use PriceWatch\Service\Run\PassStep;
 use PriceWatch\Service\Run\RunProgress;
 use PriceWatch\Service\Run\RunStatus;
 use PriceWatch\Service\Source\ShoppingCollector;
 use PriceWatch\Service\Usage\UsageRepository;
+use PriceWatch\Tests\Doubles\RecordingBackgroundRunner;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\InMemoryStore;
 
@@ -81,6 +81,8 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
         self::assertSame([2, 5], [$progress['position'], $progress['steps']]);
         self::assertSame([1, 3], [$progress['done'], $progress['total']]);
         self::assertSame(26, $progress['percent']);
+        // As stored: MySQL rounds the microseconds the object still holds.
+        $run->reload();
         self::assertSame($run->getStartedAt()?->getTimestamp(), $progress['startedAt']);
     }
 
@@ -205,11 +207,7 @@ final class RunProgressTest extends PriceWatchIntegrationTestCase
 
     private function progress(): RunProgress
     {
-        $runner = new class implements BackgroundRunner {
-            public function start(array $commands, string $logFile): void
-            {
-            }
-        };
+        $runner = new RecordingBackgroundRunner();
 
         return new RunProgress(new ManualRun($runner, $this->locks, '/tmp', $this->marker));
     }

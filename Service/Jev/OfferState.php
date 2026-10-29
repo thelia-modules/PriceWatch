@@ -17,7 +17,7 @@ final readonly class OfferState
     private const SHORT = 60;
 
     /**
-     * @param array{title: string, brand: ?string, size: ?string, variant: ?string, gtin: ?string, price_incl_tax: ?string} $ours
+     * @param array{title: string, brand: ?string, size: ?string, variant: ?string, gtin: ?string, price_incl_tax: ?string}                                                                                                            $ours
      * @param array{title: string, seller: ?string, variant: ?string, description: ?string, price: ?string, list_price: ?string, shipping: ?string, currency: ?string, availability: ?string, condition: ?string, annotation: ?string} $theirs
      *
      * @return array<string, mixed>

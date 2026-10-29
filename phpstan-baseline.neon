@@ -1,0 +1,9 @@
+# The Statistic module is optional: the listener of its best sales table only runs when that
+# module dispatches the event, so its class is absent from a shop without it.
+parameters:
+    ignoreErrors:
+        -
+            identifier: class.notFound
+            message: '#^Parameter \$event of method PriceWatch\\EventListener\\BestSalesWatchColumn::onBestSalesTable\(\) has invalid type Statistic\\Event\\BestSalesTableEvent\.$#'
+            count: 1
+            path: EventListener/BestSalesWatchColumn.php

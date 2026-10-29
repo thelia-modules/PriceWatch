@@ -15,6 +15,7 @@ use PriceWatch\Service\Competitor\CompetitorStatus;
 use PriceWatch\Service\Jev\CachedJev;
 use PriceWatch\Service\Jev\JevAnswer;
 use PriceWatch\Service\Jev\JevException;
+use PriceWatch\Service\Jev\JevSpendRefusedException;
 use PriceWatch\Service\Jev\OfferQuestions;
 use PriceWatch\Service\Jev\OfferState;
 use PriceWatch\Service\Run\PassStep;
@@ -124,6 +125,10 @@ final readonly class OfferJudge
                 } else {
                     try {
                         $asked = $this->jev->ask($this->state($offer, $quote), $this->questions->all());
+                    } catch (JevSpendRefusedException $refusal) {
+                        // The budget or the switch of the usage: every next offer would be refused the same way.
+                        $errors[] = 'Stopped: '.$refusal->getMessage().' Remaining offers left for the next pass.';
+                        break;
                     } catch (JevException $error) {
                         if (\count($errors) < 20) {
                             $errors[] = 'offer '.$offer->getId().': '.$error->getMessage();
@@ -144,8 +149,10 @@ final readonly class OfferJudge
                     }
                 }
 
-                // A price far from ours makes Jev's word not enough.
+                // A price far from ours makes Jev's word not enough, and so does a GTIN that
+                // cannot vouch for it.
                 $verdict = $this->decision->withGap($verdict, (string) $quote->getOurPrice(), $quote->getPrice());
+                $verdict = $this->decision->withGtinCheck($verdict, $this->ourGtin($offer), (int) $offer->getRemoteGtinValid() === 1 ? $offer->getRemoteGtin() : null);
             }
 
             if ($dryRun) {
@@ -211,6 +218,14 @@ final readonly class OfferJudge
             ->limit($limit)
             ->find()
             ->getData();
+    }
+
+    private function ourGtin(PwCompetitorOffer $offer): ?string
+    {
+        $identity = PwProductIdentityQuery::create()->filterByProductSaleElementsId($offer->getProductSaleElementsId())->findOne();
+
+        // A GTIN shared by several variants says nothing about one of them.
+        return $identity !== null && (int) $identity->getGtinValid() === 1 && (int) $identity->getGtinShared() === 0 ? $identity->getGtin() : null;
     }
 
     /**

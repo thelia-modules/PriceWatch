@@ -9,10 +9,6 @@ use PriceWatch\Service\Admin\CompetitorPagePresenter;
 use PriceWatch\Service\Competitor\CompetitorRepository;
 use PriceWatch\Service\Direct\SitemapIndex;
 use PriceWatch\Service\Normalizer\DomainNormalizer;
-use PriceWatch\Service\Settings\PriceWatchSettings;
-use PriceWatch\Service\Settings\SecretBox;
-use PriceWatch\Tests\Doubles\ArrayServerEnvironment;
-use PriceWatch\Tests\Doubles\InMemoryConfigStore;
 
 final class CompetitorPagePresenterTest extends TestCase
 {
@@ -22,7 +18,6 @@ final class CompetitorPagePresenterTest extends TestCase
     {
         $this->presenter = new CompetitorPagePresenter(
             new CompetitorRepository(),
-            new PriceWatchSettings(new InMemoryConfigStore(), new SecretBox('test-secret'), new ArrayServerEnvironment()),
             new SitemapIndex(sys_get_temp_dir().'/pw-presenter-test-'.bin2hex(random_bytes(4)), new DomainNormalizer()),
         );
     }
