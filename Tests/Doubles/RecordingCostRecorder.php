@@ -15,7 +15,7 @@ use Thelia\Domain\Ai\Exception\AiBudgetExceededException;
  */
 final class RecordingCostRecorder implements AiCostRecorderInterface
 {
-    /** @var list<array{usage: string, provider: string, jurisdiction: AiJurisdiction, maximum: string}> */
+    /** @var list<array{usage: string, provider: string, jurisdiction: AiJurisdiction, maximum: string, currency: string}> */
     public array $authorized = [];
 
     /** @var list<AiExternalCost> */
@@ -28,7 +28,7 @@ final class RecordingCostRecorder implements AiCostRecorderInterface
     {
     }
 
-    public function authorize(string $usageId, string $provider, AiJurisdiction $jurisdiction, string $maximumCost = '0'): void
+    public function authorize(string $usageId, string $provider, AiJurisdiction $jurisdiction, string $maximumCost = '0', string $currency = 'USD'): void
     {
         $this->events[] = 'authorize:'.$provider;
 
@@ -36,7 +36,7 @@ final class RecordingCostRecorder implements AiCostRecorderInterface
             throw new AiBudgetExceededException($usageId);
         }
 
-        $this->authorized[] = ['usage' => $usageId, 'provider' => $provider, 'jurisdiction' => $jurisdiction, 'maximum' => $maximumCost];
+        $this->authorized[] = ['usage' => $usageId, 'provider' => $provider, 'jurisdiction' => $jurisdiction, 'maximum' => $maximumCost, 'currency' => $currency];
     }
 
     public function record(AiExternalCost $cost): int
